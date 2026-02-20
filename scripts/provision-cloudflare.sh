@@ -17,6 +17,7 @@
 set -euo pipefail
 
 ENV="${1:-staging}"
+WRANGLER_CMD=(pnpm --filter @caricash/api exec wrangler)
 
 echo "══════════════════════════════════════════════════"
 echo "  Provisioning Cloudflare resources for: ${ENV}"
@@ -39,7 +40,7 @@ provision_d1() {
   echo "→ Checking D1 database: ${db_name}"
 
   # List existing databases and check for our name
-  existing=$(pnpm exec wrangler d1 list --json 2>/dev/null || echo "[]")
+  existing=$("${WRANGLER_CMD[@]}" d1 list --json 2>/dev/null || echo "[]")
   db_id=$(echo "$existing" | node -e "
     const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
     const db = (Array.isArray(data) ? data : []).find(d => d.name === '${db_name}');
@@ -50,8 +51,16 @@ provision_d1() {
     echo "  ✔ D1 database '${db_name}' already exists (id: ${db_id})"
   else
     echo "  → Creating D1 database '${db_name}'..."
-    pnpm exec wrangler d1 create "${db_name}"
-    echo "  ✔ D1 database '${db_name}' created"
+    if output=$("${WRANGLER_CMD[@]}" d1 create "${db_name}" 2>&1); then
+      echo "  ✔ D1 database '${db_name}' created"
+    else
+      if echo "$output" | grep -qi "already exists"; then
+        echo "  ✔ D1 database '${db_name}' already exists (confirmed via create)"
+      else
+        echo "  ✗ Failed to create D1 database '${db_name}': ${output}" >&2
+        exit 1
+      fi
+    fi
   fi
 }
 
@@ -60,7 +69,7 @@ provision_queue() {
   local queue_name="$1"
   echo "→ Checking Queue: ${queue_name}"
 
-  existing=$(pnpm exec wrangler queues list --json 2>/dev/null || echo "[]")
+  existing=$("${WRANGLER_CMD[@]}" queues list --json 2>/dev/null || echo "[]")
   found=$(echo "$existing" | node -e "
     const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
     const q = (Array.isArray(data) ? data : []).find(q => q.queue_name === '${queue_name}' || q.name === '${queue_name}');
@@ -71,7 +80,7 @@ provision_queue() {
     echo "  ✔ Queue '${queue_name}' already exists"
   else
     echo "  → Creating Queue '${queue_name}'..."
-    if output=$(pnpm exec wrangler queues create "${queue_name}" 2>&1); then
+    if output=$("${WRANGLER_CMD[@]}" queues create "${queue_name}" 2>&1); then
       echo "  ✔ Queue '${queue_name}' created"
     else
       if echo "$output" | grep -qi "already exists"; then
@@ -90,7 +99,7 @@ provision_pages() {
   echo "→ Checking Pages project: ${project_name}"
 
   # Try to get project info; if it fails, create it
-  if pnpm exec wrangler pages project list --json 2>/dev/null | node -e "
+  if "${WRANGLER_CMD[@]}" pages project list --json 2>/dev/null | node -e "
     const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
     const p = (Array.isArray(data) ? data : []).find(p => p.name === '${project_name}');
     process.exit(p ? 0 : 1);
@@ -98,7 +107,7 @@ provision_pages() {
     echo "  ✔ Pages project '${project_name}' already exists"
   else
     echo "  → Creating Pages project '${project_name}'..."
-    if output=$(pnpm exec wrangler pages project create "${project_name}" --production-branch=main 2>&1); then
+    if output=$("${WRANGLER_CMD[@]}" pages project create "${project_name}" --production-branch=main 2>&1); then
       echo "  ✔ Pages project '${project_name}' created"
     else
       if echo "$output" | grep -qi "already exists"; then
