@@ -2,6 +2,8 @@ name = "caricash-api"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
+# ---------- shared bindings (used in local dev) ----------
+
 [[d1_databases]]
 binding = "DB"
 database_name = "caricash-db"
@@ -12,9 +14,66 @@ bindings = [
   { name = "POSTING_DO", class_name = "PostingDO", script_name = "caricash-posting-do" }
 ]
 
+[[migrations]]
+tag = "v1"
+new_classes = ["PostingDO"]
+
 [[queues.producers]]
 queue = "caricash-events"
 binding = "EVENTS_QUEUE"
 
 [vars]
+ENVIRONMENT = "development"
 # PIN_PEPPER is a secret — set via `wrangler secret put PIN_PEPPER`
+
+# ======================== STAGING ========================
+[env.staging]
+name = "caricash-api-staging"
+route = { pattern = "api-staging.caricash.app/*", zone_name = "caricash.app" }
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "caricash-db-staging"
+database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"  # Set via: npx wrangler d1 create caricash-db-staging
+migrations_dir = "../../packages/db/migrations"
+
+[env.staging.durable_objects]
+bindings = [
+  { name = "POSTING_DO", class_name = "PostingDO" }
+]
+
+[[env.staging.queues.producers]]
+queue = "caricash-events-staging"
+binding = "EVENTS_QUEUE"
+
+[[env.staging.queues.consumers]]
+queue = "caricash-events-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+
+# ======================== PRODUCTION ========================
+[env.production]
+name = "caricash-api"
+route = { pattern = "api.caricash.app/*", zone_name = "caricash.app" }
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "caricash-db"
+database_id = "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID"  # Set via: npx wrangler d1 create caricash-db
+migrations_dir = "../../packages/db/migrations"
+
+[env.production.durable_objects]
+bindings = [
+  { name = "POSTING_DO", class_name = "PostingDO" }
+]
+
+[[env.production.queues.producers]]
+queue = "caricash-events"
+binding = "EVENTS_QUEUE"
+
+[[env.production.queues.consumers]]
+queue = "caricash-events"
+
+[env.production.vars]
+ENVIRONMENT = "production"
