@@ -1,5 +1,21 @@
 import type { PostTransactionCommand, PostTransactionResult } from '@caricash/shared';
+import { IdempotencyConflictError, ErrorCode } from '@caricash/shared';
 import type { Env } from '../index.js';
+
+/**
+ * Route to the appropriate PostingDO instance.
+ * Domain key = wallet:{owner_type}:{owner_id}:{currency}
+ */
+export function routeToPostingDO(
+  env: Env,
+  ownerType: string,
+  ownerId: string,
+  currency: string,
+): DurableObjectStub {
+  const domainKey = `wallet:${ownerType}:${ownerId}:${currency}`;
+  const id = env.POSTING_DO.idFromName(domainKey);
+  return env.POSTING_DO.get(id);
+}
 
 export async function postTransaction(
   env: Env,
@@ -16,7 +32,10 @@ export async function postTransaction(
   });
 
   if (!response.ok) {
-    const body = (await response.json()) as { error: string; name: string };
+    const body = (await response.json()) as { error: string; code?: string; name: string };
+    if (body.code === ErrorCode.DUPLICATE_IDEMPOTENCY_CONFLICT) {
+      throw new IdempotencyConflictError(body.error);
+    }
     const err = new Error(body.error);
     err.name = body.name;
     throw err;

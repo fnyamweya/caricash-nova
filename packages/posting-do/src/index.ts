@@ -3,6 +3,12 @@
  *
  * Each instance handles a single posting domain: {owner_type, owner_id, currency}.
  * `blockConcurrencyWhile` serializes access to prevent race conditions on balance checks.
+ *
+ * Phase 2 enhancements:
+ * - Strict idempotency with scope_hash + payload_hash conflict detection
+ * - Enhanced receipt format with fees/commissions
+ * - Initiator tracking on journals
+ * - Overdraft facility support
  */
 
 import {
@@ -12,13 +18,23 @@ import {
   parseAmount,
   formatAmount,
   nowISO,
+  computeScopeHash,
+  computePayloadHash,
   TxnState,
   EventName,
+  ErrorCode,
   InsufficientFundsError,
   UnbalancedJournalError,
+  IdempotencyConflictError,
 } from '@caricash/shared';
-import type { PostTransactionCommand, PostTransactionResult, LedgerJournal, LedgerLine, Event } from '@caricash/shared';
-import { getJournalByIdempotencyKey, getBalance, insertLedgerJournal, insertLedgerLine, insertEvent } from '@caricash/db';
+import type { PostTransactionCommand, PostTransactionResult, PostingReceipt, LedgerJournal, LedgerLine, Event, IdempotencyRecord } from '@caricash/shared';
+import {
+  getJournalByIdempotencyKey,
+  getBalance,
+  getIdempotencyRecordByScopeHash,
+  insertIdempotencyRecord,
+  getActiveOverdraftForAccount,
+} from '@caricash/db';
 
 // Re-export journal templates and calculators for consumers
 export { buildDepositEntries, buildWithdrawalEntries, buildP2PEntries, buildPaymentEntries, buildB2BEntries, buildReversalEntries } from './journal-templates.js';
@@ -35,7 +51,9 @@ interface Env {
 
 interface ErrorBody {
   error: string;
+  code: string;
   name: string;
+  correlation_id?: string;
 }
 
 export class PostingDO implements DurableObject {
@@ -57,14 +75,14 @@ export class PostingDO implements DurableObject {
       if (url.pathname === '/balance' && request.method === 'GET') {
         return await this.handleGetBalance(url);
       }
-      return Response.json({ error: 'Not Found' }, { status: 404 });
+      return Response.json({ error: 'Not Found', code: ErrorCode.NOT_FOUND, name: 'NotFoundError' }, { status: 404 });
     } catch (error) {
       return PostingDO.errorResponse(error);
     }
   }
 
   // -------------------------------------------------------------------------
-  // POST /post — atomic double-entry posting
+  // POST /post — atomic double-entry posting with strict idempotency
   // -------------------------------------------------------------------------
 
   private async handlePost(request: Request): Promise<Response> {
@@ -81,22 +99,48 @@ export class PostingDO implements DurableObject {
   private async postTransaction(command: PostTransactionCommand): Promise<PostTransactionResult> {
     const db = this.env.DB;
 
-    // 1. Idempotency — if this key already posted a journal, return cached result
-    const existing = await getJournalByIdempotencyKey(db, command.idempotency_key);
-    if (existing) {
-      return PostingDO.journalToResult(existing, command.entries);
+    // 1. Compute scope_hash and payload_hash for strict idempotency
+    const scopeHash = await computeScopeHash(
+      command.actor_id,
+      command.txn_type,
+      command.idempotency_key,
+    );
+    const payloadHash = await computePayloadHash({
+      entries: command.entries,
+      currency: command.currency,
+      description: command.description,
+    });
+
+    // 2. Check idempotency record by scope_hash
+    const existingIdem = await getIdempotencyRecordByScopeHash(db, scopeHash);
+    if (existingIdem) {
+      // Conflict detection: same scope_hash but different payload
+      if (existingIdem.payload_hash && existingIdem.payload_hash !== payloadHash) {
+        throw new IdempotencyConflictError(
+          `Idempotency key "${command.idempotency_key}" already used with different payload`,
+        );
+      }
+      // Same payload → return stored result
+      const storedResult = JSON.parse(existingIdem.result_json) as PostTransactionResult;
+      return storedResult;
     }
 
-    // 2. Cross-currency guard
+    // 3. Also check by journal idempotency_key (backward compat)
+    const existingJournal = await getJournalByIdempotencyKey(db, command.idempotency_key);
+    if (existingJournal) {
+      return PostingDO.journalToResult(existingJournal, command.entries);
+    }
+
+    // 4. Cross-currency guard
     assertSameCurrency([command.currency]);
 
-    // 3. Double-entry balance check
+    // 5. Double-entry balance check
     assertBalanced(command.entries);
 
-    // 4. Sufficient-funds check for every DR entry
+    // 6. Sufficient-funds check for every DR entry (with overdraft facility support)
     await this.assertSufficientFunds(db, command.entries);
 
-    // 5. Build journal + lines + event
+    // 7. Build journal + lines + event
     const now = nowISO();
     const journalId = generateId();
 
@@ -111,6 +155,7 @@ export class PostingDO implements DurableObject {
       commission_version_id: command.commission_version_id,
       description: command.description,
       created_at: now,
+      initiator_actor_id: command.actor_id,
     };
 
     const lines: LedgerLine[] = command.entries.map((e) => ({
@@ -137,14 +182,34 @@ export class PostingDO implements DurableObject {
       created_at: now,
     };
 
-    // 6. Atomic write — D1 batch guarantees all-or-nothing
+    // Build the result
+    const result: PostTransactionResult = {
+      journal_id: journalId,
+      state: TxnState.POSTED,
+      entries: command.entries,
+      created_at: now,
+    };
+
+    // Build idempotency record
+    const idemRecord: IdempotencyRecord = {
+      id: generateId(),
+      scope: `${command.actor_id}:${command.txn_type}`,
+      idempotency_key: command.idempotency_key,
+      result_json: JSON.stringify(result),
+      created_at: now,
+      expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days
+      payload_hash: payloadHash,
+      scope_hash: scopeHash,
+    };
+
+    // 8. Atomic write — D1 batch guarantees all-or-nothing
     const stmts: D1PreparedStatement[] = [];
 
     stmts.push(
       db
         .prepare(
-          `INSERT INTO ledger_journals (id, txn_type, currency, correlation_id, idempotency_key, state, fee_version_id, commission_version_id, description, created_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+          `INSERT INTO ledger_journals (id, txn_type, currency, correlation_id, idempotency_key, state, fee_version_id, commission_version_id, description, created_at, initiator_actor_id)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
         )
         .bind(
           journal.id,
@@ -157,6 +222,7 @@ export class PostingDO implements DurableObject {
           journal.commission_version_id ?? null,
           journal.description,
           journal.created_at,
+          journal.initiator_actor_id ?? null,
         ),
     );
 
@@ -200,14 +266,28 @@ export class PostingDO implements DurableObject {
         ),
     );
 
+    // Insert idempotency record in same batch
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO idempotency_records (id, scope, idempotency_key, result_json, created_at, expires_at, payload_hash, scope_hash)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+        )
+        .bind(
+          idemRecord.id,
+          idemRecord.scope,
+          idemRecord.idempotency_key,
+          idemRecord.result_json,
+          idemRecord.created_at,
+          idemRecord.expires_at,
+          idemRecord.payload_hash ?? null,
+          idemRecord.scope_hash ?? null,
+        ),
+    );
+
     await db.batch(stmts);
 
-    return {
-      journal_id: journalId,
-      state: TxnState.POSTED,
-      entries: command.entries,
-      created_at: now,
-    };
+    return result;
   }
 
   // -------------------------------------------------------------------------
@@ -217,7 +297,7 @@ export class PostingDO implements DurableObject {
   private async handleGetBalance(url: URL): Promise<Response> {
     const accountId = url.searchParams.get('account_id');
     if (!accountId) {
-      return Response.json({ error: 'account_id query parameter is required' }, { status: 400 });
+      return Response.json({ error: 'account_id query parameter is required', code: ErrorCode.MISSING_REQUIRED_FIELD, name: 'ValidationError' }, { status: 400 });
     }
 
     const balance = await getBalance(this.env.DB, accountId);
@@ -231,6 +311,7 @@ export class PostingDO implements DurableObject {
   /**
    * For each DR entry, verify the account has sufficient balance.
    * Balance = sum(CR) - sum(DR) from existing ledger_lines.
+   * Supports overdraft facilities: if an active overdraft exists, the effective limit is extended.
    */
   private async assertSufficientFunds(
     db: D1Database,
@@ -250,7 +331,18 @@ export class PostingDO implements DurableObject {
       const isNegative = balanceStr.startsWith('-');
       const effectiveBalance = isNegative ? -balanceCents : balanceCents;
 
-      if (effectiveBalance < requiredCents) {
+      // Check for overdraft facility
+      let overdraftLimit = 0n;
+      try {
+        const facility = await getActiveOverdraftForAccount(db, accountId);
+        if (facility) {
+          overdraftLimit = parseAmount(facility.limit_amount);
+        }
+      } catch {
+        // Table may not exist yet (pre-migration); continue without overdraft
+      }
+
+      if (effectiveBalance + overdraftLimit < requiredCents) {
         throw new InsufficientFundsError(
           `Account ${accountId} has balance ${balanceStr} but needs ${formatAmount(requiredCents)}`,
         );
@@ -271,16 +363,40 @@ export class PostingDO implements DurableObject {
   }
 
   private static errorResponse(error: unknown): Response {
+    if (error instanceof IdempotencyConflictError) {
+      return Response.json(
+        { error: error.message, code: ErrorCode.DUPLICATE_IDEMPOTENCY_CONFLICT, name: error.name } satisfies ErrorBody,
+        { status: 409 },
+      );
+    }
     if (error instanceof InsufficientFundsError) {
-      return Response.json({ error: error.message, name: error.name } satisfies ErrorBody, { status: 409 });
+      return Response.json(
+        { error: error.message, code: ErrorCode.INSUFFICIENT_FUNDS, name: error.name } satisfies ErrorBody,
+        { status: 409 },
+      );
     }
     if (error instanceof UnbalancedJournalError) {
-      return Response.json({ error: error.message, name: error.name } satisfies ErrorBody, { status: 422 });
+      return Response.json(
+        { error: error.message, code: ErrorCode.UNBALANCED_JOURNAL, name: error.name } satisfies ErrorBody,
+        { status: 422 },
+      );
+    }
+    if (error instanceof Error && error.message.includes('Cross-currency')) {
+      return Response.json(
+        { error: error.message, code: ErrorCode.CROSS_CURRENCY_NOT_ALLOWED, name: 'CrossCurrencyError' } satisfies ErrorBody,
+        { status: 422 },
+      );
     }
     if (error instanceof Error) {
-      return Response.json({ error: error.message, name: error.name } satisfies ErrorBody, { status: 500 });
+      return Response.json(
+        { error: error.message, code: ErrorCode.INTERNAL_ERROR, name: error.name } satisfies ErrorBody,
+        { status: 500 },
+      );
     }
-    return Response.json({ error: 'Internal Server Error', name: 'Error' } satisfies ErrorBody, { status: 500 });
+    return Response.json(
+      { error: 'Internal Server Error', code: ErrorCode.INTERNAL_ERROR, name: 'Error' } satisfies ErrorBody,
+      { status: 500 },
+    );
   }
 }
 
