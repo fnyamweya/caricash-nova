@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "concurrently -k \"pnpm dev:api\" \"pnpm dev:web\"",
     "dev:api": "cd packages/api && npx wrangler dev",
     "dev:web": "cd packages/web && npx vite",
     "test": "vitest run",
@@ -22,9 +23,18 @@
     "openapi:test": "npx vitest run packages/api/src/__tests__/openapi-coverage.test.ts"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "js-yaml": "^4.1.1",
     "tsx": "^4.21.0",
     "typescript": "^5.7.3",
     "vitest": "^3.1.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
+    "ignoredBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }
