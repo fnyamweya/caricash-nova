@@ -20,6 +20,9 @@ concurrency:
   group: deploy-${{ (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')) && 'production' || 'staging' }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   # ────────────────────────────────────────────────────────────
   # CI gate — runs on every trigger before any deploy
