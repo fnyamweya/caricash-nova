@@ -53,6 +53,10 @@ app.route('/ops', opsStubRoutes);
 // Documentation routes (Swagger UI + OpenAPI spec)
 app.route('', docsRoutes);
 
+app.get('/health', (c) =>
+  c.json({ status: 'ok', service: 'CariCash Nova API', version: '0.2.0', timestamp: new Date().toISOString() }),
+);
+
 app.get('/', (c) => c.json({ service: 'CariCash Nova API', version: '0.2.0' }));
 
 export default app;

@@ -10,3 +10,21 @@ bindings = [
 [[migrations]]
 tag = "v1"
 new_classes = ["PostingDO"]
+
+# ======================== STAGING ========================
+[env.staging]
+name = "caricash-posting-do-staging"
+
+[env.staging.durable_objects]
+bindings = [
+  { name = "POSTING_DO", class_name = "PostingDO" }
+]
+
+# ======================== PRODUCTION ========================
+[env.production]
+name = "caricash-posting-do"
+
+[env.production.durable_objects]
+bindings = [
+  { name = "POSTING_DO", class_name = "PostingDO" }
+]
