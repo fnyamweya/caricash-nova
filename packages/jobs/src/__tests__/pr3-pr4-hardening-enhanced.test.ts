@@ -23,7 +23,13 @@ describe('PR3+4 hardening: hash chain during posting', () => {
     lines: { account_id: string; entry_type: string; amount: string }[],
   ): Promise<string> {
     const sortedLines = [...lines].sort(
-      (a, b) => a.account_id.localeCompare(b.account_id) || a.entry_type.localeCompare(b.entry_type),
+      (a, b) => {
+        if (a.account_id < b.account_id) return -1;
+        if (a.account_id > b.account_id) return 1;
+        if (a.entry_type < b.entry_type) return -1;
+        if (a.entry_type > b.entry_type) return 1;
+        return 0;
+      },
     );
     const hashInput = prevHash + JSON.stringify({
       journal_id: journalId,

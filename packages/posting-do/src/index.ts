@@ -227,7 +227,14 @@ export class PostingDO implements DurableObject {
     // Compute journal hash for integrity chain (G5: deterministic ordering)
     const sortedLineData = lines
       .map(l => ({ account_id: l.account_id, entry_type: l.entry_type, amount: l.amount }))
-      .sort((a, b) => a.account_id.localeCompare(b.account_id) || a.entry_type.localeCompare(b.entry_type));
+      .sort((a, b) => {
+        // Use locale-independent comparison for deterministic hashing (G5)
+        if (a.account_id < b.account_id) return -1;
+        if (a.account_id > b.account_id) return 1;
+        if (a.entry_type < b.entry_type) return -1;
+        if (a.entry_type > b.entry_type) return 1;
+        return 0;
+      });
     const hashInput = [
       prevHash,
       JSON.stringify({
