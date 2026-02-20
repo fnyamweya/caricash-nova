@@ -46,9 +46,6 @@ bindings = [
 queue = "caricash-events-staging"
 binding = "EVENTS_QUEUE"
 
-[[env.staging.queues.consumers]]
-queue = "caricash-events-staging"
-
 [env.staging.vars]
 ENVIRONMENT = "staging"
 
@@ -71,9 +68,6 @@ bindings = [
 [[env.production.queues.producers]]
 queue = "caricash-events"
 binding = "EVENTS_QUEUE"
-
-[[env.production.queues.consumers]]
-queue = "caricash-events"
 
 [env.production.vars]
 ENVIRONMENT = "production"
