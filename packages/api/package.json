@@ -13,6 +13,7 @@
   "dependencies": {
     "@caricash/shared": "*",
     "@caricash/db": "*",
+    "@caricash/posting-do": "*",
     "hono": "^4.7.10"
   },
   "devDependencies": {
