@@ -174,3 +174,44 @@ curl -X POST http://localhost:8787/ops/overdraft/{request_id}/reject \
 2. Review the message body and error in the event payload
 3. Fix the root cause and replay the message
 4. Queue consumers are idempotent — safe to replay
+
+---
+
+## Audit Gate (Release Validation)
+
+### Purpose
+The Phase 2 Audit Gate is a formal release validation that runs all test suites and produces a PASS/FAIL report. It acts as a merge gate — no code should merge to main if the audit gate fails.
+
+### Running the Audit Gate
+```bash
+# Full audit gate with formatted report
+npm run audit-gate
+
+# Or manually:
+npx vitest run --reporter=verbose 2>&1 | node packages/tests/src/audit-gate.mjs
+```
+
+### Categories Checked
+| Category | What It Validates |
+|----------|------------------|
+| Ledger invariants | DR==CR for all journals, amounts > 0, single currency |
+| Idempotency | Same key → same result, conflict detection |
+| Concurrency safety | No double-spend, no negative balances |
+| Replay safety | Queue consumer idempotent under replay storm |
+| Integrity verification | Hash chain valid, tamper detection works |
+| Reconciliation | Mismatch detection, suspense monitoring |
+| Governance enforcement | Maker-checker, staff auth, no direct ledger writes |
+
+### CI Integration
+The audit gate should run on every PR. Exit code 1 means the gate failed and merge should be blocked:
+
+```yaml
+# Example CI step
+- name: Run Audit Gate
+  run: npm run audit-gate
+```
+
+### Interpreting Results
+- **PASS**: All invariant checks passed for that category
+- **FAIL**: One or more tests failed — see verbose output for details
+- **SKIP**: No tests matched that category (may indicate test naming issue)
