@@ -109,8 +109,17 @@ customerRoutes.post('/', async (c) => {
   }
 });
 
-// POST /customers/:id/kyc - initiate KYC
+// POST /customers/:id/kyc/initiate - initiate KYC (canonical path)
+// Also mounted at POST /customers/:id/kyc for backwards compatibility
+customerRoutes.post('/:id/kyc/initiate', async (c) => {
+  // Forward to the handler below
+  return handleKycInitiate(c);
+});
 customerRoutes.post('/:id/kyc', async (c) => {
+  return handleKycInitiate(c);
+});
+
+async function handleKycInitiate(c: any) {
   const actorId = c.req.param('id');
   const body = await c.req.json();
   const correlationId = (body.correlation_id as string) || generateId();
@@ -167,4 +176,4 @@ customerRoutes.post('/:id/kyc', async (c) => {
     const message = err instanceof Error ? err.message : 'Internal server error';
     return c.json({ error: message, correlation_id: correlationId }, 500);
   }
-});
+}

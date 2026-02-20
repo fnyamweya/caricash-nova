@@ -14,9 +14,12 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "tsc --build",
     "audit-gate": "npx vitest run --reporter=verbose 2>&1 | node packages/tests/src/audit-gate.mjs",
-    "stress-harness": "npx tsx packages/tests/src/stressHarness.ts"
+    "stress-harness": "npx tsx packages/tests/src/stressHarness.ts",
+    "openapi:validate": "node -e \"const yaml=require('js-yaml');const fs=require('fs');const spec=yaml.load(fs.readFileSync('packages/api/openapi/openapi.yaml','utf8'));if(!spec.openapi||!spec.paths||!spec.components){process.exit(1)}console.log('OpenAPI spec valid:',Object.keys(spec.paths).length,'paths');\"",
+    "openapi:test": "npx vitest run packages/api/src/__tests__/openapi-coverage.test.ts"
   },
   "devDependencies": {
+    "js-yaml": "^4.1.1",
     "tsx": "^4.21.0",
     "typescript": "^5.7.3",
     "vitest": "^3.1.4"

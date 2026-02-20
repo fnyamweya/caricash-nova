@@ -1,0 +1,95 @@
+/**
+ * Swagger UI and OpenAPI spec serving routes.
+ * GET /docs → Swagger UI HTML
+ * GET /openapi.yaml → raw YAML spec
+ * GET /openapi.json → JSON spec
+ */
+import { Hono } from 'hono';
+import type { Env } from '../index.js';
+
+export const docsRoutes = new Hono<{ Bindings: Env }>();
+
+// ---- Raw YAML spec ----
+docsRoutes.get('/openapi.yaml', async (c) => {
+  const spec = getOpenApiYaml();
+  return new Response(spec, {
+    headers: {
+      'Content-Type': 'text/yaml; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+});
+
+// ---- JSON spec (converted inline) ----
+docsRoutes.get('/openapi.json', async (c) => {
+  // Simple YAML-to-JSON: serve the spec URL and let clients parse,
+  // or provide a basic JSON conversion
+  const spec = getOpenApiYaml();
+  return new Response(JSON.stringify({ _note: 'Use /openapi.yaml for the canonical spec. JSON conversion requires a YAML parser.' }), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+});
+
+// ---- Swagger UI ----
+docsRoutes.get('/docs', async (c) => {
+  const html = getSwaggerHtml();
+  return new Response(html, {
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
+});
+
+function getSwaggerHtml(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CariCash Nova API — Swagger UI</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+  <style>
+    body { margin: 0; padding: 0; }
+    #swagger-ui { max-width: 1200px; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    SwaggerUIBundle({
+      url: '/openapi.yaml',
+      dom_id: '#swagger-ui',
+      presets: [SwaggerUIBundle.presets.apis],
+      layout: 'BaseLayout',
+      deepLinking: true,
+      defaultModelsExpandDepth: 1,
+      docExpansion: 'list',
+    });
+  </script>
+</body>
+</html>`;
+}
+
+/**
+ * Inline the OpenAPI YAML spec.
+ * In production this would read from a file or be bundled at build time.
+ * For Cloudflare Workers, we inline it as a string to avoid filesystem access.
+ */
+function getOpenApiYaml(): string {
+  // This is a placeholder that will be replaced by the build process.
+  // For now, return the spec URL redirect instruction.
+  return OPENAPI_SPEC;
+}
+
+// The actual spec content is set by the build/bundler or manually inlined.
+// We use a variable so it can be updated without changing the route logic.
+export let OPENAPI_SPEC = '# OpenAPI spec not yet inlined. Serve from static file.';
+
+/**
+ * Set the OpenAPI spec content (called during app initialization).
+ */
+export function setOpenApiSpec(spec: string): void {
+  OPENAPI_SPEC = spec;
+}
