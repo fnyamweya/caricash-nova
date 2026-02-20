@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ErrorCode } from '@caricash/shared';
+import { ErrorCode } from '../index.js';
 
 describe('ErrorCode enum', () => {
   it('contains all required ledger error codes', () => {

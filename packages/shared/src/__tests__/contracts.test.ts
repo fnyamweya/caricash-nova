@@ -4,7 +4,7 @@ import {
   errorResponseSchema,
   postingReceiptSchema,
   ActorType,
-} from '@caricash/shared';
+} from '../index.js';
 
 describe('requestEnvelopeSchema', () => {
   const validEnvelope = {

@@ -7,7 +7,7 @@ import {
   buildPaymentEntries,
   buildB2BEntries,
   buildReversalEntries,
-} from '@caricash/posting-do';
+} from '../index.js';
 
 /**
  * Property-based tests verifying invariants across all journal templates.
