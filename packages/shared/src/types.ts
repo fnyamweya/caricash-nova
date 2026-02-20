@@ -36,6 +36,9 @@ export interface LedgerJournal {
   commission_version_id?: string;
   description: string;
   created_at: string;
+  initiator_actor_id?: string;
+  prev_hash?: string;
+  hash?: string;
 }
 
 export interface LedgerLine {
@@ -95,6 +98,8 @@ export interface IdempotencyRecord {
   result_json: string;
   created_at: string;
   expires_at: string;
+  payload_hash?: string;
+  scope_hash?: string;
 }
 
 export interface FeeMatrixVersion {

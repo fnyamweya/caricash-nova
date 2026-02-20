@@ -387,14 +387,24 @@ export async function getIdempotencyRecord(
     .first()) as IdempotencyRecord | null;
 }
 
+export async function getIdempotencyRecordByScopeHash(
+  db: D1Database,
+  scopeHash: string,
+): Promise<IdempotencyRecord | null> {
+  return (await db
+    .prepare('SELECT * FROM idempotency_records WHERE scope_hash = ?1')
+    .bind(scopeHash)
+    .first()) as IdempotencyRecord | null;
+}
+
 export async function insertIdempotencyRecord(
   db: D1Database,
   record: IdempotencyRecord,
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO idempotency_records (id, scope, idempotency_key, result_json, created_at, expires_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      `INSERT INTO idempotency_records (id, scope, idempotency_key, result_json, created_at, expires_at, payload_hash, scope_hash)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
     )
     .bind(
       record.id,
@@ -403,8 +413,201 @@ export async function insertIdempotencyRecord(
       record.result_json,
       record.created_at,
       record.expires_at,
+      record.payload_hash ?? null,
+      record.scope_hash ?? null,
     )
     .run();
+}
+
+// ---------------------------------------------------------------------------
+// Overdraft Facilities
+// ---------------------------------------------------------------------------
+
+export interface OverdraftFacility {
+  id: string;
+  account_id: string;
+  limit_amount: string;
+  currency: string;
+  state: string;
+  maker_staff_id: string;
+  checker_staff_id?: string;
+  approved_at?: string;
+  expires_at?: string;
+  created_at: string;
+}
+
+export async function insertOverdraftFacility(db: D1Database, facility: OverdraftFacility): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO overdraft_facilities (id, account_id, limit_amount, currency, state, maker_staff_id, checker_staff_id, approved_at, expires_at, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+    )
+    .bind(
+      facility.id,
+      facility.account_id,
+      facility.limit_amount,
+      facility.currency,
+      facility.state,
+      facility.maker_staff_id,
+      facility.checker_staff_id ?? null,
+      facility.approved_at ?? null,
+      facility.expires_at ?? null,
+      facility.created_at,
+    )
+    .run();
+}
+
+export async function getOverdraftFacility(db: D1Database, id: string): Promise<OverdraftFacility | null> {
+  return (await db.prepare('SELECT * FROM overdraft_facilities WHERE id = ?1').bind(id).first()) as OverdraftFacility | null;
+}
+
+export async function getActiveOverdraftForAccount(db: D1Database, accountId: string): Promise<OverdraftFacility | null> {
+  return (await db
+    .prepare("SELECT * FROM overdraft_facilities WHERE account_id = ?1 AND state = 'ACTIVE' ORDER BY created_at DESC LIMIT 1")
+    .bind(accountId)
+    .first()) as OverdraftFacility | null;
+}
+
+export async function updateOverdraftFacility(
+  db: D1Database,
+  id: string,
+  state: string,
+  checkerStaffId: string,
+  approvedAt?: string,
+): Promise<void> {
+  await db
+    .prepare('UPDATE overdraft_facilities SET state = ?1, checker_staff_id = ?2, approved_at = ?3 WHERE id = ?4')
+    .bind(state, checkerStaffId, approvedAt ?? null, id)
+    .run();
+}
+
+// ---------------------------------------------------------------------------
+// Wallet Balances (materialized)
+// ---------------------------------------------------------------------------
+
+export interface WalletBalance {
+  account_id: string;
+  balance: string;
+  last_journal_id?: string;
+  updated_at: string;
+}
+
+export async function getWalletBalance(db: D1Database, accountId: string): Promise<WalletBalance | null> {
+  return (await db.prepare('SELECT * FROM wallet_balances WHERE account_id = ?1').bind(accountId).first()) as WalletBalance | null;
+}
+
+export async function upsertWalletBalance(db: D1Database, wb: WalletBalance): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO wallet_balances (account_id, balance, last_journal_id, updated_at)
+       VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT(account_id) DO UPDATE SET balance = ?2, last_journal_id = ?3, updated_at = ?4`,
+    )
+    .bind(wb.account_id, wb.balance, wb.last_journal_id ?? null, wb.updated_at)
+    .run();
+}
+
+// ---------------------------------------------------------------------------
+// Reconciliation Findings
+// ---------------------------------------------------------------------------
+
+export interface ReconciliationFinding {
+  id: string;
+  account_id: string;
+  expected_balance: string;
+  actual_balance: string;
+  discrepancy: string;
+  severity: string;
+  status: string;
+  run_id: string;
+  created_at: string;
+}
+
+export async function insertReconciliationFinding(db: D1Database, finding: ReconciliationFinding): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO reconciliation_findings (id, account_id, expected_balance, actual_balance, discrepancy, severity, status, run_id, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    )
+    .bind(
+      finding.id,
+      finding.account_id,
+      finding.expected_balance,
+      finding.actual_balance,
+      finding.discrepancy,
+      finding.severity,
+      finding.status,
+      finding.run_id,
+      finding.created_at,
+    )
+    .run();
+}
+
+export async function getReconciliationFindings(
+  db: D1Database,
+  status?: string,
+): Promise<ReconciliationFinding[]> {
+  if (status) {
+    const res = await db
+      .prepare('SELECT * FROM reconciliation_findings WHERE status = ?1 ORDER BY created_at DESC')
+      .bind(status)
+      .all();
+    return (res.results ?? []) as ReconciliationFinding[];
+  }
+  const res = await db
+    .prepare('SELECT * FROM reconciliation_findings ORDER BY created_at DESC')
+    .all();
+  return (res.results ?? []) as ReconciliationFinding[];
+}
+
+// ---------------------------------------------------------------------------
+// Ledger — Journals (extended queries)
+// ---------------------------------------------------------------------------
+
+export async function getJournalById(db: D1Database, id: string): Promise<LedgerJournal | null> {
+  return (await db.prepare('SELECT * FROM ledger_journals WHERE id = ?1').bind(id).first()) as LedgerJournal | null;
+}
+
+export async function getJournalLines(db: D1Database, journalId: string): Promise<LedgerLine[]> {
+  const res = await db
+    .prepare('SELECT * FROM ledger_lines WHERE journal_id = ?1 ORDER BY created_at')
+    .bind(journalId)
+    .all();
+  return (res.results ?? []) as LedgerLine[];
+}
+
+export async function getAllAccounts(db: D1Database): Promise<LedgerAccount[]> {
+  const res = await db.prepare('SELECT * FROM ledger_accounts').all();
+  return (res.results ?? []) as LedgerAccount[];
+}
+
+/** Gets all journals in order, optionally filtered by date range */
+export async function getJournalsInRange(
+  db: D1Database,
+  from?: string,
+  to?: string,
+): Promise<LedgerJournal[]> {
+  let query = 'SELECT * FROM ledger_journals';
+  const params: string[] = [];
+  const conditions: string[] = [];
+
+  if (from) {
+    conditions.push(`created_at >= ?${params.length + 1}`);
+    params.push(from);
+  }
+  if (to) {
+    conditions.push(`created_at <= ?${params.length + 1}`);
+    params.push(to);
+  }
+
+  if (conditions.length > 0) {
+    query += ' WHERE ' + conditions.join(' AND ');
+  }
+  query += ' ORDER BY created_at ASC';
+
+  const stmt = db.prepare(query);
+  const res = await (params.length > 0 ? stmt.bind(...params) : stmt).all();
+  return (res.results ?? []) as LedgerJournal[];
 }
 
 // ---------------------------------------------------------------------------
