@@ -11,10 +11,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@caricash/shared": "*",
-    "@caricash/db": "*",
-    "@caricash/posting-do": "*",
-    "@caricash/jobs": "*",
+    "@caricash/shared": "workspace:*",
+    "@caricash/db": "workspace:*",
+    "@caricash/posting-do": "workspace:*",
+    "@caricash/jobs": "workspace:*",
     "hono": "^4.7.10"
   },
   "devDependencies": {

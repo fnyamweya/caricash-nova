@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@caricash/shared": "*"
+    "@caricash/shared": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

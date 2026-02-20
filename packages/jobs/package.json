@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@caricash/shared": "*",
-    "@caricash/db": "*"
+    "@caricash/shared": "workspace:*",
+    "@caricash/db": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

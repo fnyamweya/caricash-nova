@@ -77,7 +77,7 @@ jobs:
     timeout-minutes: 15
     environment:
       name: staging
-      url: https://api-staging.caricash.app/health
+      url: https://api-staging.caricash.com/health
 
     steps:
       - uses: actions/checkout@v4
@@ -131,7 +131,7 @@ jobs:
 
       - name: Smoke tests (staging)
         env:
-          DEPLOY_URL: https://api-staging.caricash.app
+          DEPLOY_URL: https://api-staging.caricash.com
         run: bash scripts/smoke-test.sh
 
   # ────────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ jobs:
     timeout-minutes: 15
     environment:
       name: production
-      url: https://api.caricash.app/health
+      url: https://api.caricash.com/health
 
     steps:
       - uses: actions/checkout@v4
@@ -201,5 +201,5 @@ jobs:
 
       - name: Smoke tests (production)
         env:
-          DEPLOY_URL: https://api.caricash.app
+          DEPLOY_URL: https://api.caricash.com
         run: bash scripts/smoke-test.sh

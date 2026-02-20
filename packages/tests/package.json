@@ -8,8 +8,8 @@
     "audit-gate": "npx vitest run --reporter=verbose 2>&1 | node src/audit-gate.mjs"
   },
   "dependencies": {
-    "@caricash/shared": "*",
-    "@caricash/posting-do": "*",
-    "@caricash/jobs": "*"
+    "@caricash/shared": "workspace:*",
+    "@caricash/posting-do": "workspace:*",
+    "@caricash/jobs": "workspace:*"
   }
 }

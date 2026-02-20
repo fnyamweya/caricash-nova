@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@caricash/shared": "*",
-    "@caricash/db": "*"
+    "@caricash/shared": "workspace:*",
+    "@caricash/db": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250525.0",
