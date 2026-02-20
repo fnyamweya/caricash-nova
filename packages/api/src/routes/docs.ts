@@ -6,6 +6,7 @@
  */
 import { Hono } from 'hono';
 import type { Env } from '../index.js';
+import { FULL_OPENAPI_SPEC } from '../openapi-spec.js';
 
 export const docsRoutes = new Hono<{ Bindings: Env }>();
 
@@ -79,31 +80,8 @@ function getOpenApiYaml(): string {
   return OPENAPI_SPEC;
 }
 
-// The actual spec content can be set by build/bundler or manually inlined.
-// This default must remain a valid OpenAPI document so Swagger UI always renders.
-export let OPENAPI_SPEC = `openapi: 3.1.0
-info:
-  title: CariCash Nova API
-  version: 0.2.0
-  description: |
-    Fallback OpenAPI document served by the Worker.
-    Full spec inlining is not configured in this environment.
-servers:
-  - url: /
-paths:
-  /health:
-    get:
-      summary: Health check
-      responses:
-        '200':
-          description: Service is healthy
-  /docs:
-    get:
-      summary: Swagger UI
-      responses:
-        '200':
-          description: Swagger UI HTML
-`;
+// Full spec is generated from packages/api/openapi/openapi.yaml.
+export let OPENAPI_SPEC = FULL_OPENAPI_SPEC;
 
 /**
  * Set the OpenAPI spec content (called during app initialization).
