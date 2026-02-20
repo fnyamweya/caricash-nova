@@ -47,13 +47,16 @@ function runAuditGate(): void {
   for (const line of lines) {
     const lower = line.toLowerCase();
     const passMatch = lower.includes('✓') || lower.includes('√');
-    const failMatch = (lower.includes('✗') || lower.includes('×') || lower.includes('fail')) && !passMatch;
+    const failMatch = (lower.includes('✗') || lower.includes('×')) && !passMatch;
 
+    let matched = false;
     for (const config of Object.values(categories)) {
+      if (matched) break;
       for (const pattern of config.patterns) {
         if (lower.includes(pattern.toLowerCase())) {
           if (passMatch) config.pass++;
           if (failMatch) config.fail++;
+          matched = true;
           break;
         }
       }

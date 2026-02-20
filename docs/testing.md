@@ -70,7 +70,7 @@ Output:
   ✔ Parallel spend: at most floor(X/amount) succeed: PASS
   ✔ Parallel spend: balance never negative: PASS
   ✔ Parallel spend: no duplicate journal IDs: PASS
-  ✔ Cross-DO: correct number of transfers: PASS
+  ✔ Cross-DO: all transfers succeed (sufficient funds): PASS
   ✔ Cross-DO: balance never negative: PASS
   ✔ Replay storm: all 100 return success: PASS
   ✔ Replay storm: 99 are duplicates: PASS

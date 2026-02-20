@@ -31,15 +31,18 @@ process.stdin.on('end', () => {
   for (const line of lines) {
     const lower = line.toLowerCase();
 
-    // Match vitest test result lines
+    // Match vitest test result lines (use only Unicode markers, not 'fail' word to avoid false positives)
     const passMatch = lower.includes('✓') || lower.includes('√');
-    const failMatch = lower.includes('✗') || lower.includes('×') || lower.includes('fail');
+    const failMatch = (lower.includes('✗') || lower.includes('×')) && !passMatch;
 
+    let matched = false;
     for (const [category, config] of Object.entries(categories)) {
+      if (matched) break;
       for (const pattern of config.patterns) {
         if (lower.includes(pattern.toLowerCase())) {
           if (passMatch) config.pass++;
-          if (failMatch && !passMatch) config.fail++;
+          if (failMatch) config.fail++;
+          matched = true;
           break;
         }
       }
