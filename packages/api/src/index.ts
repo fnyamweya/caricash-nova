@@ -7,6 +7,7 @@ import { merchantRoutes } from './routes/merchants.js';
 import { txRoutes } from './routes/tx.js';
 import { approvalRoutes } from './routes/approvals.js';
 import { walletRoutes } from './routes/wallets.js';
+import { opsRoutes } from './routes/ops.js';
 
 export interface Env {
   DB: D1Database;
@@ -25,8 +26,9 @@ app.route('/merchants', merchantRoutes);
 app.route('/tx', txRoutes);
 app.route('/approvals', approvalRoutes);
 app.route('/wallets', walletRoutes);
+app.route('/ops', opsRoutes);
 
-app.get('/', (c) => c.json({ service: 'CariCash Nova API', version: '0.1.0' }));
+app.get('/', (c) => c.json({ service: 'CariCash Nova API', version: '0.2.0' }));
 
 export default app;
 // Re-export PostingDO for wrangler
