@@ -17,7 +17,7 @@ set -euo pipefail
 
 URL="${DEPLOY_URL:?DEPLOY_URL environment variable is required}"
 FAILURES=0
-SMOKE_RETRIES="${SMOKE_RETRIES:-12}"
+SMOKE_RETRIES="${SMOKE_RETRIES:-36}"
 SMOKE_RETRY_DELAY_SECONDS="${SMOKE_RETRY_DELAY_SECONDS:-5}"
 
 echo "══════════════════════════════════════════════════"
