@@ -106,18 +106,18 @@ jobs:
         working-directory: packages/api
         run: pnpm exec wrangler d1 migrations apply caricash-db-staging --env staging --remote
 
-      - name: Deploy API Worker (staging)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        working-directory: packages/api
-        run: pnpm exec wrangler deploy --env staging
-
       - name: Deploy Posting DO Worker (staging)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         working-directory: packages/posting-do
+        run: pnpm exec wrangler deploy --env staging
+
+      - name: Deploy API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: packages/api
         run: pnpm exec wrangler deploy --env staging
 
       - name: Build frontend
@@ -176,18 +176,18 @@ jobs:
         working-directory: packages/api
         run: pnpm exec wrangler d1 migrations apply caricash-db --env production --remote
 
-      - name: Deploy API Worker (production)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        working-directory: packages/api
-        run: pnpm exec wrangler deploy --env production
-
       - name: Deploy Posting DO Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         working-directory: packages/posting-do
+        run: pnpm exec wrangler deploy --env production
+
+      - name: Deploy API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: packages/api
         run: pnpm exec wrangler deploy --env production
 
       - name: Build frontend
