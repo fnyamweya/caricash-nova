@@ -79,9 +79,31 @@ function getOpenApiYaml(): string {
   return OPENAPI_SPEC;
 }
 
-// The actual spec content is set by the build/bundler or manually inlined.
-// We use a variable so it can be updated without changing the route logic.
-export let OPENAPI_SPEC = '# OpenAPI spec not yet inlined. Serve from static file.';
+// The actual spec content can be set by build/bundler or manually inlined.
+// This default must remain a valid OpenAPI document so Swagger UI always renders.
+export let OPENAPI_SPEC = `openapi: 3.1.0
+info:
+  title: CariCash Nova API
+  version: 0.2.0
+  description: |
+    Fallback OpenAPI document served by the Worker.
+    Full spec inlining is not configured in this environment.
+servers:
+  - url: /
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+  /docs:
+    get:
+      summary: Swagger UI
+      responses:
+        '200':
+          description: Swagger UI HTML
+`;
 
 /**
  * Set the OpenAPI spec content (called during app initialization).
