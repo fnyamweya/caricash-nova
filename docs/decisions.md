@@ -60,6 +60,12 @@ Record of defaults and design choices made during implementation.
 - **Balance corrections**: Always require maker-checker approval
 - **Run tracking**: Each reconciliation run persisted in `reconciliation_runs` table with status (RUNNING/COMPLETED/FAILED)
 - **Findings include**: account_id, expected vs actual balance, discrepancy, severity, currency
+- **Integrity findings**: Hash chain mismatches also produce reconciliation_findings with severity=CRITICAL
+
+## Maker-Checker DB Enforcement
+- **Trigger**: `trg_approval_maker_ne_checker` prevents UPDATE on approval_requests where `maker_staff_id = checker_staff_id`
+- **Application guard**: Also enforced in code before DB write
+- **Rationale**: Defense in depth — both app-level and DB-level enforcement (per G3)
 
 ## Stale State Repair
 - **Timeout threshold**: 5 minutes (DEFAULT_STALE_TIMEOUT_MINUTES)

@@ -247,3 +247,156 @@ export async function repairStaleInProgressRecords(
     errors,
   };
 }
+
+/**
+ * Repair a single journal's missing idempotency record.
+ * Targeted version of repairMissingIdempotencyRecords for ops endpoint use.
+ */
+export async function repairSingleJournalIdempotency(
+  db: D1Database,
+  journalId: string,
+): Promise<{ repaired: boolean; error?: string }> {
+  const correlationId = generateId();
+
+  const journal = await getJournalById(db, journalId);
+  if (!journal) {
+    return { repaired: false, error: 'Journal not found' };
+  }
+
+  if (journal.state !== TxnState.POSTED) {
+    return { repaired: false, error: `Journal state is ${journal.state}, not POSTED` };
+  }
+
+  // Check if idempotency record already exists for this journal
+  const scope = `${journal.initiator_actor_id ?? 'unknown'}:${journal.txn_type}`;
+  const existing = await getIdempotencyRecord(db, scope, journal.idempotency_key);
+  if (existing) {
+    return { repaired: false, error: 'Idempotency record already exists' };
+  }
+
+  try {
+    const scopeHash = await computeScopeHash(
+      'UNKNOWN',
+      journal.initiator_actor_id ?? 'unknown',
+      journal.txn_type,
+      journal.idempotency_key,
+    );
+
+    const linesRes = await db
+      .prepare('SELECT account_id, entry_type, amount, description FROM ledger_lines WHERE journal_id = ?1')
+      .bind(journalId)
+      .all();
+    const lines = (linesRes.results ?? []) as any[];
+
+    const result = {
+      journal_id: journal.id,
+      state: journal.state,
+      entries: lines.map((l: any) => ({
+        account_id: l.account_id,
+        entry_type: l.entry_type,
+        amount: l.amount,
+        description: l.description,
+      })),
+      created_at: journal.created_at,
+    };
+
+    await insertIdempotencyRecord(db, {
+      id: generateId(),
+      scope,
+      idempotency_key: journal.idempotency_key,
+      result_json: JSON.stringify(result),
+      created_at: nowISO(),
+      expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+      scope_hash: scopeHash,
+    });
+
+    await insertEvent(db, {
+      id: generateId(),
+      name: EventName.REPAIR_EXECUTED,
+      entity_type: 'idempotency_record',
+      entity_id: journalId,
+      correlation_id: correlationId,
+      actor_type: 'SYSTEM' as any,
+      actor_id: 'SYSTEM',
+      schema_version: 1,
+      payload_json: JSON.stringify({
+        journal_id: journalId,
+        repair_type: 'MISSING_IDEMPOTENCY_RECORD',
+      }),
+      created_at: nowISO(),
+    });
+
+    return { repaired: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { repaired: false, error: message };
+  }
+}
+
+/**
+ * Repair a single journal's stale IN_PROGRESS idempotency record.
+ * Targeted version of repairStaleInProgressRecords for ops endpoint use.
+ */
+export async function repairSingleJournalState(
+  db: D1Database,
+  journalId: string,
+): Promise<{ repaired: boolean; error?: string }> {
+  const correlationId = generateId();
+
+  const journal = await getJournalById(db, journalId);
+  if (!journal) {
+    return { repaired: false, error: 'Journal not found' };
+  }
+
+  // Find idempotency record by journal's idempotency_key
+  const idemRes = await db
+    .prepare('SELECT * FROM idempotency_records WHERE idempotency_key = ?1')
+    .bind(journal.idempotency_key)
+    .first() as any;
+
+  if (!idemRes) {
+    return { repaired: false, error: 'No idempotency record found for this journal' };
+  }
+
+  // Check if it's actually IN_PROGRESS
+  let storedResult: any;
+  try {
+    storedResult = JSON.parse(idemRes.result_json);
+  } catch {
+    return { repaired: false, error: 'Invalid result_json in idempotency record' };
+  }
+
+  if (!idemRes.result_json.includes('IN_PROGRESS')) {
+    return { repaired: false, error: 'Idempotency record is not IN_PROGRESS' };
+  }
+
+  if (journal.state !== TxnState.POSTED) {
+    return { repaired: false, error: `Journal state is ${journal.state}, not POSTED — cannot mark completed` };
+  }
+
+  // Safe to repair
+  storedResult.state = TxnState.POSTED;
+  storedResult.journal_id = journalId;
+  await updateIdempotencyResult(db, idemRes.id, JSON.stringify(storedResult));
+
+  await insertEvent(db, {
+    id: generateId(),
+    name: EventName.STATE_REPAIRED,
+    entity_type: 'idempotency_record',
+    entity_id: idemRes.id,
+    correlation_id: correlationId,
+    actor_type: 'SYSTEM' as any,
+    actor_id: 'SYSTEM',
+    schema_version: 1,
+    payload_json: JSON.stringify({
+      record_id: idemRes.id,
+      repair_type: 'STALE_IN_PROGRESS',
+      journal_id: journalId,
+      previous_state: 'IN_PROGRESS',
+      new_state: 'COMPLETED',
+    }),
+    created_at: nowISO(),
+  });
+
+  return { repaired: true };
+}

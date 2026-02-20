@@ -18,6 +18,7 @@ import {
   parseAmount,
   formatAmount,
   nowISO,
+  sha256Hex,
   computeScopeHash,
   computePayloadHash,
   TxnState,
@@ -144,6 +145,19 @@ export class PostingDO implements DurableObject {
     const now = nowISO();
     const journalId = generateId();
 
+    // Hash chain: fetch last journal hash for prev_hash linkage
+    let prevHash = '';
+    try {
+      const lastJournal = await db
+        .prepare('SELECT hash FROM ledger_journals WHERE hash IS NOT NULL ORDER BY created_at DESC LIMIT 1')
+        .first() as { hash: string } | null;
+      if (lastJournal?.hash) {
+        prevHash = lastJournal.hash;
+      }
+    } catch {
+      // Pre-migration schema — hash column may not exist yet
+    }
+
     const journal: LedgerJournal = {
       id: journalId,
       txn_type: command.txn_type,
@@ -156,6 +170,7 @@ export class PostingDO implements DurableObject {
       description: command.description,
       created_at: now,
       initiator_actor_id: command.actor_id,
+      prev_hash: prevHash,
     };
 
     const lines: LedgerLine[] = command.entries.map((e) => ({
@@ -209,6 +224,22 @@ export class PostingDO implements DurableObject {
       created_at: now,
     };
 
+    // Compute journal hash for integrity chain (G5: deterministic ordering)
+    const sortedLineData = lines
+      .map(l => ({ account_id: l.account_id, entry_type: l.entry_type, amount: l.amount }))
+      .sort((a, b) => a.account_id.localeCompare(b.account_id) || a.entry_type.localeCompare(b.entry_type));
+    const hashInput = [
+      prevHash,
+      JSON.stringify({
+        journal_id: journal.id,
+        currency: journal.currency,
+        txn_type: journal.txn_type,
+        ledger_lines: sortedLineData,
+      }),
+    ].join('');
+    const journalHash = await sha256Hex(hashInput);
+    journal.hash = journalHash;
+
     // Build the result with receipt-level detail
     const result: PostTransactionResult = {
       journal_id: journalId,
@@ -238,8 +269,8 @@ export class PostingDO implements DurableObject {
     stmts.push(
       db
         .prepare(
-          `INSERT INTO ledger_journals (id, txn_type, currency, correlation_id, idempotency_key, state, fee_version_id, commission_version_id, description, created_at, initiator_actor_id)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+          `INSERT INTO ledger_journals (id, txn_type, currency, correlation_id, idempotency_key, state, fee_version_id, commission_version_id, description, created_at, initiator_actor_id, prev_hash, hash)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
         )
         .bind(
           journal.id,
@@ -253,6 +284,8 @@ export class PostingDO implements DurableObject {
           journal.description,
           journal.created_at,
           journal.initiator_actor_id ?? null,
+          journal.prev_hash ?? null,
+          journal.hash ?? null,
         ),
     );
 

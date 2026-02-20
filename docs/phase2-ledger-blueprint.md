@@ -85,10 +85,24 @@ A SHA-256 hash of the canonical JSON payload is stored alongside the idempotency
 - `UPDATE` and `DELETE` permissions denied at the DB level
 - Only admin/migration users have DDL privileges
 
-## 6. Hash Chain (Optional Feature)
+## 6. Hash Chain (Active on Posting)
 
-When enabled, each journal entry stores:
-- `prev_hash`: hash of the previous journal in the same currency partition
-- `hash`: SHA-256 of the canonical journal content + prev_hash
+Each journal entry stores:
+- `prev_hash`: hash of the previous journal in the chain
+- `hash`: SHA-256 computed during posting in the Durable Object
 
-This provides tamper detection for the journal chain. An integrity verification job can walk the chain and detect any inconsistencies.
+Hash computation formula:
+```
+hash = SHA-256(prev_hash + canonical_json({
+  journal_id,
+  currency,
+  txn_type,
+  ledger_lines: sorted by (account_id, entry_type) with {account_id, entry_type, amount}
+}))
+```
+
+The hash chain is computed and persisted atomically in the same D1 batch as the journal header, lines, events, audit log, and idempotency record.
+
+An integrity verification job can walk the chain and detect any inconsistencies. Hash mismatches are recorded as CRITICAL reconciliation_findings and emit INTEGRITY_CHECK_FAILED events.
+
+**Never auto-fix hash chain breaks** — they may indicate tampering.

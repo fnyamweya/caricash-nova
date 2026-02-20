@@ -75,7 +75,7 @@ curl "http://localhost:8787/ops/ledger/verify?from=2025-01-01&to=2025-01-31" \
 ## Repair Procedures
 
 ### Idempotency Record Backfill
-Safe repair for journals missing idempotency records (e.g., pre-Phase 2 data).
+Safe repair for a specific journal missing its idempotency record (e.g., pre-Phase 2 data).
 
 ```bash
 curl -X POST http://localhost:8787/ops/repair/idempotency/{journal_id} \
@@ -83,12 +83,13 @@ curl -X POST http://localhost:8787/ops/repair/idempotency/{journal_id} \
 ```
 
 **Safety rules:**
+- Targets a specific journal only (not batch repair)
 - Only creates records, never modifies journals (G1)
 - Emits `REPAIR_EXECUTED` event
 - Backfilled records use `UNKNOWN` actor_type (documented limitation)
 
 ### Stale State Repair
-Repairs `IN_PROGRESS` idempotency records older than timeout threshold (default: 5 min).
+Repairs a specific journal's `IN_PROGRESS` idempotency record.
 
 ```bash
 curl -X POST http://localhost:8787/ops/repair/state/{journal_id} \
@@ -96,6 +97,7 @@ curl -X POST http://localhost:8787/ops/repair/state/{journal_id} \
 ```
 
 **Safety rules:**
+- Targets a specific journal only
 - Only marks `IN_PROGRESS` → `COMPLETED` if corresponding journal is `POSTED`
 - Emits `STATE_REPAIRED` event
 - Never modifies ledger entries or amounts (G1)

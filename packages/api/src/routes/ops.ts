@@ -173,9 +173,9 @@ opsRoutes.post('/repair/idempotency/:journal_id', async (c) => {
     return c.json({ error: 'Journal not found', code: ErrorCode.JOURNAL_NOT_FOUND }, 404);
   }
 
-  // Run targeted idempotency repair for this journal
-  const { repairMissingIdempotencyRecords } = await import('@caricash/jobs');
-  const result = await repairMissingIdempotencyRecords(c.env.DB);
+  // Run targeted idempotency repair for this specific journal
+  const { repairSingleJournalIdempotency } = await import('@caricash/jobs');
+  const result = await repairSingleJournalIdempotency(c.env.DB, journalId);
 
   // Audit log
   await insertAuditLog(c.env.DB, {
@@ -185,7 +185,7 @@ opsRoutes.post('/repair/idempotency/:journal_id', async (c) => {
     actor_id: staffId,
     target_type: 'journal',
     target_id: journalId,
-    after_json: JSON.stringify({ records_backfilled: result.records_backfilled }),
+    after_json: JSON.stringify({ repaired: result.repaired }),
     correlation_id: correlationId,
     created_at: nowISO(),
   });
@@ -215,9 +215,9 @@ opsRoutes.post('/repair/state/:journal_id', async (c) => {
     return c.json({ error: 'Journal not found', code: ErrorCode.JOURNAL_NOT_FOUND }, 404);
   }
 
-  // Run stale state repair
-  const { repairStaleInProgressRecords } = await import('@caricash/jobs');
-  const result = await repairStaleInProgressRecords(c.env.DB);
+  // Run targeted state repair for this specific journal's idempotency record
+  const { repairSingleJournalState } = await import('@caricash/jobs');
+  const result = await repairSingleJournalState(c.env.DB, journalId);
 
   // Audit log
   await insertAuditLog(c.env.DB, {
@@ -227,7 +227,7 @@ opsRoutes.post('/repair/state/:journal_id', async (c) => {
     actor_id: staffId,
     target_type: 'journal',
     target_id: journalId,
-    after_json: JSON.stringify({ records_repaired: result.records_repaired }),
+    after_json: JSON.stringify({ repaired: result.repaired }),
     correlation_id: correlationId,
     created_at: nowISO(),
   });

@@ -7,7 +7,7 @@ const MIGRATIONS_DIR = path.resolve(__dirname, '../../../db/migrations');
 describe('D1 migration smoke tests', () => {
   it('migration files exist for all required tables', () => {
     const files = fs.readdirSync(MIGRATIONS_DIR).sort();
-    expect(files.length).toBeGreaterThanOrEqual(10);
+    expect(files.length).toBeGreaterThanOrEqual(11);
 
     // Phase 1 migrations
     expect(files).toContain('0001_create_actors.sql');
@@ -120,5 +120,22 @@ describe('D1 migration smoke tests', () => {
     expect(sql).toContain('request_id');
     expect(sql).toContain('action_type');
     expect(sql).toContain("CHECK(action_type IN ('CREATE','APPROVE','REJECT','REPAIR','VERIFY'))");
+  });
+
+  it('governance hardening migration 0011 exists', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0011_governance_integrity_hardening.sql'), 'utf-8');
+    expect(sql).toContain('trg_approval_maker_ne_checker');
+    expect(sql).toContain('MAKER_CHECKER_VIOLATION');
+    expect(sql).toContain('maker_staff_id = NEW.checker_staff_id');
+  });
+
+  it('governance hardening migration adds resolved column to findings', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0011_governance_integrity_hardening.sql'), 'utf-8');
+    expect(sql).toContain('ALTER TABLE reconciliation_findings ADD COLUMN resolved');
+  });
+
+  it('governance hardening migration adds hash chain index', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0011_governance_integrity_hardening.sql'), 'utf-8');
+    expect(sql).toContain('idx_ledger_journals_created_asc');
   });
 });

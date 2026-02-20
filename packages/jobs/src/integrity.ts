@@ -6,7 +6,7 @@
  * This provides tamper detection for the journal chain.
  */
 import { sha256Hex, nowISO, generateId, EventName } from '@caricash/shared';
-import { getJournalsInRange, insertEvent } from '@caricash/db';
+import { getJournalsInRange, insertEvent, insertReconciliationFinding } from '@caricash/db';
 import type { LedgerJournal } from '@caricash/shared';
 
 type D1Database = any;
@@ -63,6 +63,25 @@ export async function verifyJournalIntegrity(
     const expectedHash = await computeJournalHash(journal, journal.prev_hash ?? '');
     if (expectedHash !== journal.hash) {
       brokenAt = journal.id;
+
+      // Write reconciliation finding for tampered journal (G6: emit events for integrity failures)
+      try {
+        await insertReconciliationFinding(db, {
+          id: generateId(),
+          account_id: journal.id,
+          expected_balance: expectedHash,
+          actual_balance: journal.hash,
+          discrepancy: 'HASH_MISMATCH',
+          severity: 'CRITICAL',
+          status: 'OPEN',
+          run_id: correlationId,
+          created_at: nowISO(),
+          currency: journal.currency,
+        });
+      } catch {
+        // Best-effort — don't fail verification if finding insert fails
+      }
+
       break;
     }
 
