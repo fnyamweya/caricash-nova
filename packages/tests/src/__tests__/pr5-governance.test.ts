@@ -129,7 +129,7 @@ describe('PR5 governance: no direct ledger writes', () => {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory() && entry.name !== '__tests__' && entry.name !== 'node_modules') {
+      if (entry.isDirectory() && entry.name !== '__tests__' && entry.name !== 'node_modules' && entry.name !== 'dist' && entry.name !== '.git') {
         files.push(...collectTsFiles(fullPath));
       } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) && !entry.name.endsWith('.test.ts')) {
         files.push(fullPath);
