@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 // ---- Load and parse OpenAPI spec ----
-const specPath = path.resolve(__dirname, '../../../api/openapi/openapi.yaml');
+const specPath = path.resolve(__dirname, '../../openapi/openapi.yaml');
 const specContent = fs.readFileSync(specPath, 'utf-8');
 
 /**
@@ -57,89 +57,10 @@ function extractSpecEndpoints(yaml: string): Array<{ method: string; path: strin
 }
 
 /**
- * Extract registered routes from the API source files.
- * Parses the route registration patterns in the codebase.
- */
-function extractCodeRoutes(): Array<{ method: string; path: string }> {
-  const routes: Array<{ method: string; path: string }> = [];
-  const apiSrcDir = path.resolve(__dirname, '../../../api/src');
-
-  // Read main index.ts to find route mountings
-  const indexContent = fs.readFileSync(path.join(apiSrcDir, 'index.ts'), 'utf-8');
-
-  // Parse route mountings: app.route('/prefix', routeHandler);
-  const mountings: Array<{ prefix: string; file: string }> = [];
-  const routeRegex = /app\.route\(['"]([^'"]*)['"]\s*,\s*(\w+)/g;
-  let match;
-  while ((match = routeRegex.exec(indexContent)) !== null) {
-    mountings.push({ prefix: match[1], file: match[2] });
-  }
-
-  // Parse app.get/app.post at root level
-  const rootGetRegex = /app\.(get|post|put|patch|delete)\(['"]([^'"]+)['"]/g;
-  while ((match = rootGetRegex.exec(indexContent)) !== null) {
-    routes.push({ method: match[1].toUpperCase(), path: match[2] });
-  }
-
-  // Parse each route file
-  const routesDir = path.join(apiSrcDir, 'routes');
-  const routeFiles = fs.readdirSync(routesDir).filter(f => f.endsWith('.ts'));
-
-  for (const file of routeFiles) {
-    const content = fs.readFileSync(path.join(routesDir, file), 'utf-8');
-
-    // Find what prefix this router is mounted under
-    // Match the exported const name
-    const exportMatch = content.match(/export\s+const\s+(\w+)\s*=/);
-    if (!exportMatch) continue;
-
-    const routerName = exportMatch[0];
-
-    // Determine prefix from index.ts mounting
-    let prefix = '';
-    for (const m of mountings) {
-      if (indexContent.includes(`${m.file}`) && content.includes(m.file.replace('Routes', 'Routes'))) {
-        // Try matching by import name
-      }
-    }
-
-    // Just use a simple approach: find the variable name and match it to the mounting
-    const varName = exportMatch[1];
-    for (const m of mountings) {
-      // Check if index imports this variable and mounts it
-      if (indexContent.includes(varName) && indexContent.includes(`app.route('${m.prefix}', ${varName})`)) {
-        prefix = m.prefix;
-        break;
-      }
-    }
-
-    // Parse route handlers: routerVar.get('/path', ...) or routerVar.post('/path', ...)
-    const handlerRegex = /\w+\.(get|post|put|patch|delete)\(['"]([^'"]+)['"]/g;
-    while ((match = handlerRegex.exec(content)) !== null) {
-      const method = match[1].toUpperCase();
-      const routePath = match[2];
-      // Skip non-route calls like prepare, bind etc
-      if (routePath.includes('SELECT') || routePath.includes('INSERT') || routePath.includes('UPDATE')) continue;
-      const fullPath = prefix + routePath.replace(/\/$/, '') || prefix;
-      routes.push({ method, path: fullPath });
-    }
-  }
-
-  return routes;
-}
-
-/**
  * Normalize OpenAPI path params to Express-style: {id} → :id
  */
 function normalizeSpecPath(specPath: string): string {
   return specPath.replace(/\{(\w+)\}/g, ':$1');
-}
-
-/**
- * Normalize code path params to OpenAPI-style: :id → {id}
- */
-function normalizeCodePath(codePath: string): string {
-  return codePath.replace(/:(\w+)/g, '{$1}');
 }
 
 // ---- Tests ----
@@ -337,7 +258,7 @@ describe('Spec-to-Route Coverage', () => {
 
   // All spec endpoints should have code handlers
   // We verify by checking that the route file for each endpoint exists
-  const apiSrcDir = path.resolve(__dirname, '../../../api/src');
+  const apiSrcDir = path.resolve(__dirname, '..');
   const routesDir = path.join(apiSrcDir, 'routes');
   const allRouteContent = fs.readdirSync(routesDir)
     .filter(f => f.endsWith('.ts'))

@@ -22,15 +22,11 @@ docsRoutes.get('/openapi.yaml', async (c) => {
 
 // ---- JSON spec (converted inline) ----
 docsRoutes.get('/openapi.json', async (c) => {
-  // Simple YAML-to-JSON: serve the spec URL and let clients parse,
-  // or provide a basic JSON conversion
-  const spec = getOpenApiYaml();
-  return new Response(JSON.stringify({ _note: 'Use /openapi.yaml for the canonical spec. JSON conversion requires a YAML parser.' }), {
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-    },
-  });
+  return c.json({
+    error: 'Not yet implemented',
+    code: 'NOT_IMPLEMENTED',
+    message: 'JSON conversion not available. Use GET /openapi.yaml for the canonical OpenAPI spec.',
+  }, 501);
 });
 
 // ---- Swagger UI ----
