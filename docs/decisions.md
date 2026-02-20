@@ -58,15 +58,26 @@ Record of defaults and design choices made during implementation.
 - **Suspense aging threshold**: 72 hours
 - **Auto-repair scope**: Only safe backfills (e.g., missing idempotency records for existing journals)
 - **Balance corrections**: Always require maker-checker approval
+- **Run tracking**: Each reconciliation run persisted in `reconciliation_runs` table with status (RUNNING/COMPLETED/FAILED)
+- **Findings include**: account_id, expected vs actual balance, discrepancy, severity, currency
+
+## Stale State Repair
+- **Timeout threshold**: 5 minutes (DEFAULT_STALE_TIMEOUT_MINUTES)
+- **Scope**: Only IN_PROGRESS idempotency records older than threshold
+- **Action**: Mark as COMPLETED only if corresponding journal exists and is POSTED
+- **Guarantee**: Never modifies ledger entries or amounts; emits STATE_REPAIRED event
 
 ## Maker-Checker Policy
 - **Enforced for**: Reversals, manual adjustments, fee matrix changes, commission matrix changes, overdraft facility requests
 - **Rule**: maker_staff_id must differ from checker_staff_id
 - **Enforcement**: Both application-level and DB-level (CHECK constraint where possible)
+- **Audit**: Before/after state logged for all approval actions
 
 ## Queue Processing
 - **Delivery guarantee**: At-least-once
-- **Consumer idempotency**: All queue consumers check for existing processed state before acting
+- **Consumer idempotency**: All queue consumers use message_id as dedupe key; check events table for QUEUE_MESSAGE_PROCESSED
+- **In-memory dedupe**: processedMessages Set prevents duplicate processing within a single consumer run
+- **Error handling**: CONSUMER_ERROR event emitted on handler failure with message body summary
 - **Dead letter**: Failed messages logged as events; manual intervention via ops endpoints
 
 ## Request Envelope Standard

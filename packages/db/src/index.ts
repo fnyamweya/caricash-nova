@@ -419,6 +419,32 @@ export async function insertIdempotencyRecord(
     .run();
 }
 
+/** Find IN_PROGRESS idempotency records older than a given cutoff. */
+export async function getStaleInProgressRecords(
+  db: D1Database,
+  cutoffIso: string,
+): Promise<IdempotencyRecord[]> {
+  const res = await db
+    .prepare(
+      `SELECT * FROM idempotency_records WHERE result_json LIKE '%IN_PROGRESS%' AND created_at < ?1 ORDER BY created_at ASC`,
+    )
+    .bind(cutoffIso)
+    .all();
+  return (res.results ?? []) as IdempotencyRecord[];
+}
+
+/** Update idempotency record result_json (for repair completion). */
+export async function updateIdempotencyResult(
+  db: D1Database,
+  id: string,
+  resultJson: string,
+): Promise<void> {
+  await db
+    .prepare(`UPDATE idempotency_records SET result_json = ?1 WHERE id = ?2`)
+    .bind(resultJson, id)
+    .run();
+}
+
 // ---------------------------------------------------------------------------
 // Overdraft Facilities
 // ---------------------------------------------------------------------------
@@ -521,13 +547,14 @@ export interface ReconciliationFinding {
   status: string;
   run_id: string;
   created_at: string;
+  currency?: string;
 }
 
 export async function insertReconciliationFinding(db: D1Database, finding: ReconciliationFinding): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO reconciliation_findings (id, account_id, expected_balance, actual_balance, discrepancy, severity, status, run_id, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+      `INSERT INTO reconciliation_findings (id, account_id, expected_balance, actual_balance, discrepancy, severity, status, run_id, created_at, currency)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
     )
     .bind(
       finding.id,
@@ -539,6 +566,7 @@ export async function insertReconciliationFinding(db: D1Database, finding: Recon
       finding.status,
       finding.run_id,
       finding.created_at,
+      finding.currency ?? 'BBD',
     )
     .run();
 }
@@ -558,6 +586,71 @@ export async function getReconciliationFindings(
     .prepare('SELECT * FROM reconciliation_findings ORDER BY created_at DESC')
     .all();
   return (res.results ?? []) as ReconciliationFinding[];
+}
+
+// ---------------------------------------------------------------------------
+// Reconciliation Runs
+// ---------------------------------------------------------------------------
+
+export interface ReconciliationRun {
+  id: string;
+  started_at: string;
+  finished_at?: string;
+  status: 'RUNNING' | 'COMPLETED' | 'FAILED';
+  accounts_checked?: number;
+  mismatches_found?: number;
+  summary_json?: string;
+  triggered_by?: string;
+  correlation_id?: string;
+}
+
+export async function insertReconciliationRun(db: D1Database, run: ReconciliationRun): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO reconciliation_runs (id, started_at, finished_at, status, accounts_checked, mismatches_found, summary_json, triggered_by, correlation_id)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    )
+    .bind(
+      run.id,
+      run.started_at,
+      run.finished_at ?? null,
+      run.status,
+      run.accounts_checked ?? 0,
+      run.mismatches_found ?? 0,
+      run.summary_json ?? null,
+      run.triggered_by ?? null,
+      run.correlation_id ?? null,
+    )
+    .run();
+}
+
+export async function updateReconciliationRun(
+  db: D1Database,
+  id: string,
+  status: 'COMPLETED' | 'FAILED',
+  finishedAt: string,
+  accountsChecked: number,
+  mismatchesFound: number,
+  summaryJson?: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE reconciliation_runs SET status = ?1, finished_at = ?2, accounts_checked = ?3, mismatches_found = ?4, summary_json = ?5 WHERE id = ?6`,
+    )
+    .bind(status, finishedAt, accountsChecked, mismatchesFound, summaryJson ?? null, id)
+    .run();
+}
+
+export async function getReconciliationRuns(db: D1Database, limit: number = 50): Promise<ReconciliationRun[]> {
+  const res = await db
+    .prepare('SELECT * FROM reconciliation_runs ORDER BY started_at DESC LIMIT ?1')
+    .bind(limit)
+    .all();
+  return (res.results ?? []) as ReconciliationRun[];
+}
+
+export async function getReconciliationRunById(db: D1Database, id: string): Promise<ReconciliationRun | null> {
+  return (await db.prepare('SELECT * FROM reconciliation_runs WHERE id = ?1').bind(id).first()) as ReconciliationRun | null;
 }
 
 // ---------------------------------------------------------------------------

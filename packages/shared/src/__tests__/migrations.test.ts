@@ -7,7 +7,7 @@ const MIGRATIONS_DIR = path.resolve(__dirname, '../../../db/migrations');
 describe('D1 migration smoke tests', () => {
   it('migration files exist for all required tables', () => {
     const files = fs.readdirSync(MIGRATIONS_DIR).sort();
-    expect(files.length).toBeGreaterThanOrEqual(9);
+    expect(files.length).toBeGreaterThanOrEqual(10);
 
     // Phase 1 migrations
     expect(files).toContain('0001_create_actors.sql');
@@ -19,8 +19,9 @@ describe('D1 migration smoke tests', () => {
     expect(files).toContain('0007_create_events.sql');
     expect(files).toContain('0008_create_idempotency.sql');
 
-    // Phase 2 migration
+    // Phase 2 migrations
     expect(files).toContain('0009_phase2_schema_hardening.sql');
+    expect(files).toContain('0010_reconciliation_runs.sql');
   });
 
   it('ledger_journals migration contains required columns', () => {
@@ -96,5 +97,28 @@ describe('D1 migration smoke tests', () => {
   it('accounts have unique constraint on owner+type+currency', () => {
     const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0003_create_ledger.sql'), 'utf-8');
     expect(sql).toContain('idx_ledger_accounts_owner_currency_type');
+  });
+
+  it('PR3+PR4 migration creates reconciliation_runs table', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0010_reconciliation_runs.sql'), 'utf-8');
+    expect(sql).toContain('reconciliation_runs');
+    expect(sql).toContain('started_at');
+    expect(sql).toContain('finished_at');
+    expect(sql).toContain('status');
+    expect(sql).toContain("CHECK(status IN ('RUNNING','COMPLETED','FAILED'))");
+    expect(sql).toContain('summary_json');
+    expect(sql).toContain('triggered_by');
+  });
+
+  it('PR3+PR4 migration adds currency to reconciliation_findings', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0010_reconciliation_runs.sql'), 'utf-8');
+    expect(sql).toContain('ALTER TABLE reconciliation_findings ADD COLUMN currency');
+  });
+
+  it('PR3+PR4 migration adds audit_log governance columns', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0010_reconciliation_runs.sql'), 'utf-8');
+    expect(sql).toContain('request_id');
+    expect(sql).toContain('action_type');
+    expect(sql).toContain("CHECK(action_type IN ('CREATE','APPROVE','REJECT','REPAIR','VERIFY'))");
   });
 });

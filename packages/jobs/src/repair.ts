@@ -1,6 +1,7 @@
 /**
  * Repair job — backfills missing idempotency records for existing journals.
- * This is a safe repair: it only creates records, never modifies journals.
+ * Also repairs incomplete (IN_PROGRESS) state machine entries.
+ * This is a safe repair: it only creates/updates idempotency records, never modifies journals.
  */
 import {
   generateId,
@@ -12,7 +13,10 @@ import {
 import {
   getIdempotencyRecord,
   insertIdempotencyRecord,
+  getStaleInProgressRecords,
+  updateIdempotencyResult,
   insertEvent,
+  getJournalById,
 } from '@caricash/db';
 
 type D1Database = any;
@@ -20,6 +24,12 @@ type D1Database = any;
 export interface RepairResult {
   journals_checked: number;
   records_backfilled: number;
+  errors: string[];
+}
+
+export interface StateRepairResult {
+  records_checked: number;
+  records_repaired: number;
   errors: string[];
 }
 
@@ -91,7 +101,7 @@ export async function repairMissingIdempotencyRecords(db: D1Database): Promise<R
 
         recordsBackfilled++;
 
-        // Emit repair event
+        // Emit repair event — mark as REPAIRED in audit log
         await insertEvent(db, {
           id: generateId(),
           name: EventName.REPAIR_EXECUTED,
@@ -117,6 +127,122 @@ export async function repairMissingIdempotencyRecords(db: D1Database): Promise<R
   return {
     journals_checked: journalsChecked,
     records_backfilled: recordsBackfilled,
+    errors,
+  };
+}
+
+/**
+ * Repairs IN_PROGRESS idempotency records that are older than a timeout threshold.
+ * If the corresponding journal exists with state POSTED, marks the idempotency record as COMPLETED.
+ * NEVER modifies ledger entries or amounts.
+ */
+const DEFAULT_STALE_TIMEOUT_MINUTES = 5;
+
+export async function repairStaleInProgressRecords(
+  db: D1Database,
+  timeoutMinutes: number = DEFAULT_STALE_TIMEOUT_MINUTES,
+): Promise<StateRepairResult> {
+  const correlationId = generateId();
+  let recordsChecked = 0;
+  let recordsRepaired = 0;
+  const errors: string[] = [];
+
+  const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString();
+
+  let staleRecords: any[];
+  try {
+    staleRecords = await getStaleInProgressRecords(db, cutoff);
+  } catch {
+    // Table may not have the right columns yet
+    return { records_checked: 0, records_repaired: 0, errors: ['Could not query stale records'] };
+  }
+
+  for (const record of staleRecords) {
+    recordsChecked++;
+
+    try {
+      // Parse the stored result to find the journal_id
+      let storedResult: any;
+      try {
+        storedResult = JSON.parse(record.result_json);
+      } catch {
+        errors.push(`Record ${record.id}: invalid result_json`);
+        continue;
+      }
+
+      const journalId = storedResult?.journal_id;
+      if (!journalId) {
+        // No journal_id in stored result — check by idempotency_key
+        const journalRes = await db
+          .prepare('SELECT id, state FROM ledger_journals WHERE idempotency_key = ?1')
+          .bind(record.idempotency_key)
+          .first();
+
+        if (journalRes && journalRes.state === TxnState.POSTED) {
+          // Journal exists and is POSTED — safe to mark COMPLETED
+          storedResult.journal_id = journalRes.id;
+          storedResult.state = TxnState.POSTED;
+          await updateIdempotencyResult(db, record.id, JSON.stringify(storedResult));
+          recordsRepaired++;
+
+          await insertEvent(db, {
+            id: generateId(),
+            name: EventName.STATE_REPAIRED,
+            entity_type: 'idempotency_record',
+            entity_id: record.id,
+            correlation_id: correlationId,
+            actor_type: 'SYSTEM' as any,
+            actor_id: 'SYSTEM',
+            schema_version: 1,
+            payload_json: JSON.stringify({
+              record_id: record.id,
+              repair_type: 'STALE_IN_PROGRESS',
+              journal_id: journalRes.id,
+              previous_state: 'IN_PROGRESS',
+              new_state: 'COMPLETED',
+            }),
+            created_at: nowISO(),
+          });
+        }
+        continue;
+      }
+
+      // Verify the journal exists and is POSTED
+      const journal = await getJournalById(db, journalId);
+      if (journal && journal.state === TxnState.POSTED) {
+        // Safe to mark as COMPLETED
+        storedResult.state = TxnState.POSTED;
+        await updateIdempotencyResult(db, record.id, JSON.stringify(storedResult));
+        recordsRepaired++;
+
+        await insertEvent(db, {
+          id: generateId(),
+          name: EventName.STATE_REPAIRED,
+          entity_type: 'idempotency_record',
+          entity_id: record.id,
+          correlation_id: correlationId,
+          actor_type: 'SYSTEM' as any,
+          actor_id: 'SYSTEM',
+          schema_version: 1,
+          payload_json: JSON.stringify({
+            record_id: record.id,
+            repair_type: 'STALE_IN_PROGRESS',
+            journal_id: journalId,
+            previous_state: 'IN_PROGRESS',
+            new_state: 'COMPLETED',
+          }),
+          created_at: nowISO(),
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push(`Record ${record.id}: ${message}`);
+    }
+  }
+
+  return {
+    records_checked: recordsChecked,
+    records_repaired: recordsRepaired,
     errors,
   };
 }

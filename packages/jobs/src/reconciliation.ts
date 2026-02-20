@@ -2,6 +2,7 @@
  * Reconciliation job — recomputes balances from ledger_lines
  * and compares against wallet_balances materialized table.
  * Writes discrepancies to reconciliation_findings.
+ * Tracks each run in reconciliation_runs table.
  */
 import {
   generateId,
@@ -16,9 +17,11 @@ import {
   getBalance,
   getWalletBalance,
   insertReconciliationFinding,
+  insertReconciliationRun,
+  updateReconciliationRun,
   insertEvent,
 } from '@caricash/db';
-import type { ReconciliationFinding } from '@caricash/db';
+import type { ReconciliationFinding, ReconciliationRun } from '@caricash/db';
 
 // D1Database typed as any for portability
 type D1Database = any;
@@ -30,12 +33,28 @@ export interface ReconciliationResult {
   findings: ReconciliationFinding[];
   started_at: string;
   completed_at: string;
+  status: 'COMPLETED' | 'FAILED';
 }
 
-export async function runReconciliation(db: D1Database): Promise<ReconciliationResult> {
+export async function runReconciliation(db: D1Database, triggeredBy?: string): Promise<ReconciliationResult> {
   const runId = generateId();
   const startedAt = nowISO();
   const findings: ReconciliationFinding[] = [];
+
+  // Insert reconciliation run record
+  const run: ReconciliationRun = {
+    id: runId,
+    started_at: startedAt,
+    status: 'RUNNING',
+    triggered_by: triggeredBy,
+    correlation_id: runId,
+  };
+
+  try {
+    await insertReconciliationRun(db, run);
+  } catch {
+    // Table may not exist in older schema — continue gracefully
+  }
 
   // Emit start event
   await insertEvent(db, {
@@ -51,69 +70,52 @@ export async function runReconciliation(db: D1Database): Promise<ReconciliationR
     created_at: startedAt,
   });
 
-  // Get all accounts
-  const accounts = await getAllAccounts(db);
+  let status: 'COMPLETED' | 'FAILED' = 'COMPLETED';
 
-  for (const account of accounts) {
-    // Recompute balance from ledger_lines
-    const computedBalance = await getBalance(db, account.id);
+  try {
+    // Get all accounts
+    const accounts = await getAllAccounts(db);
 
-    // Get materialized balance (if exists)
-    const materialized = await getWalletBalance(db, account.id);
-    if (!materialized) {
-      // No materialized balance — skip (not yet populated)
-      continue;
-    }
+    for (const account of accounts) {
+      // Recompute balance from ledger_lines
+      const computedBalance = await getBalance(db, account.id);
 
-    // Compare
-    const computedCents = parseAmountSafe(computedBalance);
-    const materializedCents = parseAmountSafe(materialized.balance);
+      // Get materialized balance (if exists)
+      const materialized = await getWalletBalance(db, account.id);
+      if (!materialized) {
+        // No materialized balance — skip (not yet populated)
+        continue;
+      }
 
-    if (computedCents !== materializedCents) {
-      const discrepancyCents = computedCents - materializedCents;
-      const discrepancy = formatAmount(discrepancyCents < 0n ? -discrepancyCents : discrepancyCents);
-      const severity = classifySeverity(discrepancyCents);
+      // Compare
+      const computedCents = parseAmountSafe(computedBalance);
+      const materializedCents = parseAmountSafe(materialized.balance);
 
-      const finding: ReconciliationFinding = {
-        id: generateId(),
-        account_id: account.id,
-        expected_balance: computedBalance,
-        actual_balance: materialized.balance,
-        discrepancy,
-        severity,
-        status: 'OPEN',
-        run_id: runId,
-        created_at: nowISO(),
-      };
+      if (computedCents !== materializedCents) {
+        const discrepancyCents = computedCents - materializedCents;
+        const discrepancy = formatAmount(discrepancyCents < 0n ? -discrepancyCents : discrepancyCents);
+        const severity = classifySeverity(discrepancyCents);
 
-      findings.push(finding);
-      await insertReconciliationFinding(db, finding);
-
-      // Emit mismatch event
-      await insertEvent(db, {
-        id: generateId(),
-        name: EventName.RECONCILIATION_MISMATCH_FOUND,
-        entity_type: 'reconciliation_finding',
-        entity_id: finding.id,
-        correlation_id: runId,
-        actor_type: 'SYSTEM' as any,
-        actor_id: 'SYSTEM',
-        schema_version: 1,
-        payload_json: JSON.stringify({
+        const finding: ReconciliationFinding = {
+          id: generateId(),
           account_id: account.id,
-          expected: computedBalance,
-          actual: materialized.balance,
+          expected_balance: computedBalance,
+          actual_balance: materialized.balance,
           discrepancy,
           severity,
-        }),
-        created_at: nowISO(),
-      });
+          status: 'OPEN',
+          run_id: runId,
+          created_at: nowISO(),
+          currency: account.currency ?? 'BBD',
+        };
 
-      // Emit alert for severe discrepancies
-      if (severity === 'HIGH' || severity === 'CRITICAL') {
+        findings.push(finding);
+        await insertReconciliationFinding(db, finding);
+
+        // Emit mismatch event
         await insertEvent(db, {
           id: generateId(),
-          name: EventName.ALERT_RAISED,
+          name: EventName.RECONCILIATION_MISMATCH_FOUND,
           entity_type: 'reconciliation_finding',
           entity_id: finding.id,
           correlation_id: runId,
@@ -121,45 +123,94 @@ export async function runReconciliation(db: D1Database): Promise<ReconciliationR
           actor_id: 'SYSTEM',
           schema_version: 1,
           payload_json: JSON.stringify({
-            alert_type: 'RECONCILIATION_MISMATCH',
             account_id: account.id,
+            expected: computedBalance,
+            actual: materialized.balance,
             discrepancy,
             severity,
           }),
           created_at: nowISO(),
         });
+
+        // Emit alert for severe discrepancies — do NOT auto-correct
+        if (severity === 'HIGH' || severity === 'CRITICAL') {
+          await insertEvent(db, {
+            id: generateId(),
+            name: EventName.ALERT_RAISED,
+            entity_type: 'reconciliation_finding',
+            entity_id: finding.id,
+            correlation_id: runId,
+            actor_type: 'SYSTEM' as any,
+            actor_id: 'SYSTEM',
+            schema_version: 1,
+            payload_json: JSON.stringify({
+              alert_type: 'RECONCILIATION_MISMATCH',
+              account_id: account.id,
+              discrepancy,
+              severity,
+            }),
+            created_at: nowISO(),
+          });
+        }
       }
     }
-  }
 
-  const completedAt = nowISO();
+    const completedAt = nowISO();
 
-  // Emit completion event
-  await insertEvent(db, {
-    id: generateId(),
-    name: EventName.RECONCILIATION_COMPLETED,
-    entity_type: 'reconciliation',
-    entity_id: runId,
-    correlation_id: runId,
-    actor_type: 'SYSTEM' as any,
-    actor_id: 'SYSTEM',
-    schema_version: 1,
-    payload_json: JSON.stringify({
+    // Update run record
+    try {
+      await updateReconciliationRun(db, runId, 'COMPLETED', completedAt, accounts.length, findings.length, JSON.stringify({ findings_ids: findings.map(f => f.id) }));
+    } catch {
+      // Table may not exist — continue
+    }
+
+    // Emit completion event
+    await insertEvent(db, {
+      id: generateId(),
+      name: EventName.RECONCILIATION_COMPLETED,
+      entity_type: 'reconciliation',
+      entity_id: runId,
+      correlation_id: runId,
+      actor_type: 'SYSTEM' as any,
+      actor_id: 'SYSTEM',
+      schema_version: 1,
+      payload_json: JSON.stringify({
+        run_id: runId,
+        accounts_checked: accounts.length,
+        mismatches_found: findings.length,
+      }),
+      created_at: completedAt,
+    });
+
+    return {
       run_id: runId,
       accounts_checked: accounts.length,
       mismatches_found: findings.length,
-    }),
-    created_at: completedAt,
-  });
+      findings,
+      started_at: startedAt,
+      completed_at: completedAt,
+      status: 'COMPLETED',
+    };
+  } catch (err) {
+    status = 'FAILED';
+    const completedAt = nowISO();
 
-  return {
-    run_id: runId,
-    accounts_checked: accounts.length,
-    mismatches_found: findings.length,
-    findings,
-    started_at: startedAt,
-    completed_at: completedAt,
-  };
+    try {
+      await updateReconciliationRun(db, runId, 'FAILED', completedAt, 0, 0, JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    } catch {
+      // Table may not exist — continue
+    }
+
+    return {
+      run_id: runId,
+      accounts_checked: 0,
+      mismatches_found: 0,
+      findings: [],
+      started_at: startedAt,
+      completed_at: completedAt,
+      status: 'FAILED',
+    };
+  }
 }
 
 function parseAmountSafe(s: string): bigint {

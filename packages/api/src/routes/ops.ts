@@ -1,6 +1,6 @@
 /**
  * Ops routes — staff-only operational endpoints.
- * Provides ledger inspection, reconciliation, and overdraft management.
+ * Provides ledger inspection, reconciliation, repair, and overdraft management.
  */
 import { Hono } from 'hono';
 import type { Env } from '../index.js';
@@ -24,6 +24,7 @@ import {
   insertOverdraftFacility,
   updateOverdraftFacility,
   getReconciliationFindings,
+  getReconciliationRuns,
   insertEvent,
   insertAuditLog,
   getActorByStaffCode,
@@ -83,6 +84,7 @@ opsRoutes.get('/ledger/verify', async (c) => {
   const result = await verifyJournalIntegrity(c.env.DB, from, to);
 
   // Audit log
+  const correlationId = generateId();
   await insertAuditLog(c.env.DB, {
     id: generateId(),
     action: 'LEDGER_INTEGRITY_CHECK',
@@ -90,7 +92,7 @@ opsRoutes.get('/ledger/verify', async (c) => {
     actor_id: staffId,
     target_type: 'ledger',
     target_id: 'all',
-    correlation_id: generateId(),
+    correlation_id: correlationId,
     created_at: nowISO(),
   });
 
@@ -107,7 +109,7 @@ opsRoutes.post('/reconciliation/run', async (c) => {
   }
 
   const { runReconciliation } = await import('@caricash/jobs');
-  const result = await runReconciliation(c.env.DB);
+  const result = await runReconciliation(c.env.DB, staffId);
 
   // Audit log
   await insertAuditLog(c.env.DB, {
@@ -137,6 +139,104 @@ opsRoutes.get('/reconciliation/findings', async (c) => {
   const findings = await getReconciliationFindings(c.env.DB, status);
 
   return c.json({ findings, count: findings.length });
+});
+
+// ---------------------------------------------------------------------------
+// GET /ops/reconciliation/runs
+// ---------------------------------------------------------------------------
+opsRoutes.get('/reconciliation/runs', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) {
+    return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  }
+
+  const runs = await getReconciliationRuns(c.env.DB);
+
+  return c.json({ runs, count: runs.length });
+});
+
+// ---------------------------------------------------------------------------
+// POST /ops/repair/idempotency/:journal_id
+// ---------------------------------------------------------------------------
+opsRoutes.post('/repair/idempotency/:journal_id', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) {
+    return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  }
+
+  const journalId = c.req.param('journal_id');
+  const correlationId = generateId();
+
+  // Verify journal exists
+  const journal = await getJournalById(c.env.DB, journalId);
+  if (!journal) {
+    return c.json({ error: 'Journal not found', code: ErrorCode.JOURNAL_NOT_FOUND }, 404);
+  }
+
+  // Run targeted idempotency repair for this journal
+  const { repairMissingIdempotencyRecords } = await import('@caricash/jobs');
+  const result = await repairMissingIdempotencyRecords(c.env.DB);
+
+  // Audit log
+  await insertAuditLog(c.env.DB, {
+    id: generateId(),
+    action: 'REPAIR_IDEMPOTENCY',
+    actor_type: ActorType.STAFF,
+    actor_id: staffId,
+    target_type: 'journal',
+    target_id: journalId,
+    after_json: JSON.stringify({ records_backfilled: result.records_backfilled }),
+    correlation_id: correlationId,
+    created_at: nowISO(),
+  });
+
+  return c.json({
+    journal_id: journalId,
+    ...result,
+    correlation_id: correlationId,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /ops/repair/state/:journal_id
+// ---------------------------------------------------------------------------
+opsRoutes.post('/repair/state/:journal_id', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) {
+    return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  }
+
+  const journalId = c.req.param('journal_id');
+  const correlationId = generateId();
+
+  // Verify journal exists
+  const journal = await getJournalById(c.env.DB, journalId);
+  if (!journal) {
+    return c.json({ error: 'Journal not found', code: ErrorCode.JOURNAL_NOT_FOUND }, 404);
+  }
+
+  // Run stale state repair
+  const { repairStaleInProgressRecords } = await import('@caricash/jobs');
+  const result = await repairStaleInProgressRecords(c.env.DB);
+
+  // Audit log
+  await insertAuditLog(c.env.DB, {
+    id: generateId(),
+    action: 'REPAIR_STATE',
+    actor_type: ActorType.STAFF,
+    actor_id: staffId,
+    target_type: 'journal',
+    target_id: journalId,
+    after_json: JSON.stringify({ records_repaired: result.records_repaired }),
+    correlation_id: correlationId,
+    created_at: nowISO(),
+  });
+
+  return c.json({
+    journal_id: journalId,
+    ...result,
+    correlation_id: correlationId,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -225,7 +325,7 @@ opsRoutes.post('/overdraft/:id/approve', async (c) => {
     return c.json({ error: `Request is already ${request.state}`, code: ErrorCode.APPROVAL_ALREADY_DECIDED }, 409);
   }
 
-  // Maker-checker enforcement
+  // Maker-checker enforcement — maker cannot approve their own request
   if (request.maker_staff_id === staffId) {
     return c.json({ error: 'Maker cannot approve their own request', code: ErrorCode.MAKER_CHECKER_VIOLATION }, 403);
   }
@@ -237,7 +337,7 @@ opsRoutes.post('/overdraft/:id/approve', async (c) => {
   const payload = JSON.parse(request.payload_json) as { facility_id: string };
   await updateOverdraftFacility(c.env.DB, payload.facility_id, 'ACTIVE', staffId, now);
 
-  // Audit log
+  // Audit log with before/after
   await insertAuditLog(c.env.DB, {
     id: generateId(),
     action: 'OVERDRAFT_APPROVED',
@@ -302,7 +402,7 @@ opsRoutes.post('/overdraft/:id/reject', async (c) => {
   const payload = JSON.parse(request.payload_json) as { facility_id: string };
   await updateOverdraftFacility(c.env.DB, payload.facility_id, 'REJECTED', staffId);
 
-  // Audit log
+  // Audit log with before/after
   await insertAuditLog(c.env.DB, {
     id: generateId(),
     action: 'OVERDRAFT_REJECTED',
@@ -313,6 +413,20 @@ opsRoutes.post('/overdraft/:id/reject', async (c) => {
     before_json: JSON.stringify({ state: 'PENDING' }),
     after_json: JSON.stringify({ state: 'REJECTED', reason }),
     correlation_id: correlationId,
+    created_at: now,
+  });
+
+  // Emit rejection event
+  await insertEvent(c.env.DB, {
+    id: generateId(),
+    name: EventName.OVERDRAFT_FACILITY_REJECTED,
+    entity_type: 'overdraft_facility',
+    entity_id: payload.facility_id,
+    correlation_id: correlationId,
+    actor_type: ActorType.STAFF,
+    actor_id: staffId,
+    schema_version: 1,
+    payload_json: JSON.stringify({ facility_id: payload.facility_id, request_id: requestId, reason }),
     created_at: now,
   });
 
