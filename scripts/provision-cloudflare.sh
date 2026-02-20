@@ -83,7 +83,7 @@ provision_queue() {
     if output=$("${WRANGLER_CMD[@]}" queues create "${queue_name}" 2>&1); then
       echo "  ✔ Queue '${queue_name}' created"
     else
-      if echo "$output" | grep -qi "already exists"; then
+      if echo "$output" | grep -Eqi "already exists|already taken|\[code:[[:space:]]*11009\]"; then
         echo "  ✔ Queue '${queue_name}' already exists (confirmed via create)"
       else
         echo "  ✗ Failed to create queue '${queue_name}': ${output}" >&2
