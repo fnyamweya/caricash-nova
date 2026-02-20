@@ -57,6 +57,9 @@ jobs:
       - name: Validate OpenAPI spec
         run: pnpm openapi:validate
 
+      - name: Verify generated OpenAPI module is in sync
+        run: pnpm openapi:check-generated
+
       - name: Audit gate
         run: pnpm audit-gate
 
