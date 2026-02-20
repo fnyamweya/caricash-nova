@@ -496,7 +496,7 @@ function handleTxError(
     if (err.name === 'UnbalancedJournalError') {
       return c.json({ error: err.message, code: ErrorCode.UNBALANCED_JOURNAL, name: err.name, correlation_id: correlationId }, 422);
     }
-    if (err.name === 'IdempotencyConflictError' || err.message.includes('already used with different payload')) {
+    if (err.name === 'IdempotencyConflictError') {
       return c.json({ error: err.message, code: ErrorCode.DUPLICATE_IDEMPOTENCY_CONFLICT, name: 'IdempotencyConflictError', correlation_id: correlationId }, 409);
     }
     if (err.message.includes('Cross-currency')) {

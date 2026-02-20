@@ -47,7 +47,12 @@ export async function repairMissingIdempotencyRecords(db: D1Database): Promise<R
 
     if (!existing) {
       try {
-        // Compute scope_hash for the missing record
+        // Compute scope_hash for the missing record.
+        // Note: actor_type is not stored in ledger_journals pre-Phase 2,
+        // so we use 'UNKNOWN'. This means the backfilled scope_hash won't match
+        // future requests with the real actor_type. This is acceptable because
+        // the backfill only prevents duplicates within the repair job itself;
+        // the idempotency_key column on journals still prevents double-posting.
         const scopeHash = await computeScopeHash(
           'UNKNOWN',
           journal.initiator_actor_id ?? 'unknown',

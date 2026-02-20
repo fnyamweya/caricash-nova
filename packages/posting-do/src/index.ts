@@ -223,7 +223,7 @@ export class PostingDO implements DurableObject {
     // Build idempotency record
     const idemRecord: IdempotencyRecord = {
       id: generateId(),
-      scope: `${command.actor_type}:${command.actor_id}:${command.txn_type}`,
+      scope: `${command.actor_type}:${command.actor_id}:${command.txn_type}:${command.idempotency_key}`,
       idempotency_key: command.idempotency_key,
       result_json: JSON.stringify(result),
       created_at: now,
