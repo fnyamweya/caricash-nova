@@ -153,7 +153,7 @@ describe('PR3+4 hardening: targeted journal repair', () => {
   });
 
   it('repairSingleJournalIdempotency refuses non-POSTED journal', () => {
-    const journal = { id: 'j-target', state: TxnState.FAILED };
+    const journal: { id: string; state: TxnState } = { id: 'j-target', state: TxnState.FAILED };
     const canRepair = journal.state === TxnState.POSTED;
     expect(canRepair).toBe(false);
   });
@@ -200,8 +200,8 @@ describe('PR3+4 hardening: maker-checker DB trigger', () => {
   });
 
   it('trigger allows different maker and checker', () => {
-    const maker = 'staff-alice';
-    const checker = 'staff-bob';
+    const maker: string = 'staff-alice';
+    const checker: string = 'staff-bob';
     const triggerWouldFire = checker !== null && maker === checker;
     expect(triggerWouldFire).toBe(false);
   });

@@ -256,7 +256,7 @@ describe('PR3+4: stale IN_PROGRESS repair', () => {
 
   it('marks COMPLETED only if journal exists and is POSTED', () => {
     const record = { id: 'r-stale', result_json: JSON.stringify({ state: 'IN_PROGRESS', journal_id: 'j-123' }) };
-    const journal = { id: 'j-123', state: TxnState.POSTED };
+    const journal: { id: string; state: TxnState } = { id: 'j-123', state: TxnState.POSTED };
 
     // Should repair
     const shouldRepair = journal && journal.state === TxnState.POSTED;
@@ -271,7 +271,7 @@ describe('PR3+4: stale IN_PROGRESS repair', () => {
   });
 
   it('does NOT repair if journal is not POSTED', () => {
-    const journal = { id: 'j-456', state: TxnState.FAILED };
+    const journal: { id: string; state: TxnState } = { id: 'j-456', state: TxnState.FAILED };
     const shouldRepair = journal.state === TxnState.POSTED;
     expect(shouldRepair).toBe(false);
   });
@@ -407,8 +407,8 @@ describe('PR3+4: maker-checker governance enforcement', () => {
   });
 
   it('allows when maker !== checker', () => {
-    const maker = 'staff-alice';
-    const checker = 'staff-bob';
+    const maker: string = 'staff-alice';
+    const checker: string = 'staff-bob';
     const isViolation = maker === checker;
     expect(isViolation).toBe(false);
   });

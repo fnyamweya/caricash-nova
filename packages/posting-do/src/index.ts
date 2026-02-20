@@ -36,6 +36,38 @@ import {
   getActiveOverdraftForAccount,
 } from '@caricash/db';
 
+type D1Database = {
+  prepare(query: string): D1PreparedStatement;
+  batch<T = unknown>(statements: D1PreparedStatement[]): Promise<T[]>;
+  exec(query: string): Promise<unknown>;
+};
+
+type D1PreparedStatement = {
+  bind(...values: unknown[]): D1PreparedStatement;
+  first<T = unknown>(colName?: string): Promise<T | null>;
+  run(): Promise<unknown>;
+  all<T = unknown>(): Promise<{ results: T[] }>;
+  raw<T = unknown>(): Promise<T[]>;
+};
+
+type DurableObjectNamespace = {
+  idFromName(name: string): DurableObjectId;
+  get(id: DurableObjectId): unknown;
+};
+
+type DurableObjectState = {
+  blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
+};
+
+type DurableObject = {
+  fetch(request: Request): Response | Promise<Response>;
+  alarm?(alarmInfo?: unknown): void | Promise<void>;
+};
+
+type DurableObjectId = {
+  toString(): string;
+};
+
 // Re-export journal templates and calculators for consumers
 export { buildDepositEntries, buildWithdrawalEntries, buildP2PEntries, buildPaymentEntries, buildB2BEntries, buildReversalEntries } from './journal-templates.js';
 export type { Entry, CommissionEntry } from './journal-templates.js';
@@ -86,7 +118,7 @@ export class PostingDO implements DurableObject {
   // -------------------------------------------------------------------------
 
   private async handlePost(request: Request): Promise<Response> {
-    const command: PostTransactionCommand = await request.json();
+    const command = await request.json() as PostTransactionCommand;
 
     let result!: PostTransactionResult;
     await this.state.blockConcurrencyWhile(async () => {

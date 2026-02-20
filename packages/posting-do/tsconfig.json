@@ -3,7 +3,16 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["@cloudflare/workers-types"]
+    "types": [
+      "@cloudflare/workers-types",
+      "@cloudflare/workers-types/experimental"
+    ],
+    "typeRoots": [
+      "./node_modules/@types",
+      "./node_modules/@cloudflare/workers-types"
+    ]
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

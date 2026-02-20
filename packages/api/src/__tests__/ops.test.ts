@@ -105,8 +105,8 @@ describe('maker-checker hardening', () => {
   });
 
   it('allows different staff to approve', () => {
-    const makerId = 'staff-alice';
-    const checkerId = 'staff-bob';
+    const makerId: string = 'staff-alice';
+    const checkerId: string = 'staff-bob';
     expect(makerId === checkerId).toBe(false);
     // This should be allowed
   });
