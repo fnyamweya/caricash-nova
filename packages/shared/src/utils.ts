@@ -1,8 +1,45 @@
-import { ulid } from 'ulid';
 import { UnbalancedJournalError } from './errors.js';
 
+const CROCKFORD32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+function encodeTime(time: number): string {
+  let out = '';
+  for (let i = 0; i < 10; i++) {
+    out = CROCKFORD32[time % 32] + out;
+    time = Math.floor(time / 32);
+  }
+  return out;
+}
+
+function encodeRandom(bytes: Uint8Array): string {
+  let out = '';
+  let buffer = 0;
+  let bitsInBuffer = 0;
+
+  for (const byte of bytes) {
+    buffer = (buffer << 8) | byte;
+    bitsInBuffer += 8;
+    while (bitsInBuffer >= 5) {
+      const index = (buffer >> (bitsInBuffer - 5)) & 31;
+      out += CROCKFORD32[index];
+      bitsInBuffer -= 5;
+    }
+  }
+
+  if (bitsInBuffer > 0) {
+    const index = (buffer << (5 - bitsInBuffer)) & 31;
+    out += CROCKFORD32[index];
+  }
+
+  return out.slice(0, 16);
+}
+
 export function generateId(): string {
-  return ulid();
+  const timePart = encodeTime(Date.now());
+  const randomBytes = new Uint8Array(10);
+  crypto.getRandomValues(randomBytes);
+  const randomPart = encodeRandom(randomBytes);
+  return `${timePart}${randomPart}`;
 }
 
 export function assertBalanced(entries: { entry_type: 'DR' | 'CR'; amount: string }[]): void {
