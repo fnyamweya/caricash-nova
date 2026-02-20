@@ -152,9 +152,10 @@ export async function repairStaleInProgressRecords(
   let staleRecords: any[];
   try {
     staleRecords = await getStaleInProgressRecords(db, cutoff);
-  } catch {
+  } catch (err) {
     // Table may not have the right columns yet
-    return { records_checked: 0, records_repaired: 0, errors: ['Could not query stale records'] };
+    const msg = err instanceof Error ? err.message : String(err);
+    return { records_checked: 0, records_repaired: 0, errors: [`Could not query stale records: ${msg}`] };
   }
 
   for (const record of staleRecords) {

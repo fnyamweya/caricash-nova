@@ -419,7 +419,10 @@ export async function insertIdempotencyRecord(
     .run();
 }
 
-/** Find IN_PROGRESS idempotency records older than a given cutoff. */
+/** Find IN_PROGRESS idempotency records older than a given cutoff.
+ * Note: Uses LIKE on result_json because idempotency_records does not have a
+ * dedicated status column. For <100k users this is acceptable. Consider adding
+ * a status column for production scale optimization. */
 export async function getStaleInProgressRecords(
   db: D1Database,
   cutoffIso: string,

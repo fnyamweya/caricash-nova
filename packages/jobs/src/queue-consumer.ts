@@ -77,7 +77,7 @@ export async function processQueueMessage(
     try {
       await insertEvent(db, {
         id: generateId(),
-        name: 'QUEUE_MESSAGE_PROCESSED' as any,
+        name: EventName.QUEUE_MESSAGE_PROCESSED,
         entity_type: 'queue_message',
         entity_id: dedupeKey,
         correlation_id: (message.body.correlation_id as string) ?? dedupeKey,
