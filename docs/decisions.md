@@ -26,14 +26,32 @@ Record of defaults and design choices made during implementation.
 
 ## Hashing
 - **PIN hashing**: PBKDF2-SHA256, 100,000 iterations, 16-byte random salt, pepper from env secret
-- **Idempotency scope hash**: SHA-256 of `{initiator}:{txn_type}:{idempotency_key}`
-- **Payload hash**: SHA-256 of canonical JSON.stringify of the posting command payload
+- **Idempotency scope hash**: SHA-256 of `{initiator_actor_type}:{initiator_actor_id}:{txn_type}:{idempotency_key}`
+- **Payload hash**: SHA-256 of canonical JSON (recursive key-sorted) of `{entries, currency, description}`
 - **Journal hash chain**: SHA-256 of canonical journal content + prev_hash (optional feature)
 
 ## Durable Object Sharding
 - **Key format**: `wallet:{owner_type}:{owner_id}:{currency}`
 - **Rationale**: One DO per wallet-per-currency ensures serialized access for balance checks
 - **Concurrency**: `blockConcurrencyWhile()` serializes all posting operations within a single DO instance
+- **Multi-account journals**: The sender's DO posts all legs (including receiver credit) in one journal. The DO serializes the debiting wallet; since the ledger is centralized in D1, both legs are written atomically.
+
+## In-Progress Idempotency Policy
+- **Chosen approach**: Option 1 — return `409 IDEMPOTENCY_IN_PROGRESS` with existing `correlation_id` and let the client poll
+- **Rationale**: Simpler than blocking; avoids DO timeout issues; callers retry with exponential backoff
+- **Implementation**: If `scope_hash` exists with status `IN_PROGRESS` and `correlation_id` matches, return the in-progress indicator. If `payload_hash` differs, return `DUPLICATE_IDEMPOTENCY_CONFLICT`.
+
+## Canonical JSON Hashing
+- **Algorithm**: SHA-256 of recursively key-sorted JSON
+- **Implementation**: Custom `canonicalStringify()` that sorts keys at all nesting levels and uses standard JSON encoding
+- **Scope**: Hashes `{entries, currency, description}` from the posting command
+- **Purpose**: Deterministic payload fingerprint for conflict detection
+
+## D1 Transaction Strategy
+- **Approach**: Use `db.batch()` (D1 batch API) for atomic writes
+- **Guarantee**: All-or-nothing: journal header, lines, events, audit log, and idempotency record are written in a single batch
+- **Limitation**: D1 batch is not a true transaction with rollback, but guarantees atomicity for the batch. If batch fails, no partial writes occur.
+- **Repair strategy**: Reconciliation job detects orphaned idempotency records and backfills if needed
 
 ## Reconciliation
 - **Schedule**: Configurable; hourly in dev, nightly in production

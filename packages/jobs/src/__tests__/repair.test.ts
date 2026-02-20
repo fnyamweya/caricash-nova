@@ -9,8 +9,8 @@ import { computeScopeHash } from '@caricash/shared';
 
 describe('repair: safe backfill rules', () => {
   it('should compute consistent scope_hash for backfill', async () => {
-    const hash1 = await computeScopeHash('actor-1', 'DEPOSIT', 'key-001');
-    const hash2 = await computeScopeHash('actor-1', 'DEPOSIT', 'key-001');
+    const hash1 = await computeScopeHash('CUSTOMER', 'actor-1', 'DEPOSIT', 'key-001');
+    const hash2 = await computeScopeHash('CUSTOMER', 'actor-1', 'DEPOSIT', 'key-001');
     expect(hash1).toBe(hash2);
   });
 

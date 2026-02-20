@@ -7,27 +7,33 @@ import {
 
 describe('computeScopeHash', () => {
   it('produces consistent hash for same inputs', async () => {
-    const hash1 = await computeScopeHash('actor-1', 'DEPOSIT', 'key-001');
-    const hash2 = await computeScopeHash('actor-1', 'DEPOSIT', 'key-001');
+    const hash1 = await computeScopeHash('CUSTOMER', 'actor-1', 'DEPOSIT', 'key-001');
+    const hash2 = await computeScopeHash('CUSTOMER', 'actor-1', 'DEPOSIT', 'key-001');
     expect(hash1).toBe(hash2);
     expect(hash1).toMatch(/^[a-f0-9]{64}$/); // SHA-256 hex
   });
 
+  it('produces different hash for different actor_type', async () => {
+    const hash1 = await computeScopeHash('CUSTOMER', 'actor-1', 'DEPOSIT', 'key-001');
+    const hash2 = await computeScopeHash('AGENT', 'actor-1', 'DEPOSIT', 'key-001');
+    expect(hash1).not.toBe(hash2);
+  });
+
   it('produces different hash for different actor', async () => {
-    const hash1 = await computeScopeHash('actor-1', 'DEPOSIT', 'key-001');
-    const hash2 = await computeScopeHash('actor-2', 'DEPOSIT', 'key-001');
+    const hash1 = await computeScopeHash('CUSTOMER', 'actor-1', 'DEPOSIT', 'key-001');
+    const hash2 = await computeScopeHash('CUSTOMER', 'actor-2', 'DEPOSIT', 'key-001');
     expect(hash1).not.toBe(hash2);
   });
 
   it('produces different hash for different txn_type', async () => {
-    const hash1 = await computeScopeHash('actor-1', 'DEPOSIT', 'key-001');
-    const hash2 = await computeScopeHash('actor-1', 'WITHDRAWAL', 'key-001');
+    const hash1 = await computeScopeHash('CUSTOMER', 'actor-1', 'DEPOSIT', 'key-001');
+    const hash2 = await computeScopeHash('CUSTOMER', 'actor-1', 'WITHDRAWAL', 'key-001');
     expect(hash1).not.toBe(hash2);
   });
 
   it('produces different hash for different idempotency_key', async () => {
-    const hash1 = await computeScopeHash('actor-1', 'DEPOSIT', 'key-001');
-    const hash2 = await computeScopeHash('actor-1', 'DEPOSIT', 'key-002');
+    const hash1 = await computeScopeHash('CUSTOMER', 'actor-1', 'DEPOSIT', 'key-001');
+    const hash2 = await computeScopeHash('CUSTOMER', 'actor-1', 'DEPOSIT', 'key-002');
     expect(hash1).not.toBe(hash2);
   });
 });

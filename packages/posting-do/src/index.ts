@@ -27,12 +27,11 @@ import {
   UnbalancedJournalError,
   IdempotencyConflictError,
 } from '@caricash/shared';
-import type { PostTransactionCommand, PostTransactionResult, PostingReceipt, LedgerJournal, LedgerLine, Event, IdempotencyRecord } from '@caricash/shared';
+import type { PostTransactionCommand, PostTransactionResult, LedgerJournal, LedgerLine, Event, AuditLog, IdempotencyRecord } from '@caricash/shared';
 import {
   getJournalByIdempotencyKey,
   getBalance,
   getIdempotencyRecordByScopeHash,
-  insertIdempotencyRecord,
   getActiveOverdraftForAccount,
 } from '@caricash/db';
 
@@ -101,6 +100,7 @@ export class PostingDO implements DurableObject {
 
     // 1. Compute scope_hash and payload_hash for strict idempotency
     const scopeHash = await computeScopeHash(
+      command.actor_type,
       command.actor_id,
       command.txn_type,
       command.idempotency_key,
@@ -168,7 +168,7 @@ export class PostingDO implements DurableObject {
       created_at: now,
     }));
 
-    const event: Event = {
+    const eventPosted: Event = {
       id: generateId(),
       name: EventName.TXN_POSTED,
       entity_type: 'journal',
@@ -182,18 +182,48 @@ export class PostingDO implements DurableObject {
       created_at: now,
     };
 
-    // Build the result
+    const eventCompleted: Event = {
+      id: generateId(),
+      name: EventName.TXN_COMPLETED,
+      entity_type: 'journal',
+      entity_id: journalId,
+      correlation_id: command.correlation_id,
+      causation_id: journalId,
+      actor_type: command.actor_type,
+      actor_id: command.actor_id,
+      schema_version: 1,
+      payload_json: JSON.stringify({ journal_id: journalId, txn_type: command.txn_type, state: TxnState.POSTED }),
+      created_at: now,
+    };
+
+    // G8: Audit log for every posting action
+    const auditLog: AuditLog = {
+      id: generateId(),
+      action: `${command.txn_type}_POSTED`,
+      actor_type: command.actor_type,
+      actor_id: command.actor_id,
+      target_type: 'journal',
+      target_id: journalId,
+      after_json: JSON.stringify({ journal_id: journalId, currency: command.currency, entries: command.entries.length }),
+      correlation_id: command.correlation_id,
+      created_at: now,
+    };
+
+    // Build the result with receipt-level detail
     const result: PostTransactionResult = {
       journal_id: journalId,
       state: TxnState.POSTED,
       entries: command.entries,
       created_at: now,
+      correlation_id: command.correlation_id,
+      txn_type: command.txn_type,
+      currency: command.currency,
     };
 
     // Build idempotency record
     const idemRecord: IdempotencyRecord = {
       id: generateId(),
-      scope: `${command.actor_id}:${command.txn_type}`,
+      scope: `${command.actor_type}:${command.actor_id}:${command.txn_type}`,
       idempotency_key: command.idempotency_key,
       result_json: JSON.stringify(result),
       created_at: now,
@@ -245,24 +275,46 @@ export class PostingDO implements DurableObject {
       );
     }
 
+    // Insert TXN_POSTED event
+    const insertEventStmt = (evt: Event) => db
+      .prepare(
+        `INSERT INTO events (id, name, entity_type, entity_id, correlation_id, causation_id, actor_type, actor_id, schema_version, payload_json, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+      )
+      .bind(
+        evt.id,
+        evt.name,
+        evt.entity_type,
+        evt.entity_id,
+        evt.correlation_id,
+        evt.causation_id ?? null,
+        evt.actor_type,
+        evt.actor_id,
+        evt.schema_version,
+        evt.payload_json,
+        evt.created_at,
+      );
+
+    stmts.push(insertEventStmt(eventPosted));
+    stmts.push(insertEventStmt(eventCompleted));
+
+    // Insert audit log
     stmts.push(
       db
         .prepare(
-          `INSERT INTO events (id, name, entity_type, entity_id, correlation_id, causation_id, actor_type, actor_id, schema_version, payload_json, created_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+          `INSERT INTO audit_log (id, action, actor_type, actor_id, target_type, target_id, after_json, correlation_id, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
         )
         .bind(
-          event.id,
-          event.name,
-          event.entity_type,
-          event.entity_id,
-          event.correlation_id,
-          event.causation_id ?? null,
-          event.actor_type,
-          event.actor_id,
-          event.schema_version,
-          event.payload_json,
-          event.created_at,
+          auditLog.id,
+          auditLog.action,
+          auditLog.actor_type,
+          auditLog.actor_id,
+          auditLog.target_type,
+          auditLog.target_id,
+          auditLog.after_json ?? null,
+          auditLog.correlation_id,
+          auditLog.created_at,
         ),
     );
 
@@ -363,6 +415,9 @@ export class PostingDO implements DurableObject {
       state: journal.state,
       entries,
       created_at: journal.created_at,
+      correlation_id: journal.correlation_id,
+      txn_type: journal.txn_type,
+      currency: journal.currency,
     };
   }
 

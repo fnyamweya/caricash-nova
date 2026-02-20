@@ -170,6 +170,9 @@ export interface PostTransactionResult {
     description?: string;
   }[];
   created_at: string;
+  correlation_id: string;
+  txn_type: TxnType;
+  currency: CurrencyCode;
 }
 
 export interface BalanceResult {

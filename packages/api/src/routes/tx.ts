@@ -9,6 +9,8 @@ import {
   ApprovalState,
   ApprovalType,
   EventName,
+  ErrorCode,
+  IdempotencyConflictError,
 } from '@caricash/shared';
 import type { PostTransactionCommand, CurrencyCode } from '@caricash/shared';
 import {
@@ -110,7 +112,7 @@ txRoutes.post('/deposit', async (c) => {
       commission_version_id: commissionRules[0]?.version_id,
     };
 
-    const domainKey = `${ActorType.AGENT}:${agent_id}:${cur}`;
+    const domainKey = `wallet:${ActorType.AGENT}:${agent_id}:${cur}`;
     const result = await postTransaction(c.env, domainKey, command);
 
     await emitTxnEvent(c.env, EventName.TXN_POSTED, result.journal_id, correlationId, ActorType.AGENT, agent_id);
@@ -193,7 +195,7 @@ txRoutes.post('/withdrawal', async (c) => {
       commission_version_id: commissionRules[0]?.version_id,
     };
 
-    const domainKey = `${ActorType.CUSTOMER}:${customer.id}:${cur}`;
+    const domainKey = `wallet:${ActorType.CUSTOMER}:${customer.id}:${cur}`;
     const result = await postTransaction(c.env, domainKey, command);
 
     await emitTxnEvent(c.env, EventName.TXN_POSTED, result.journal_id, correlationId, ActorType.AGENT, agent_id);
@@ -258,7 +260,7 @@ txRoutes.post('/p2p', async (c) => {
       fee_version_id: feeRules[0]?.version_id,
     };
 
-    const domainKey = `${ActorType.CUSTOMER}:${sender.id}:${cur}`;
+    const domainKey = `wallet:${ActorType.CUSTOMER}:${sender.id}:${cur}`;
     const result = await postTransaction(c.env, domainKey, command);
 
     await emitTxnEvent(c.env, EventName.TXN_POSTED, result.journal_id, correlationId, ActorType.CUSTOMER, sender.id);
@@ -323,7 +325,7 @@ txRoutes.post('/payment', async (c) => {
       fee_version_id: feeRules[0]?.version_id,
     };
 
-    const domainKey = `${ActorType.CUSTOMER}:${customer.id}:${cur}`;
+    const domainKey = `wallet:${ActorType.CUSTOMER}:${customer.id}:${cur}`;
     const result = await postTransaction(c.env, domainKey, command);
 
     await emitTxnEvent(c.env, EventName.TXN_POSTED, result.journal_id, correlationId, ActorType.CUSTOMER, customer.id);
@@ -388,7 +390,7 @@ txRoutes.post('/b2b', async (c) => {
       fee_version_id: feeRules[0]?.version_id,
     };
 
-    const domainKey = `${ActorType.MERCHANT}:${sender.id}:${cur}`;
+    const domainKey = `wallet:${ActorType.MERCHANT}:${sender.id}:${cur}`;
     const result = await postTransaction(c.env, domainKey, command);
 
     await emitTxnEvent(c.env, EventName.TXN_POSTED, result.journal_id, correlationId, ActorType.MERCHANT, sender.id);
@@ -484,14 +486,23 @@ function handleTxError(
   err: unknown,
   correlationId: string,
 ): Response {
+  if (err instanceof IdempotencyConflictError) {
+    return c.json({ error: err.message, code: ErrorCode.DUPLICATE_IDEMPOTENCY_CONFLICT, name: err.name, correlation_id: correlationId }, 409);
+  }
   if (err instanceof Error) {
     if (err.name === 'InsufficientFundsError') {
-      return c.json({ error: err.message, name: err.name, correlation_id: correlationId }, 409);
+      return c.json({ error: err.message, code: ErrorCode.INSUFFICIENT_FUNDS, name: err.name, correlation_id: correlationId }, 409);
     }
     if (err.name === 'UnbalancedJournalError') {
-      return c.json({ error: err.message, name: err.name, correlation_id: correlationId }, 422);
+      return c.json({ error: err.message, code: ErrorCode.UNBALANCED_JOURNAL, name: err.name, correlation_id: correlationId }, 422);
     }
-    return c.json({ error: err.message, correlation_id: correlationId }, 500);
+    if (err.name === 'IdempotencyConflictError' || err.message.includes('already used with different payload')) {
+      return c.json({ error: err.message, code: ErrorCode.DUPLICATE_IDEMPOTENCY_CONFLICT, name: 'IdempotencyConflictError', correlation_id: correlationId }, 409);
+    }
+    if (err.message.includes('Cross-currency')) {
+      return c.json({ error: err.message, code: ErrorCode.CROSS_CURRENCY_NOT_ALLOWED, name: 'CrossCurrencyError', correlation_id: correlationId }, 422);
+    }
+    return c.json({ error: err.message, code: ErrorCode.INTERNAL_ERROR, correlation_id: correlationId }, 500);
   }
-  return c.json({ error: 'Internal server error', correlation_id: correlationId }, 500);
+  return c.json({ error: 'Internal server error', code: ErrorCode.INTERNAL_ERROR, correlation_id: correlationId }, 500);
 }

@@ -20,7 +20,7 @@ walletRoutes.get('/:owner_type/:owner_id/:currency/balance', async (c) => {
       return c.json({ error: 'Wallet account not found', correlation_id: correlationId }, 404);
     }
 
-    const domainKey = `${ownerType}:${ownerId}:${currency}`;
+    const domainKey = `wallet:${ownerType}:${ownerId}:${currency}`;
     const result = await getBalance(c.env, domainKey, account.id);
 
     return c.json({

@@ -49,6 +49,7 @@ export async function repairMissingIdempotencyRecords(db: D1Database): Promise<R
       try {
         // Compute scope_hash for the missing record
         const scopeHash = await computeScopeHash(
+          'UNKNOWN',
           journal.initiator_actor_id ?? 'unknown',
           journal.txn_type,
           journal.idempotency_key,

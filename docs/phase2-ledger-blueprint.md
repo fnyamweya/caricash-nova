@@ -39,7 +39,7 @@ INITIATED → VALIDATED → POSTED → COMPLETED
 ### Scope Hash
 Each idempotency check uses a **scope hash** combining:
 ```
-scope_hash = SHA-256(initiator_actor_id + ":" + txn_type + ":" + idempotency_key)
+scope_hash = SHA-256(initiator_actor_type + ":" + initiator_actor_id + ":" + txn_type + ":" + idempotency_key)
 ```
 
 ### Conflict Behavior

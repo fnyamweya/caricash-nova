@@ -56,14 +56,15 @@ export async function sha256Hex(input: string): Promise<string> {
 
 /**
  * Compute the scope hash for idempotency:
- * SHA-256(initiator_actor_id + ":" + txn_type + ":" + idempotency_key)
+ * SHA-256(initiator_actor_type + ":" + initiator_actor_id + ":" + txn_type + ":" + idempotency_key)
  */
 export async function computeScopeHash(
+  initiatorActorType: string,
   initiatorActorId: string,
   txnType: string,
   idempotencyKey: string,
 ): Promise<string> {
-  return sha256Hex(`${initiatorActorId}:${txnType}:${idempotencyKey}`);
+  return sha256Hex(`${initiatorActorType}:${initiatorActorId}:${txnType}:${idempotencyKey}`);
 }
 
 /**
