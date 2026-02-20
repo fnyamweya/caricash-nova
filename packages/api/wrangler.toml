@@ -1,0 +1,20 @@
+name = "caricash-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "caricash-db"
+database_id = "local"
+
+[durable_objects]
+bindings = [
+  { name = "POSTING_DO", class_name = "PostingDO", script_name = "caricash-posting-do" }
+]
+
+[[queues.producers]]
+queue = "caricash-events"
+binding = "EVENTS_QUEUE"
+
+[vars]
+# PIN_PEPPER is a secret — set via `wrangler secret put PIN_PEPPER`

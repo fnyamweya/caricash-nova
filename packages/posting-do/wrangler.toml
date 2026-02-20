@@ -1,0 +1,12 @@
+name = "caricash-posting-do"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[durable_objects]
+bindings = [
+  { name = "POSTING_DO", class_name = "PostingDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["PostingDO"]
