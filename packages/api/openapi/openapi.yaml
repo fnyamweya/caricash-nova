@@ -1,0 +1,2488 @@
+openapi: 3.1.0
+info:
+  title: CariCash Nova API
+  version: 0.2.0
+  description: |
+    CariCash Nova — Barbados-based mobile payments platform API.
+
+    ## Key Concepts
+    - **Jurisdiction**: Barbados. Base currency: BBD. NO FX — cross-currency postings rejected.
+    - **Closed-loop wallets**: Customers, agents, and merchants hold balances internally.
+    - **Double-entry ledger**: Every transaction posts balanced journal entries (sum DR = sum CR).
+    - **Idempotency**: All money-moving endpoints require `idempotency_key`. Retries with same key+payload return cached result; same key+different payload returns 409 DUPLICATE_IDEMPOTENCY_CONFLICT.
+    - **Maker-checker**: Reversals, manual adjustments, overdraft facilities, fee/commission changes require dual approval (maker ≠ checker).
+    - **Posting via Durable Object**: All money movement routes through a serialized Durable Object per wallet-per-currency.
+  contact:
+    name: CariCash Engineering
+    email: engineering@caricash.bb
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8787
+    description: Local development (wrangler dev)
+
+tags:
+  - name: Auth
+    description: Authentication endpoints for all actor types
+  - name: Customers
+    description: Customer registration and KYC management
+  - name: Agents
+    description: Agent registration
+  - name: Merchants
+    description: Merchant registration
+  - name: Wallets
+    description: Wallet balance and statement queries
+  - name: Transactions
+    description: Money movement — deposit, withdrawal, P2P, payment, B2B, reversal
+  - name: Approvals
+    description: Maker-checker approval workflow
+  - name: Ops
+    description: Staff-only operational endpoints
+  - name: Reconciliation
+    description: Staff-only reconciliation and integrity verification
+  - name: Overdraft
+    description: Staff-only overdraft facility management (maker-checker)
+
+security: []
+
+paths:
+  # ============================================================
+  #  AUTH
+  # ============================================================
+  /auth/customer/login:
+    post:
+      operationId: customerLogin
+      tags: [Auth]
+      summary: Customer login
+      description: Authenticate a customer using MSISDN and PIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerLoginRequest'
+            example:
+              msisdn: '+12465551234'
+              pin: '1234'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              example:
+                token: '01HZ...'
+                actor_id: '01HZ...'
+                actor_type: CUSTOMER
+                session_id: '01HZ...'
+                correlation_id: '01HZ...'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '423':
+          description: Account locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/agent/login:
+    post:
+      operationId: agentLogin
+      tags: [Auth]
+      summary: Agent login
+      description: Authenticate an agent using agent_code and PIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentLoginRequest'
+            example:
+              agent_code: 'AGT001'
+              pin: '5678'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '423':
+          description: Account locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/merchant/login:
+    post:
+      operationId: merchantLogin
+      tags: [Auth]
+      summary: Merchant login
+      description: Authenticate a merchant using store_code and PIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MerchantLoginRequest'
+            example:
+              store_code: 'STORE001'
+              pin: '9012'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '423':
+          description: Account locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/staff/login:
+    post:
+      operationId: staffLogin
+      tags: [Auth]
+      summary: Staff login
+      description: Authenticate staff using staff_code and PIN. (OAuth stub — real IdP integration planned.)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffLoginRequest'
+            example:
+              staff_code: 'STAFF001'
+              pin: '3456'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  # ============================================================
+  #  CUSTOMERS
+  # ============================================================
+  /customers:
+    post:
+      operationId: createCustomer
+      tags: [Customers]
+      summary: Register a new customer
+      description: Create a customer account with MSISDN, name, and PIN. Automatically creates a BBD wallet.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+            example:
+              msisdn: '+12465559999'
+              name: 'Jane Doe'
+              pin: '1234'
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Customer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateCustomerResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Customer with this MSISDN already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /customers/{customerId}:
+    get:
+      operationId: getCustomer
+      tags: [Customers]
+      summary: Get customer details
+      description: Retrieve customer profile by ID. Returns 501 (stub).
+      parameters:
+        - $ref: '#/components/parameters/customerId'
+      responses:
+        '200':
+          description: Customer details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /customers/{customerId}/kyc/initiate:
+    post:
+      operationId: initiateCustomerKyc
+      tags: [Customers]
+      summary: Initiate customer KYC
+      description: Submit KYC documents for a customer. Updates kyc_state to PENDING.
+      parameters:
+        - $ref: '#/components/parameters/customerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycInitiateRequest'
+            example:
+              document_type: 'NATIONAL_ID'
+              document_number: 'BB123456'
+              correlation_id: '01HZ...'
+      responses:
+        '200':
+          description: KYC initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycInitiateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /customers/{customerId}/kyc:
+    get:
+      operationId: getCustomerKyc
+      tags: [Customers]
+      summary: Get customer KYC status
+      description: Retrieve KYC status for a customer. Returns 501 (stub).
+      parameters:
+        - $ref: '#/components/parameters/customerId'
+      responses:
+        '200':
+          description: KYC profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycProfileResponse'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================
+  #  AGENTS
+  # ============================================================
+  /agents:
+    post:
+      operationId: createAgent
+      tags: [Agents]
+      summary: Register a new agent
+      description: Create an agent account with agent_code, name, MSISDN, PIN, and agent_type. Automatically creates WALLET + CASH_FLOAT accounts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentRequest'
+            example:
+              agent_code: 'AGT002'
+              name: 'Agent Smith'
+              msisdn: '+12465558888'
+              pin: '5678'
+              agent_type: 'STANDARD'
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAgentResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Agent with this code already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /agents/{agentId}:
+    get:
+      operationId: getAgent
+      tags: [Agents]
+      summary: Get agent details
+      description: Retrieve agent profile by ID. Returns 501 (stub).
+      parameters:
+        - $ref: '#/components/parameters/agentId'
+      responses:
+        '200':
+          description: Agent details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorResponse'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /agents/{agentId}/kyc/initiate:
+    post:
+      operationId: initiateAgentKyc
+      tags: [Agents]
+      summary: Initiate agent KYC
+      description: Submit KYC documents for an agent. Returns 501 (stub).
+      parameters:
+        - $ref: '#/components/parameters/agentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycInitiateRequest'
+      responses:
+        '200':
+          description: KYC initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycInitiateResponse'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /agents/{agentId}/kyc:
+    get:
+      operationId: getAgentKyc
+      tags: [Agents]
+      summary: Get agent KYC status
+      description: Retrieve KYC status for an agent. Returns 501 (stub).
+      parameters:
+        - $ref: '#/components/parameters/agentId'
+      responses:
+        '200':
+          description: KYC profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycProfileResponse'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================
+  #  MERCHANTS
+  # ============================================================
+  /merchants:
+    post:
+      operationId: createMerchant
+      tags: [Merchants]
+      summary: Register a new merchant
+      description: Create a merchant account with store_code, name, MSISDN, and PIN. Automatically creates a BBD wallet.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMerchantRequest'
+            example:
+              store_code: 'STORE002'
+              name: 'Bob Shop'
+              msisdn: '+12465557777'
+              pin: '9012'
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Merchant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateMerchantResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Merchant with this store code already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /merchants/{merchantId}:
+    get:
+      operationId: getMerchant
+      tags: [Merchants]
+      summary: Get merchant details
+      description: Retrieve merchant profile by ID. Returns 501 (stub).
+      parameters:
+        - $ref: '#/components/parameters/merchantId'
+      responses:
+        '200':
+          description: Merchant details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorResponse'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /merchants/{merchantId}/kyc/initiate:
+    post:
+      operationId: initiateMerchantKyc
+      tags: [Merchants]
+      summary: Initiate merchant KYC
+      description: Submit KYC documents for a merchant. Returns 501 (stub).
+      parameters:
+        - $ref: '#/components/parameters/merchantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycInitiateRequest'
+      responses:
+        '200':
+          description: KYC initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycInitiateResponse'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /merchants/{merchantId}/kyc:
+    get:
+      operationId: getMerchantKyc
+      tags: [Merchants]
+      summary: Get merchant KYC status
+      description: Retrieve KYC status for a merchant. Returns 501 (stub).
+      parameters:
+        - $ref: '#/components/parameters/merchantId'
+      responses:
+        '200':
+          description: KYC profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycProfileResponse'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /merchants/{merchantId}/stores:
+    post:
+      operationId: createMerchantStore
+      tags: [Merchants]
+      summary: Create a store for merchant
+      description: Add a new store under a merchant. Returns 501 (stub).
+      parameters:
+        - $ref: '#/components/parameters/merchantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [store_code, name]
+              properties:
+                store_code:
+                  type: string
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Store created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  store_id:
+                    type: string
+                  store_code:
+                    type: string
+                  name:
+                    type: string
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      operationId: listMerchantStores
+      tags: [Merchants]
+      summary: List merchant stores
+      description: List stores belonging to a merchant. Returns 501 (stub).
+      parameters:
+        - $ref: '#/components/parameters/merchantId'
+      responses:
+        '200':
+          description: Store list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        store_id:
+                          type: string
+                        store_code:
+                          type: string
+                        name:
+                          type: string
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /stores/{storeId}:
+    get:
+      operationId: getStore
+      tags: [Merchants]
+      summary: Get store details
+      description: Retrieve store details by ID. Returns 501 (stub).
+      parameters:
+        - name: storeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Store details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  store_id:
+                    type: string
+                  store_code:
+                    type: string
+                  merchant_id:
+                    type: string
+                  name:
+                    type: string
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================
+  #  WALLETS / BALANCES
+  # ============================================================
+  /wallets/{ownerType}/{ownerId}/{currency}/balance:
+    get:
+      operationId: getWalletBalance
+      tags: [Wallets]
+      summary: Get wallet balance
+      description: |
+        Retrieve current balance for a wallet. Balance is derived from the append-only ledger
+        (sum of credits minus sum of debits on the account).
+      parameters:
+        - name: ownerType
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/OwnerType'
+        - name: ownerId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: currency
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/CurrencyCode'
+      responses:
+        '200':
+          description: Balance response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceResponse'
+              example:
+                owner_type: CUSTOMER
+                owner_id: '01HZ...'
+                currency: BBD
+                account_id: '01HZ...'
+                balance: '1000.00'
+                correlation_id: '01HZ...'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /wallets/{ownerType}/{ownerId}/{currency}/statement:
+    get:
+      operationId: getWalletStatement
+      tags: [Wallets]
+      summary: Get wallet statement
+      description: Retrieve transaction history for a wallet. Returns 501 (stub).
+      parameters:
+        - name: ownerType
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/OwnerType'
+        - name: ownerId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: currency
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/CurrencyCode'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Statement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementResponse'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================
+  #  TRANSACTIONS
+  # ============================================================
+  /tx/deposit:
+    post:
+      operationId: createDeposit
+      tags: [Transactions]
+      summary: Agent deposit (cash-in)
+      description: |
+        Agent deposits cash into a customer's wallet. Debits agent cash float, credits customer wallet.
+        Fees and commissions applied based on active fee/commission matrix.
+
+        **Idempotency**: Required. Same `idempotency_key` with same payload returns cached receipt.
+        Same key with different payload returns 409 DUPLICATE_IDEMPOTENCY_CONFLICT.
+
+        **Posting**: Routed through Durable Object for serialized access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DepositRequest'
+            example:
+              agent_id: '01HZ...'
+              customer_msisdn: '+12465551234'
+              amount: '500.00'
+              currency: BBD
+              idempotency_key: 'dep-001'
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Deposit posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionReceipt'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Idempotency conflict or insufficient funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Unbalanced journal or cross-currency attempt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tx/withdrawal:
+    post:
+      operationId: createWithdrawal
+      tags: [Transactions]
+      summary: Agent withdrawal (cash-out)
+      description: |
+        Agent withdraws cash from a customer's wallet. Debits customer wallet, credits agent cash float.
+
+        **Idempotency**: Required. **Posting**: Via Durable Object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WithdrawalRequest'
+            example:
+              agent_id: '01HZ...'
+              customer_msisdn: '+12465551234'
+              amount: '200.00'
+              currency: BBD
+              idempotency_key: 'wdl-001'
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Withdrawal posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionReceipt'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Idempotency conflict or insufficient funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tx/p2p:
+    post:
+      operationId: createP2P
+      tags: [Transactions]
+      summary: Peer-to-peer transfer
+      description: |
+        Transfer between two customer wallets. Debits sender, credits receiver.
+
+        **Idempotency**: Required. **Posting**: Via Durable Object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/P2PRequest'
+            example:
+              sender_msisdn: '+12465551111'
+              receiver_msisdn: '+12465552222'
+              amount: '100.00'
+              currency: BBD
+              idempotency_key: 'p2p-001'
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: P2P transfer posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionReceipt'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Idempotency conflict or insufficient funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tx/payment:
+    post:
+      operationId: createPayment
+      tags: [Transactions]
+      summary: Customer payment to merchant
+      description: |
+        Customer pays a merchant. Debits customer wallet, credits merchant wallet.
+
+        **Idempotency**: Required. **Posting**: Via Durable Object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+            example:
+              customer_msisdn: '+12465551234'
+              store_code: 'STORE001'
+              amount: '75.00'
+              currency: BBD
+              idempotency_key: 'pay-001'
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Payment posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionReceipt'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Idempotency conflict or insufficient funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tx/b2b:
+    post:
+      operationId: createB2B
+      tags: [Transactions]
+      summary: Business-to-business transfer
+      description: |
+        Transfer between two merchant wallets. Debits sender merchant, credits receiver merchant.
+
+        **Idempotency**: Required. **Posting**: Via Durable Object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/B2BRequest'
+            example:
+              sender_store_code: 'STORE001'
+              receiver_store_code: 'STORE002'
+              amount: '1000.00'
+              currency: BBD
+              idempotency_key: 'b2b-001'
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: B2B transfer posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionReceipt'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Idempotency conflict or insufficient funds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tx/reversal/request:
+    post:
+      operationId: requestReversal
+      tags: [Transactions]
+      summary: Request transaction reversal
+      description: |
+        Request reversal of a previous transaction. Creates a maker-checker approval request.
+        The reversal is NOT executed until approved by a different staff member.
+
+        **Maker-checker**: Required. Maker cannot approve their own request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReversalRequest'
+            example:
+              original_journal_id: '01HZ...'
+              reason: 'Customer requested reversal — incorrect amount'
+              staff_id: '01HZ...'
+              idempotency_key: 'rev-001'
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Reversal request created (PENDING approval)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReversalRequestResponse'
+              example:
+                request_id: '01HZ...'
+                state: PENDING
+                correlation_id: '01HZ...'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /tx/{journalId}:
+    get:
+      operationId: getTransaction
+      tags: [Transactions]
+      summary: Get transaction details
+      description: Retrieve journal details by ID. Returns 501 (stub).
+      parameters:
+        - name: journalId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalResponse'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tx:
+    get:
+      operationId: listTransactions
+      tags: [Transactions]
+      summary: List transactions
+      description: List transactions with optional filters. Returns 501 (stub).
+      parameters:
+        - name: ownerType
+          in: query
+          schema:
+            $ref: '#/components/schemas/OwnerType'
+        - name: ownerId
+          in: query
+          schema:
+            type: string
+        - name: currency
+          in: query
+          schema:
+            $ref: '#/components/schemas/CurrencyCode'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Transaction list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/JournalResponse'
+                  nextCursor:
+                    type: string
+                    nullable: true
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================
+  #  APPROVALS
+  # ============================================================
+  /approvals/{approvalId}/approve:
+    post:
+      operationId: approveRequest
+      tags: [Approvals]
+      summary: Approve a request
+      description: |
+        Approve a pending maker-checker request. The checker (approver) must be different from the maker.
+
+        If the approval is for a REVERSAL_REQUESTED, the reversal is automatically posted upon approval.
+      parameters:
+        - $ref: '#/components/parameters/approvalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalActionRequest'
+            example:
+              staff_id: '01HZ_CHECKER...'
+              correlation_id: '01HZ...'
+      responses:
+        '200':
+          description: Request approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalActionResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          description: Maker cannot approve own request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Request already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /approvals/{approvalId}/reject:
+    post:
+      operationId: rejectRequest
+      tags: [Approvals]
+      summary: Reject a request
+      description: Reject a pending maker-checker request.
+      parameters:
+        - $ref: '#/components/parameters/approvalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalRejectRequest'
+            example:
+              staff_id: '01HZ_CHECKER...'
+              reason: 'Amount too large without supporting docs'
+              correlation_id: '01HZ...'
+      responses:
+        '200':
+          description: Request rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalActionResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Request already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /approvals:
+    get:
+      operationId: listApprovals
+      tags: [Approvals]
+      summary: List approval requests
+      description: List approval requests with optional status/type filters. Returns 501 (stub).
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ApprovalStatus'
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/ApprovalType'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Approval list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApprovalResponse'
+                  nextCursor:
+                    type: string
+                    nullable: true
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /approvals/{approvalId}:
+    get:
+      operationId: getApproval
+      tags: [Approvals]
+      summary: Get approval details
+      description: Retrieve a specific approval request by ID. Returns 501 (stub).
+      parameters:
+        - $ref: '#/components/parameters/approvalId'
+      responses:
+        '200':
+          description: Approval details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalResponse'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================
+  #  OPS — Staff-Only
+  # ============================================================
+  /ops/ledger/journal/{journalId}:
+    get:
+      operationId: getOpsJournal
+      tags: [Ops]
+      summary: Inspect ledger journal
+      description: Retrieve journal header and all lines. Staff authentication required (X-Staff-Id header).
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: journalId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: Journal with lines
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalResponse'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /ops/ledger/verify:
+    get:
+      operationId: verifyLedgerIntegrity
+      tags: [Ops, Reconciliation]
+      summary: Verify ledger hash chain integrity
+      description: Walk journals sequentially and verify hash chain continuity. Returns integrity report.
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Start timestamp (inclusive)
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: End timestamp (inclusive)
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: Integrity verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrityVerifyResponse'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+
+  /ops/reconciliation/run:
+    post:
+      operationId: runReconciliation
+      tags: [Reconciliation]
+      summary: Run reconciliation
+      description: Trigger a reconciliation run. Compares ledger-derived balances to materialized balances. Emits alerts for mismatches.
+      security:
+        - StaffAuth: []
+      parameters:
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: Reconciliation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationRunResponse'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+
+  /ops/reconciliation/runs:
+    get:
+      operationId: listReconciliationRuns
+      tags: [Reconciliation]
+      summary: List reconciliation runs
+      description: Retrieve all reconciliation run records.
+      security:
+        - StaffAuth: []
+      parameters:
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReconciliationRun'
+                  count:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+
+  /ops/reconciliation/findings:
+    get:
+      operationId: listReconciliationFindings
+      tags: [Reconciliation]
+      summary: List reconciliation findings
+      description: Retrieve reconciliation findings with optional status filter.
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [OPEN, ACKNOWLEDGED, RESOLVED]
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: List of findings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  findings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReconciliationFinding'
+                  count:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+
+  /ops/repair/idempotency/{journalId}:
+    post:
+      operationId: repairIdempotency
+      tags: [Ops]
+      summary: Repair idempotency record for journal
+      description: |
+        If a journal exists but its idempotency record is missing, safely reconstruct it.
+        Emits REPAIR_PERFORMED event and audit log entry. **Never modifies ledger entries.**
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: journalId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: Repair result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairResponse'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /ops/repair/state/{journalId}:
+    post:
+      operationId: repairState
+      tags: [Ops]
+      summary: Repair stale idempotency state for journal
+      description: |
+        If a journal's idempotency record is stuck in IN_PROGRESS beyond timeout, mark it COMPLETED.
+        Emits STATE_REPAIRED event. **Never modifies ledger entries.**
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: journalId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: Repair result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairResponse'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  #  OVERDRAFT (Staff-Only, Maker-Checker)
+  # ============================================================
+  /ops/overdraft/request:
+    post:
+      operationId: requestOverdraft
+      tags: [Overdraft]
+      summary: Request overdraft facility
+      description: |
+        Create an overdraft facility request. Requires maker-checker approval before activation.
+        Creates both the facility (PENDING) and an approval request.
+      security:
+        - StaffAuth: []
+      parameters:
+        - $ref: '#/components/parameters/staffIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OverdraftFacilityRequest'
+            example:
+              account_id: '01HZ...'
+              limit_amount: '5000.00'
+              currency: BBD
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Overdraft request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverdraftRequestResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+
+  /ops/overdraft/{facilityId}/approve:
+    post:
+      operationId: approveOverdraft
+      tags: [Overdraft]
+      summary: Approve overdraft facility
+      description: |
+        Approve an overdraft facility. **Maker-checker enforced**: approver must differ from requester.
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: facilityId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/staffIdHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                correlation_id:
+                  type: string
+      responses:
+        '200':
+          description: Overdraft approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverdraftActionResponse'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '403':
+          description: Maker cannot approve own request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /ops/overdraft/{facilityId}/reject:
+    post:
+      operationId: rejectOverdraft
+      tags: [Overdraft]
+      summary: Reject overdraft facility
+      description: Reject an overdraft facility request.
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: facilityId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/staffIdHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                correlation_id:
+                  type: string
+      responses:
+        '200':
+          description: Overdraft rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverdraftActionResponse'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /ops/overdraft:
+    get:
+      operationId: listOverdraftFacilities
+      tags: [Overdraft]
+      summary: List overdraft facilities
+      description: List overdraft facilities with optional filters. Returns 501 (stub).
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: actorType
+          in: query
+          schema:
+            $ref: '#/components/schemas/OwnerType'
+        - name: actorId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, ACTIVE, REJECTED]
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: Overdraft list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OverdraftFacility'
+                  count:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '501':
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================
+  #  SERVICE ROOT
+  # ============================================================
+  /:
+    get:
+      operationId: getServiceInfo
+      tags: [Ops]
+      summary: Service info
+      description: Returns service name and version.
+      responses:
+        '200':
+          description: Service info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: CariCash Nova API
+                  version:
+                    type: string
+                    example: 0.2.0
+
+  /docs:
+    get:
+      operationId: getSwaggerUI
+      tags: [Ops]
+      summary: Swagger UI
+      description: Serves interactive Swagger UI for API documentation.
+      responses:
+        '200':
+          description: HTML page with Swagger UI
+
+  /openapi.yaml:
+    get:
+      operationId: getOpenApiYaml
+      tags: [Ops]
+      summary: OpenAPI spec (YAML)
+      description: Returns the raw OpenAPI 3.1 specification in YAML format.
+      responses:
+        '200':
+          description: OpenAPI YAML spec
+          content:
+            text/yaml:
+              schema:
+                type: string
+
+  /openapi.json:
+    get:
+      operationId: getOpenApiJson
+      tags: [Ops]
+      summary: OpenAPI spec (JSON)
+      description: Returns the OpenAPI 3.1 specification in JSON format.
+      responses:
+        '200':
+          description: OpenAPI JSON spec
+          content:
+            application/json:
+              schema:
+                type: object
+
+# ==============================================================
+#  COMPONENTS
+# ==============================================================
+components:
+  securitySchemes:
+    CustomerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token obtained from POST /auth/customer/login
+    AgentAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token obtained from POST /auth/agent/login
+    MerchantAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token obtained from POST /auth/merchant/login
+    StaffAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token obtained from POST /auth/staff/login (OAuth stub)
+
+  parameters:
+    customerId:
+      name: customerId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Customer actor ID (ULID)
+    agentId:
+      name: agentId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Agent actor ID (ULID)
+    merchantId:
+      name: merchantId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Merchant actor ID (ULID)
+    approvalId:
+      name: approvalId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Approval request ID (ULID)
+    staffIdHeader:
+      name: X-Staff-Id
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Staff actor ID for authentication (placeholder — production will use JWT)
+    cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Opaque pagination cursor
+    pageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 50
+        minimum: 1
+        maximum: 200
+      description: Number of items per page
+
+  responses:
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: 'Validation failed'
+            code: VALIDATION_ERROR
+            correlation_id: '01HZ...'
+    Unauthorized:
+      description: Authentication failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: 'Invalid credentials'
+            correlation_id: '01HZ...'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: 'Not found'
+            code: NOT_FOUND
+            correlation_id: '01HZ...'
+    StaffRequired:
+      description: Staff authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: 'Staff authentication required'
+            code: UNAUTHORIZED
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: 'Rate limit exceeded'
+            correlation_id: '01HZ...'
+
+  schemas:
+    # ---- Enums ----
+    OwnerType:
+      type: string
+      enum: [CUSTOMER, AGENT, MERCHANT, STAFF]
+    ActorType:
+      type: string
+      enum: [CUSTOMER, AGENT, MERCHANT, STAFF]
+    AgentTypeEnum:
+      type: string
+      enum: [STANDARD, AGGREGATOR]
+    TxnType:
+      type: string
+      enum: [DEPOSIT, WITHDRAWAL, P2P, PAYMENT, B2B, REVERSAL, MANUAL_ADJUSTMENT, OVERDRAFT_DRAW]
+    TxnState:
+      type: string
+      enum: [INITIATED, VALIDATED, AUTHORIZED, POSTED, COMPLETED, FAILED, REVERSED, PENDING_APPROVAL]
+    CurrencyCode:
+      type: string
+      enum: [BBD, USD]
+      description: Supported currency codes. BBD is the base currency.
+    ApprovalStatus:
+      type: string
+      enum: [PENDING, APPROVED, REJECTED, EXPIRED]
+    ApprovalType:
+      type: string
+      enum: [REVERSAL_REQUESTED, MANUAL_ADJUSTMENT_REQUESTED, FEE_MATRIX_CHANGE_REQUESTED, COMMISSION_MATRIX_CHANGE_REQUESTED, OVERDRAFT_FACILITY_REQUESTED]
+    KycStatus:
+      type: string
+      enum: [NOT_STARTED, PENDING, APPROVED, REJECTED]
+    ActorState:
+      type: string
+      enum: [PENDING, ACTIVE, SUSPENDED, CLOSED]
+    AccountType:
+      type: string
+      enum: [WALLET, FEE_REVENUE, TAX_PAYABLE, COMMISSIONS_PAYABLE, OVERDRAFT_FACILITY, SUSPENSE, CASH_FLOAT]
+    ErrorCodeEnum:
+      type: string
+      enum:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - VALIDATION_ERROR
+        - INSUFFICIENT_FUNDS
+        - CROSS_CURRENCY_NOT_ALLOWED
+        - LIMIT_EXCEEDED
+        - KYC_REQUIRED
+        - BLOCKLISTED
+        - DUPLICATE_IDEMPOTENCY_CONFLICT
+        - IDEMPOTENCY_IN_PROGRESS
+        - MAKER_CHECKER_REQUIRED
+        - NOT_FOUND
+        - CONFLICT
+        - INTERNAL_ERROR
+        - UNBALANCED_JOURNAL
+        - JOURNAL_NOT_FOUND
+        - ACCOUNT_NOT_FOUND
+        - MAKER_CHECKER_VIOLATION
+        - APPROVAL_NOT_FOUND
+        - APPROVAL_ALREADY_DECIDED
+        - INVALID_CREDENTIALS
+        - ACCOUNT_LOCKED
+        - RATE_LIMIT_EXCEEDED
+        - SESSION_EXPIRED
+        - ACTOR_NOT_FOUND
+        - ACTOR_SUSPENDED
+        - DUPLICATE_IDENTIFIER
+        - MISSING_REQUIRED_FIELD
+        - RECONCILIATION_MISMATCH
+        - INTEGRITY_VIOLATION
+        - REPAIR_FAILED
+
+    # ---- Error response ----
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+        code:
+          $ref: '#/components/schemas/ErrorCodeEnum'
+        name:
+          type: string
+          description: Error class name
+        correlation_id:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        retryable:
+          type: boolean
+          default: false
+
+    # ---- Auth requests ----
+    CustomerLoginRequest:
+      type: object
+      required: [msisdn, pin]
+      properties:
+        msisdn:
+          type: string
+          description: Customer phone number
+        pin:
+          type: string
+          description: Customer PIN
+
+    AgentLoginRequest:
+      type: object
+      required: [agent_code, pin]
+      properties:
+        agent_code:
+          type: string
+          description: Agent identifier code
+        pin:
+          type: string
+          description: Agent PIN
+
+    MerchantLoginRequest:
+      type: object
+      required: [store_code, pin]
+      properties:
+        store_code:
+          type: string
+          description: Store identifier code
+        pin:
+          type: string
+          description: Merchant PIN
+
+    StaffLoginRequest:
+      type: object
+      required: [staff_code, pin]
+      properties:
+        staff_code:
+          type: string
+          description: Staff identifier code
+        pin:
+          type: string
+          description: Staff PIN
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Bearer token for subsequent requests
+        actor_id:
+          type: string
+        actor_type:
+          $ref: '#/components/schemas/ActorType'
+        session_id:
+          type: string
+        correlation_id:
+          type: string
+
+    # ---- Actor objects ----
+    Actor:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          $ref: '#/components/schemas/ActorType'
+        state:
+          $ref: '#/components/schemas/ActorState'
+        msisdn:
+          type: string
+        agent_code:
+          type: string
+        store_code:
+          type: string
+        staff_code:
+          type: string
+        name:
+          type: string
+        kyc_state:
+          $ref: '#/components/schemas/KycStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ActorResponse:
+      type: object
+      properties:
+        actor:
+          $ref: '#/components/schemas/Actor'
+        correlation_id:
+          type: string
+
+    # ---- Customer ----
+    CreateCustomerRequest:
+      type: object
+      required: [msisdn, name, pin]
+      properties:
+        msisdn:
+          type: string
+        name:
+          type: string
+        pin:
+          type: string
+        correlation_id:
+          type: string
+        idempotency_key:
+          type: string
+
+    CreateCustomerResponse:
+      type: object
+      properties:
+        actor:
+          $ref: '#/components/schemas/Actor'
+        wallet_id:
+          type: string
+        correlation_id:
+          type: string
+
+    # ---- Agent ----
+    CreateAgentRequest:
+      type: object
+      required: [agent_code, name, msisdn, pin, agent_type]
+      properties:
+        agent_code:
+          type: string
+        name:
+          type: string
+        msisdn:
+          type: string
+        pin:
+          type: string
+        agent_type:
+          $ref: '#/components/schemas/AgentTypeEnum'
+        correlation_id:
+          type: string
+
+    CreateAgentResponse:
+      type: object
+      properties:
+        actor:
+          $ref: '#/components/schemas/Actor'
+        wallet_id:
+          type: string
+        cash_float_id:
+          type: string
+        correlation_id:
+          type: string
+
+    # ---- Merchant ----
+    CreateMerchantRequest:
+      type: object
+      required: [store_code, name, msisdn, pin]
+      properties:
+        store_code:
+          type: string
+        name:
+          type: string
+        msisdn:
+          type: string
+        pin:
+          type: string
+        correlation_id:
+          type: string
+
+    CreateMerchantResponse:
+      type: object
+      properties:
+        actor:
+          $ref: '#/components/schemas/Actor'
+        wallet_id:
+          type: string
+        correlation_id:
+          type: string
+
+    # ---- KYC ----
+    KycInitiateRequest:
+      type: object
+      required: [document_type, document_number]
+      properties:
+        document_type:
+          type: string
+          description: Document type (e.g., NATIONAL_ID, PASSPORT)
+        document_number:
+          type: string
+        correlation_id:
+          type: string
+
+    KycInitiateResponse:
+      type: object
+      properties:
+        actor_id:
+          type: string
+        kyc_state:
+          $ref: '#/components/schemas/KycStatus'
+        correlation_id:
+          type: string
+
+    KycProfileResponse:
+      type: object
+      properties:
+        actor_id:
+          type: string
+        kyc_state:
+          $ref: '#/components/schemas/KycStatus'
+        document_type:
+          type: string
+        document_number:
+          type: string
+
+    # ---- Wallet ----
+    BalanceResponse:
+      type: object
+      properties:
+        owner_type:
+          $ref: '#/components/schemas/OwnerType'
+        owner_id:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        account_id:
+          type: string
+        balance:
+          type: string
+          description: Decimal string (e.g., "1000.00")
+        correlation_id:
+          type: string
+
+    StatementResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatementEntry'
+        nextCursor:
+          type: string
+          nullable: true
+
+    StatementEntry:
+      type: object
+      properties:
+        journal_id:
+          type: string
+        txn_type:
+          $ref: '#/components/schemas/TxnType'
+        entry_type:
+          type: string
+          enum: [DR, CR]
+        amount:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    # ---- Transaction requests ----
+    DepositRequest:
+      type: object
+      required: [agent_id, customer_msisdn, amount, currency, idempotency_key]
+      properties:
+        agent_id:
+          type: string
+        customer_msisdn:
+          type: string
+        amount:
+          type: string
+          description: Decimal amount (e.g., "500.00")
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        idempotency_key:
+          type: string
+          description: Unique key for idempotent retry
+        correlation_id:
+          type: string
+
+    WithdrawalRequest:
+      type: object
+      required: [agent_id, customer_msisdn, amount, currency, idempotency_key]
+      properties:
+        agent_id:
+          type: string
+        customer_msisdn:
+          type: string
+        amount:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        idempotency_key:
+          type: string
+        correlation_id:
+          type: string
+
+    P2PRequest:
+      type: object
+      required: [sender_msisdn, receiver_msisdn, amount, currency, idempotency_key]
+      properties:
+        sender_msisdn:
+          type: string
+        receiver_msisdn:
+          type: string
+        amount:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        idempotency_key:
+          type: string
+        correlation_id:
+          type: string
+
+    PaymentRequest:
+      type: object
+      required: [customer_msisdn, store_code, amount, currency, idempotency_key]
+      properties:
+        customer_msisdn:
+          type: string
+        store_code:
+          type: string
+        amount:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        idempotency_key:
+          type: string
+        correlation_id:
+          type: string
+
+    B2BRequest:
+      type: object
+      required: [sender_store_code, receiver_store_code, amount, currency, idempotency_key]
+      properties:
+        sender_store_code:
+          type: string
+        receiver_store_code:
+          type: string
+        amount:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        idempotency_key:
+          type: string
+        correlation_id:
+          type: string
+
+    ReversalRequest:
+      type: object
+      required: [original_journal_id, reason, staff_id, idempotency_key]
+      properties:
+        original_journal_id:
+          type: string
+        reason:
+          type: string
+        staff_id:
+          type: string
+        idempotency_key:
+          type: string
+        correlation_id:
+          type: string
+
+    # ---- Transaction receipt ----
+    TransactionReceipt:
+      type: object
+      properties:
+        journal_id:
+          type: string
+        state:
+          $ref: '#/components/schemas/TxnState'
+        txn_type:
+          $ref: '#/components/schemas/TxnType'
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerLineEntry'
+        created_at:
+          type: string
+          format: date-time
+        correlation_id:
+          type: string
+
+    LedgerLineEntry:
+      type: object
+      properties:
+        account_id:
+          type: string
+        entry_type:
+          type: string
+          enum: [DR, CR]
+        amount:
+          type: string
+        description:
+          type: string
+
+    ReversalRequestResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+        state:
+          $ref: '#/components/schemas/ApprovalStatus'
+        correlation_id:
+          type: string
+
+    # ---- Journal ----
+    JournalResponse:
+      type: object
+      properties:
+        journal:
+          type: object
+          properties:
+            id:
+              type: string
+            txn_type:
+              $ref: '#/components/schemas/TxnType'
+            currency:
+              $ref: '#/components/schemas/CurrencyCode'
+            correlation_id:
+              type: string
+            idempotency_key:
+              type: string
+            state:
+              $ref: '#/components/schemas/TxnState'
+            description:
+              type: string
+            created_at:
+              type: string
+              format: date-time
+            prev_hash:
+              type: string
+            hash:
+              type: string
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              journal_id:
+                type: string
+              account_id:
+                type: string
+              entry_type:
+                type: string
+                enum: [DR, CR]
+              amount:
+                type: string
+              description:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+
+    # ---- Approvals ----
+    ApprovalActionRequest:
+      type: object
+      required: [staff_id]
+      properties:
+        staff_id:
+          type: string
+        correlation_id:
+          type: string
+
+    ApprovalRejectRequest:
+      type: object
+      required: [staff_id]
+      properties:
+        staff_id:
+          type: string
+        reason:
+          type: string
+        correlation_id:
+          type: string
+
+    ApprovalActionResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+        state:
+          $ref: '#/components/schemas/ApprovalStatus'
+        reversal:
+          $ref: '#/components/schemas/TransactionReceipt'
+        correlation_id:
+          type: string
+
+    ApprovalResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          $ref: '#/components/schemas/ApprovalType'
+        state:
+          $ref: '#/components/schemas/ApprovalStatus'
+        maker_staff_id:
+          type: string
+        checker_staff_id:
+          type: string
+        payload_json:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+
+    # ---- Reconciliation ----
+    ReconciliationRun:
+      type: object
+      properties:
+        id:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [RUNNING, COMPLETED, FAILED]
+        summary_json:
+          type: string
+
+    ReconciliationFinding:
+      type: object
+      properties:
+        id:
+          type: string
+        run_id:
+          type: string
+        account_id:
+          type: string
+        currency:
+          type: string
+        expected_balance:
+          type: string
+        actual_balance:
+          type: string
+        delta:
+          type: string
+        severity:
+          type: string
+          enum: [INFO, WARNING, CRITICAL, LOW, MEDIUM, HIGH]
+        status:
+          type: string
+          enum: [OPEN, ACKNOWLEDGED, RESOLVED]
+        created_at:
+          type: string
+          format: date-time
+
+    ReconciliationRunResponse:
+      type: object
+      properties:
+        run_id:
+          type: string
+        status:
+          type: string
+        findings_count:
+          type: integer
+        mismatches:
+          type: integer
+
+    # ---- Integrity ----
+    IntegrityVerifyResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        journals_verified:
+          type: integer
+        first_failure:
+          type: object
+          nullable: true
+          properties:
+            journal_id:
+              type: string
+            expected_hash:
+              type: string
+            actual_hash:
+              type: string
+
+    # ---- Repair ----
+    RepairResponse:
+      type: object
+      properties:
+        journal_id:
+          type: string
+        repaired:
+          type: boolean
+        message:
+          type: string
+        correlation_id:
+          type: string
+
+    # ---- Overdraft ----
+    OverdraftFacilityRequest:
+      type: object
+      required: [account_id, limit_amount, currency]
+      properties:
+        account_id:
+          type: string
+        limit_amount:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        correlation_id:
+          type: string
+
+    OverdraftRequestResponse:
+      type: object
+      properties:
+        facility_id:
+          type: string
+        request_id:
+          type: string
+        state:
+          type: string
+        correlation_id:
+          type: string
+
+    OverdraftActionResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+        state:
+          $ref: '#/components/schemas/ApprovalStatus'
+        correlation_id:
+          type: string
+
+    OverdraftFacility:
+      type: object
+      properties:
+        id:
+          type: string
+        account_id:
+          type: string
+        limit_amount:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        state:
+          type: string
+          enum: [PENDING, ACTIVE, REJECTED]
+        maker_staff_id:
+          type: string
+        checker_staff_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time

@@ -1,0 +1,15 @@
+{
+  "name": "@caricash/tests",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "audit-gate": "npx vitest run --reporter=verbose 2>&1 | node src/audit-gate.mjs"
+  },
+  "dependencies": {
+    "@caricash/shared": "*",
+    "@caricash/posting-do": "*",
+    "@caricash/jobs": "*"
+  }
+}

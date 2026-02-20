@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.sqlite
+*.sqlite-journal
+.mf/
+.turbo/
+coverage/
+*.tsbuildinfo
+.env
+.env.local

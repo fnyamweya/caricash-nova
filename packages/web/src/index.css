@@ -1,0 +1,156 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+  background: #f5f5f5;
+  color: #1a1a1a;
+  min-height: 100vh;
+}
+
+.page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.card h1,
+.card h2 {
+  margin-bottom: 0.5rem;
+}
+
+.card p {
+  margin-bottom: 1rem;
+  color: #555;
+}
+
+.subtitle {
+  font-size: 0.9rem;
+  color: #777 !important;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.875rem;
+  font-weight: 600;
+  gap: 0.25rem;
+}
+
+input {
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+input:focus {
+  outline: none;
+  border-color: #0066ff;
+  box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.15);
+}
+
+button {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #0066ff;
+  color: #fff;
+  transition: background 0.2s;
+}
+
+button:hover {
+  background: #0052cc;
+}
+
+button:disabled {
+  background: #99c2ff;
+  cursor: not-allowed;
+}
+
+.button-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+button.link {
+  background: none;
+  color: #0066ff;
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+}
+
+button.link:hover {
+  background: none;
+  text-decoration: underline;
+}
+
+.error {
+  color: #cc0000 !important;
+  font-size: 0.875rem;
+  padding: 0.5rem;
+  background: #fff0f0;
+  border-radius: 6px;
+}
+
+.balance-card {
+  background: #f0f7ff;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.balance-card h3 {
+  font-size: 0.875rem;
+  color: #555;
+  margin-bottom: 0.25rem;
+}
+
+.balance-amount {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1a1a1a !important;
+}
+
+.events-section {
+  margin-bottom: 1rem;
+}
+
+.events-section h3 {
+  font-size: 0.875rem;
+  color: #555;
+  margin-bottom: 0.5rem;
+}
+
+.empty {
+  font-size: 0.875rem;
+  font-style: italic;
+}
