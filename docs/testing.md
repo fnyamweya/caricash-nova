@@ -20,6 +20,9 @@ npx vitest run --reporter verbose -t "idempotency"
 
 # Run the Phase 2 Audit Gate (formal release gate)
 npm run audit-gate
+
+# Run the standalone Stress Harness (concurrency + invariants)
+npm run stress-harness
 ```
 
 ## Phase 2 Audit Gate
@@ -42,6 +45,50 @@ The audit gate is a formal release validation that runs all test suites and prod
 
 **Exit code 0** = all gates passed (merge allowed)
 **Exit code 1** = one or more gates failed (merge blocked)
+
+## Standalone Stress Harness
+
+The stress harness is a standalone executable script (not a vitest test file) that exercises concurrency, idempotency, and serialization invariants with deterministic seeds.
+
+```bash
+# Run stress harness
+npm run stress-harness
+
+# Or directly:
+npx tsx packages/tests/src/stressHarness.ts
+```
+
+Output:
+```
+═══════════════════════════════════════════
+  PHASE 2 STRESS HARNESS
+═══════════════════════════════════════════
+
+───────────────────────────────────────────
+  STRESS HARNESS INVARIANT REPORT
+───────────────────────────────────────────
+  ✔ Parallel spend: at most floor(X/amount) succeed: PASS
+  ✔ Parallel spend: balance never negative: PASS
+  ✔ Parallel spend: no duplicate journal IDs: PASS
+  ✔ Cross-DO: correct number of transfers: PASS
+  ✔ Cross-DO: balance never negative: PASS
+  ✔ Replay storm: all 100 return success: PASS
+  ✔ Replay storm: 99 are duplicates: PASS
+  ✔ Replay storm: exactly one journal created: PASS
+  ✔ Replay storm: balance debited only once: PASS
+  ✔ Queue replay: exactly 1 processing: PASS
+  ✔ Queue replay: exactly 1 side effect: PASS
+  ✔ Hash determinism: 50 identical scope hashes: PASS
+  ✔ Hash determinism: 50 identical payload hashes: PASS
+  ✔ Hash conflict: different payloads produce different hashes: PASS
+  ✔ Randomized: balance never negative (200 rounds, seed=12345): PASS
+───────────────────────────────────────────
+  Total: 15/15 passed in Xms
+  ✔ STRESS HARNESS: PASSED
+───────────────────────────────────────────
+```
+
+**Exit code 0** = all invariants hold. **Exit code 1** = at least one failure.
 
 ### Interpreting Failures
 
@@ -114,7 +161,7 @@ The audit gate is a formal release validation that runs all test suites and prod
 #### 9. Governance Bypass Detection (PR5)
 | File | Tests | What It Verifies |
 |------|-------|-----------------|
-| `packages/tests/src/__tests__/pr5-governance.test.ts` | 25 | Maker-checker bypass, non-staff ops access, no direct ledger writes, reversal without approval, overdraft without approval |
+| `packages/tests/src/__tests__/pr5-governance.test.ts` | 33 | Maker-checker bypass, non-staff ops access, no direct ledger writes, reversal without approval, overdraft without approval, runtime write guard simulation |
 
 #### 10. PR2 Posting Correctness
 | File | Tests | What It Verifies |

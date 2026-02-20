@@ -13,9 +13,11 @@
     "db:migrate": "cd packages/api && npx wrangler d1 migrations apply caricash-db --local",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "tsc --build",
-    "audit-gate": "npx vitest run --reporter=verbose 2>&1 | node packages/tests/src/audit-gate.mjs"
+    "audit-gate": "npx vitest run --reporter=verbose 2>&1 | node packages/tests/src/audit-gate.mjs",
+    "stress-harness": "npx tsx packages/tests/src/stressHarness.ts"
   },
   "devDependencies": {
+    "tsx": "^4.21.0",
     "typescript": "^5.7.3",
     "vitest": "^3.1.4"
   }
