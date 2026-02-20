@@ -92,6 +92,8 @@ npx wrangler d1 create caricash-db
 
 Update `packages/api/wrangler.toml` with the actual UUIDs in the `env.staging` and `env.production` sections, or let the pipeline substitute them from secrets.
 
+> **Note:** The deploy workflow uses `sed` to replace placeholder values (`REPLACE_WITH_STAGING_D1_DATABASE_ID` and `REPLACE_WITH_PRODUCTION_D1_DATABASE_ID`) in `wrangler.toml` with the actual D1 database UUIDs from GitHub Secrets at deploy time. You can alternatively hardcode the UUIDs directly in `wrangler.toml`.
+
 ---
 
 ## Queues Setup

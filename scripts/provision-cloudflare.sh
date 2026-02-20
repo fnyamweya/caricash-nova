@@ -71,8 +71,16 @@ provision_queue() {
     echo "  ✔ Queue '${queue_name}' already exists"
   else
     echo "  → Creating Queue '${queue_name}'..."
-    npx wrangler queues create "${queue_name}" || true
-    echo "  ✔ Queue '${queue_name}' created"
+    if output=$(npx wrangler queues create "${queue_name}" 2>&1); then
+      echo "  ✔ Queue '${queue_name}' created"
+    else
+      if echo "$output" | grep -qi "already exists"; then
+        echo "  ✔ Queue '${queue_name}' already exists (confirmed via create)"
+      else
+        echo "  ✗ Failed to create queue '${queue_name}': ${output}" >&2
+        exit 1
+      fi
+    fi
   fi
 }
 
@@ -90,8 +98,16 @@ provision_pages() {
     echo "  ✔ Pages project '${project_name}' already exists"
   else
     echo "  → Creating Pages project '${project_name}'..."
-    npx wrangler pages project create "${project_name}" --production-branch=main || true
-    echo "  ✔ Pages project '${project_name}' created"
+    if output=$(npx wrangler pages project create "${project_name}" --production-branch=main 2>&1); then
+      echo "  ✔ Pages project '${project_name}' created"
+    else
+      if echo "$output" | grep -qi "already exists"; then
+        echo "  ✔ Pages project '${project_name}' already exists (confirmed via create)"
+      else
+        echo "  ✗ Failed to create Pages project '${project_name}': ${output}" >&2
+        exit 1
+      fi
+    fi
   fi
 }
 

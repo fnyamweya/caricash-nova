@@ -17,7 +17,7 @@ on:
           - production
 
 concurrency:
-  group: deploy-${{ github.event_name == 'release' && 'production' || 'staging' }}
+  group: deploy-${{ (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')) && 'production' || 'staging' }}
   cancel-in-progress: false
 
 jobs:
@@ -87,6 +87,9 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile || pnpm install
 
+      - name: Configure D1 database ID for staging
+        run: sed -i "s/REPLACE_WITH_STAGING_D1_DATABASE_ID/${{ secrets.CLOUDFLARE_D1_DATABASE_ID_STAGING }}/" packages/api/wrangler.toml
+
       - name: Provision Cloudflare resources
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -153,6 +156,9 @@ jobs:
           version: 9
       - name: Install
         run: pnpm install --frozen-lockfile || pnpm install
+
+      - name: Configure D1 database ID for production
+        run: sed -i "s/REPLACE_WITH_PRODUCTION_D1_DATABASE_ID/${{ secrets.CLOUDFLARE_D1_DATABASE_ID_PROD }}/" packages/api/wrangler.toml
 
       - name: Provision Cloudflare resources
         env:
