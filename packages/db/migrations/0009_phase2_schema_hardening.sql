@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS overdraft_facilities (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES ledger_accounts(id),
-  limit_amount TEXT NOT NULL DEFAULT '0.00',
+  limit_amount TEXT NOT NULL,
   currency TEXT NOT NULL DEFAULT 'BBD',
   state TEXT NOT NULL DEFAULT 'PENDING' CHECK(state IN ('PENDING','APPROVED','REJECTED','ACTIVE','SUSPENDED','CLOSED')),
   maker_staff_id TEXT NOT NULL REFERENCES actors(id),

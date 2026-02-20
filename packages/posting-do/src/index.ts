@@ -338,8 +338,12 @@ export class PostingDO implements DurableObject {
         if (facility) {
           overdraftLimit = parseAmount(facility.limit_amount);
         }
-      } catch {
-        // Table may not exist yet (pre-migration); continue without overdraft
+      } catch (err) {
+        // Only suppress "no such table" errors (pre-migration); re-throw others
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes('no such table')) {
+          throw err;
+        }
       }
 
       if (effectiveBalance + overdraftLimit < requiredCents) {

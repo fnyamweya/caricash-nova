@@ -68,9 +68,22 @@ export async function computeScopeHash(
 
 /**
  * Compute a payload hash for conflict detection.
- * Canonical JSON serialization ensures deterministic ordering.
+ * Canonical JSON serialization ensures deterministic key ordering.
  */
 export async function computePayloadHash(payload: Record<string, unknown>): Promise<string> {
-  const canonical = JSON.stringify(payload, Object.keys(payload).sort());
+  const canonical = canonicalStringify(payload);
   return sha256Hex(canonical);
+}
+
+/** Recursively sorts object keys for deterministic JSON output. */
+function canonicalStringify(value: unknown): string {
+  if (value === null || value === undefined) return JSON.stringify(value);
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return '[' + value.map((v) => canonicalStringify(v)).join(',') + ']';
+  }
+  const obj = value as Record<string, unknown>;
+  const sortedKeys = Object.keys(obj).sort();
+  const parts = sortedKeys.map((k) => JSON.stringify(k) + ':' + canonicalStringify(obj[k]));
+  return '{' + parts.join(',') + '}';
 }

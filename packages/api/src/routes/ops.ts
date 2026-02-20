@@ -32,9 +32,13 @@ import {
 export const opsRoutes = new Hono<{ Bindings: Env }>();
 
 // ---------------------------------------------------------------------------
-// Staff auth middleware (basic check)
+// Staff auth middleware (placeholder — production must verify via session/JWT)
+// TODO: Replace with proper auth verification against sessions/actors table.
+// Current implementation trusts X-Staff-Id header for development only.
 // ---------------------------------------------------------------------------
 async function requireStaff(c: any): Promise<string | null> {
+  // IMPORTANT: In production, this must verify the staff session token
+  // against the sessions table and check that the actor is type=STAFF.
   const staffId = c.req.header('X-Staff-Id');
   if (!staffId) {
     return null;
