@@ -14,7 +14,18 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "composite": true
   },
+  "files": [],
+  "references": [
+    { "path": "packages/api" },
+    { "path": "packages/db" },
+    { "path": "packages/jobs" },
+    { "path": "packages/posting-do" },
+    { "path": "packages/shared" },
+    { "path": "packages/tests" },
+    { "path": "packages/web" }
+  ],
   "exclude": ["node_modules", "dist"]
 }
