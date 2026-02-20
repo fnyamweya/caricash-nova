@@ -29,7 +29,7 @@ ENVIRONMENT = "development"
 # ======================== STAGING ========================
 [env.staging]
 name = "caricash-api-staging"
-route = { pattern = "api-staging.caricash.app/*", zone_name = "caricash.app" }
+route = { pattern = "api-staging.caricash.com/*", zone_name = "caricash.com" }
 
 [[env.staging.d1_databases]]
 binding = "DB"
@@ -55,7 +55,7 @@ ENVIRONMENT = "staging"
 # ======================== PRODUCTION ========================
 [env.production]
 name = "caricash-api"
-route = { pattern = "api.caricash.app/*", zone_name = "caricash.app" }
+route = { pattern = "api.caricash.com/*", zone_name = "caricash.com" }
 
 [[env.production.d1_databases]]
 binding = "DB"
