@@ -16,7 +16,7 @@ bindings = [
 
 [[migrations]]
 tag = "v1"
-new_classes = ["PostingDO"]
+new_sqlite_classes = ["PostingDO"]
 
 [[queues.producers]]
 queue = "caricash-events"
@@ -39,7 +39,7 @@ migrations_dir = "../../packages/db/migrations"
 
 [env.staging.durable_objects]
 bindings = [
-  { name = "POSTING_DO", class_name = "PostingDO" }
+  { name = "POSTING_DO", class_name = "PostingDO", script_name = "caricash-posting-do-staging" }
 ]
 
 [[env.staging.queues.producers]]
@@ -65,7 +65,7 @@ migrations_dir = "../../packages/db/migrations"
 
 [env.production.durable_objects]
 bindings = [
-  { name = "POSTING_DO", class_name = "PostingDO" }
+  { name = "POSTING_DO", class_name = "PostingDO", script_name = "caricash-posting-do" }
 ]
 
 [[env.production.queues.producers]]

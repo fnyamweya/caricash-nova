@@ -9,7 +9,7 @@ bindings = [
 
 [[migrations]]
 tag = "v1"
-new_classes = ["PostingDO"]
+new_sqlite_classes = ["PostingDO"]
 
 # ======================== STAGING ========================
 [env.staging]
