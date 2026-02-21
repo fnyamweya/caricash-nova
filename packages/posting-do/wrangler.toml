@@ -2,6 +2,11 @@ name = "caricash-posting-do"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "caricash-db"
+database_id = "local"
+
 [durable_objects]
 bindings = [
   { name = "POSTING_DO", class_name = "PostingDO" }
@@ -15,6 +20,12 @@ new_sqlite_classes = ["PostingDO"]
 [env.staging]
 name = "caricash-posting-do-staging"
 
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "caricash-db-staging"
+database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
+migrations_dir = "../../packages/db/migrations"
+
 [env.staging.durable_objects]
 bindings = [
   { name = "POSTING_DO", class_name = "PostingDO" }
@@ -23,6 +34,12 @@ bindings = [
 # ======================== PRODUCTION ========================
 [env.production]
 name = "caricash-posting-do"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "caricash-db"
+database_id = "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID"
+migrations_dir = "../../packages/db/migrations"
 
 [env.production.durable_objects]
 bindings = [
