@@ -69,9 +69,10 @@ const portalConfig: Record<
 
 export interface LoginFormProps {
     portalType: PortalType;
-    onSubmit: (data: { identifier: string; pin: string }) => Promise<void>;
+    onSubmit: (data: { identifier: string; pin: string; msisdn?: string }) => Promise<void>;
     loading?: boolean;
     error?: string | null;
+    onRegisterClick?: () => void;
 }
 
 export function LoginForm({
@@ -79,15 +80,21 @@ export function LoginForm({
     onSubmit,
     loading = false,
     error = null,
+    onRegisterClick,
 }: LoginFormProps) {
     const [identifier, setIdentifier] = useState('');
+    const [msisdn, setMsisdn] = useState('');
     const [pin, setPin] = useState('');
     const [showPin, setShowPin] = useState(false);
     const config = portalConfig[portalType];
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        await onSubmit({ identifier, pin });
+        await onSubmit({
+            identifier,
+            pin,
+            ...(portalType === 'merchant' ? { msisdn } : {}),
+        });
     }
 
     return (
@@ -165,6 +172,28 @@ export function LoginForm({
                                 </div>
                             </div>
 
+                            {portalType === 'merchant' && (
+                                <div className="flex flex-col gap-2">
+                                    <Label htmlFor="msisdn">Phone Number</Label>
+                                    <div className="relative">
+                                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                                            <Phone className="h-4 w-4" />
+                                        </span>
+                                        <Input
+                                            id="msisdn"
+                                            value={msisdn}
+                                            onChange={(e) => setMsisdn(e.target.value)}
+                                            placeholder="Enter your phone number"
+                                            className="pl-10"
+                                            required
+                                            disabled={loading}
+                                            autoComplete="tel"
+                                            inputMode="tel"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex flex-col gap-2">
                                 <Label htmlFor="pin">PIN</Label>
                                 <div className="relative">
@@ -208,6 +237,19 @@ export function LoginForm({
                                     'Sign In'
                                 )}
                             </Button>
+
+                            {onRegisterClick && (
+                                <p className="mt-1 text-center text-sm text-muted-foreground">
+                                    Don&apos;t have an account?{' '}
+                                    <button
+                                        type="button"
+                                        className="font-medium text-primary underline-offset-4 hover:underline"
+                                        onClick={onRegisterClick}
+                                    >
+                                        Register your store
+                                    </button>
+                                </p>
+                            )}
                         </form>
                     </CardContent>
                 </Card>

@@ -15,8 +15,9 @@ import {
     Clock,
     ShieldCheck,
 } from 'lucide-react';
-import { AppShell, useAuth, type NavItem } from '@caricash/ui';
+import { AppShell, NotFoundPage, useAuth, type NavItem } from '@caricash/ui';
 import { LoginPage } from './pages/login.js';
+import { RegisterPage } from './pages/register.js';
 import { DashboardPage } from './pages/dashboard.js';
 import { SendMoneyPage } from './pages/send-money.js';
 import { PayMerchantPage } from './pages/pay-merchant.js';
@@ -33,6 +34,13 @@ const loginRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/login',
     component: LoginPage,
+});
+
+// ── Register (public) ─────────────────────────────────
+const registerRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/register',
+    component: RegisterPage,
 });
 
 // ── Auth layout ───────────────────────────────────────
@@ -148,6 +156,7 @@ const kycRoute = createRoute({
 // ── Router tree ───────────────────────────────────────
 const routeTree = rootRoute.addChildren([
     loginRoute,
+    registerRoute,
     authLayoutRoute.addChildren([
         indexRoute,
         dashboardRoute,
@@ -158,7 +167,10 @@ const routeTree = rootRoute.addChildren([
     ]),
 ]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({
+    routeTree,
+    defaultNotFoundComponent: () => <NotFoundPage homeHref="/dashboard" homeLabel="Go to dashboard" />,
+});
 
 declare module '@tanstack/react-router' {
     interface Register {

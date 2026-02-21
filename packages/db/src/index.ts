@@ -6,6 +6,8 @@
  */
 import type {
   Actor,
+  ActorLookup,
+  MerchantUser,
   LedgerAccount,
   LedgerJournal,
   LedgerLine,
@@ -15,6 +17,9 @@ import type {
   IdempotencyRecord,
   FeeRule,
   CommissionRule,
+  RegistrationMetadata,
+  AccountBalance,
+  FloatOperation,
 } from '@caricash/shared';
 
 // D1Database from @cloudflare/workers-types
@@ -48,18 +53,25 @@ export interface Session {
 export async function insertActor(db: D1Database, actor: Actor): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO actors (id, type, state, name, msisdn, agent_code, store_code, staff_code, kyc_state, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+      `INSERT INTO actors (id, type, state, name, first_name, middle_name, last_name, display_name, email, msisdn, agent_code, store_code, staff_code, staff_role, parent_actor_id, kyc_state, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`,
     )
     .bind(
       actor.id,
       actor.type,
       actor.state,
       actor.name,
+      actor.first_name ?? null,
+      actor.middle_name ?? null,
+      actor.last_name ?? null,
+      actor.display_name ?? null,
+      actor.email ?? null,
       actor.msisdn ?? null,
       actor.agent_code ?? null,
       actor.store_code ?? null,
       actor.staff_code ?? null,
+      actor.staff_role ?? null,
+      actor.parent_actor_id ?? null,
       actor.kyc_state,
       actor.created_at,
       actor.updated_at,
@@ -756,4 +768,404 @@ export async function getActiveCommissionRules(
     .bind(timestamp, txnType, currency)
     .all();
   return (res.results ?? []) as CommissionRule[];
+}
+
+// ---------------------------------------------------------------------------
+// Actor Lookup (safe — returns minimal data for recipient verification)
+// ---------------------------------------------------------------------------
+
+const ACTOR_LOOKUP_FIELDS = 'id, type, state, name, first_name, middle_name, last_name, display_name';
+
+export async function lookupActorByMsisdn(db: D1Database, msisdn: string): Promise<ActorLookup | null> {
+  return (await db.prepare(`SELECT ${ACTOR_LOOKUP_FIELDS} FROM actors WHERE msisdn = ?1`).bind(msisdn).first()) as ActorLookup | null;
+}
+
+export async function lookupActorByStoreCode(db: D1Database, storeCode: string): Promise<ActorLookup | null> {
+  return (await db.prepare(`SELECT ${ACTOR_LOOKUP_FIELDS} FROM actors WHERE store_code = ?1`).bind(storeCode).first()) as ActorLookup | null;
+}
+
+export async function lookupActorByAgentCode(db: D1Database, agentCode: string): Promise<ActorLookup | null> {
+  return (await db.prepare(`SELECT ${ACTOR_LOOKUP_FIELDS} FROM actors WHERE agent_code = ?1`).bind(agentCode).first()) as ActorLookup | null;
+}
+
+export async function getActorById(db: D1Database, id: string): Promise<Actor | null> {
+  return (await db.prepare('SELECT * FROM actors WHERE id = ?1').bind(id).first()) as Actor | null;
+}
+
+export async function updateActorProfile(
+  db: D1Database,
+  actorId: string,
+  fields: { first_name?: string; middle_name?: string; last_name?: string; display_name?: string; email?: string; name?: string },
+): Promise<void> {
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+  let paramIdx = 1;
+
+  if (fields.first_name !== undefined) {
+    sets.push(`first_name = ?${paramIdx++}`);
+    values.push(fields.first_name);
+  }
+  if (fields.middle_name !== undefined) {
+    sets.push(`middle_name = ?${paramIdx++}`);
+    values.push(fields.middle_name);
+  }
+  if (fields.last_name !== undefined) {
+    sets.push(`last_name = ?${paramIdx++}`);
+    values.push(fields.last_name);
+  }
+  if (fields.display_name !== undefined) {
+    sets.push(`display_name = ?${paramIdx++}`);
+    values.push(fields.display_name);
+  }
+  if (fields.email !== undefined) {
+    sets.push(`email = ?${paramIdx++}`);
+    values.push(fields.email);
+  }
+  if (fields.name !== undefined) {
+    sets.push(`name = ?${paramIdx++}`);
+    values.push(fields.name);
+  }
+
+  sets.push(`updated_at = ?${paramIdx++}`);
+  values.push(new Date().toISOString());
+  values.push(actorId);
+
+  await db
+    .prepare(`UPDATE actors SET ${sets.join(', ')} WHERE id = ?${paramIdx}`)
+    .bind(...values)
+    .run();
+}
+
+// ---------------------------------------------------------------------------
+// Merchant Users
+// ---------------------------------------------------------------------------
+
+export async function insertMerchantUser(db: D1Database, user: MerchantUser & { pin_hash?: string; salt?: string }): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO merchant_users (id, actor_id, msisdn, name, role, pin_hash, salt, state, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+    )
+    .bind(
+      user.id,
+      user.actor_id,
+      user.msisdn,
+      user.name,
+      user.role,
+      user.pin_hash ?? null,
+      user.salt ?? null,
+      user.state,
+      user.created_at,
+      user.updated_at,
+    )
+    .run();
+}
+
+export async function getMerchantUsers(db: D1Database, actorId: string): Promise<MerchantUser[]> {
+  const res = await db
+    .prepare("SELECT id, actor_id, msisdn, name, role, state, created_at, updated_at FROM merchant_users WHERE actor_id = ?1 AND state != 'REMOVED' ORDER BY created_at ASC")
+    .bind(actorId)
+    .all();
+  return (res.results ?? []) as MerchantUser[];
+}
+
+export async function getMerchantUserById(db: D1Database, userId: string): Promise<MerchantUser | null> {
+  return (await db
+    .prepare('SELECT id, actor_id, msisdn, name, role, state, created_at, updated_at FROM merchant_users WHERE id = ?1')
+    .bind(userId)
+    .first()) as MerchantUser | null;
+}
+
+/** Look up a merchant user by store actor ID + phone number (used for login). */
+export async function getMerchantUserByActorAndMsisdn(
+  db: D1Database,
+  actorId: string,
+  msisdn: string,
+): Promise<(MerchantUser & { pin_hash: string; salt: string; failed_attempts: number; locked_until: string | null }) | null> {
+  return (await db
+    .prepare(
+      `SELECT id, actor_id, msisdn, name, role, state, pin_hash, salt, failed_attempts, locked_until, created_at, updated_at
+       FROM merchant_users
+       WHERE actor_id = ?1 AND msisdn = ?2 AND state = 'ACTIVE'`,
+    )
+    .bind(actorId, msisdn)
+    .first()) as (MerchantUser & { pin_hash: string; salt: string; failed_attempts: number; locked_until: string | null }) | null;
+}
+
+/** Update failed_attempts / locked_until on a merchant_user row (for auth lockout). */
+export async function updateMerchantUserFailedAttempts(
+  db: D1Database,
+  merchantUserId: string,
+  attempts: number,
+  lockedUntil?: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE merchant_users SET failed_attempts = ?1, locked_until = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?3`,
+    )
+    .bind(attempts, lockedUntil ?? null, merchantUserId)
+    .run();
+}
+
+export async function updateMerchantUser(
+  db: D1Database,
+  userId: string,
+  fields: { name?: string; role?: string; state?: string },
+): Promise<void> {
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+  let paramIdx = 1;
+
+  if (fields.name !== undefined) {
+    sets.push(`name = ?${paramIdx++}`);
+    values.push(fields.name);
+  }
+  if (fields.role !== undefined) {
+    sets.push(`role = ?${paramIdx++}`);
+    values.push(fields.role);
+  }
+  if (fields.state !== undefined) {
+    sets.push(`state = ?${paramIdx++}`);
+    values.push(fields.state);
+  }
+
+  sets.push(`updated_at = ?${paramIdx++}`);
+  values.push(new Date().toISOString());
+  values.push(userId);
+
+  await db
+    .prepare(`UPDATE merchant_users SET ${sets.join(', ')} WHERE id = ?${paramIdx}`)
+    .bind(...values)
+    .run();
+}
+
+// ---------------------------------------------------------------------------
+// Merchant Store Hierarchy (closure table)
+// ---------------------------------------------------------------------------
+
+import type { MerchantStoreClosure } from '@caricash/shared';
+
+/** Insert the self-referencing closure row (depth 0) for a new merchant store. */
+export async function initMerchantStoreClosure(db: D1Database, actorId: string): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO merchant_store_closure (ancestor_id, descendant_id, depth) VALUES (?1, ?2, 0)`,
+    )
+    .bind(actorId, actorId)
+    .run();
+}
+
+/**
+ * Link a child store under a parent store.
+ * Copies every ancestor of the parent and creates a link to the child at depth+1.
+ */
+export async function linkMerchantStoreBranch(
+  db: D1Database,
+  parentActorId: string,
+  childActorId: string,
+): Promise<void> {
+  // Ensure self-rows exist
+  await initMerchantStoreClosure(db, parentActorId);
+  await initMerchantStoreClosure(db, childActorId);
+
+  // Insert (ancestor, child, depth_to_parent + 1) for every ancestor of the parent
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO merchant_store_closure (ancestor_id, descendant_id, depth)
+       SELECT ancestor_id, ?1, depth + 1
+       FROM merchant_store_closure
+       WHERE descendant_id = ?2`,
+    )
+    .bind(childActorId, parentActorId)
+    .run();
+}
+
+/** Get all descendant store actor IDs for a given ancestor (excluding self). */
+export async function getMerchantDescendants(db: D1Database, actorId: string): Promise<Actor[]> {
+  const res = await db
+    .prepare(
+      `SELECT a.* FROM actors a
+       JOIN merchant_store_closure c ON a.id = c.descendant_id
+       WHERE c.ancestor_id = ?1 AND c.depth > 0
+       ORDER BY c.depth ASC`,
+    )
+    .bind(actorId)
+    .all();
+  return (res.results ?? []) as Actor[];
+}
+
+/** Get all ancestor store actor IDs for a given descendant (excluding self). */
+export async function getMerchantAncestors(db: D1Database, actorId: string): Promise<Actor[]> {
+  const res = await db
+    .prepare(
+      `SELECT a.* FROM actors a
+       JOIN merchant_store_closure c ON a.id = c.ancestor_id
+       WHERE c.descendant_id = ?1 AND c.depth > 0
+       ORDER BY c.depth ASC`,
+    )
+    .bind(actorId)
+    .all();
+  return (res.results ?? []) as Actor[];
+}
+
+// ---------------------------------------------------------------------------
+// Registration Metadata
+// ---------------------------------------------------------------------------
+
+export async function insertRegistrationMetadata(db: D1Database, meta: RegistrationMetadata): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO registration_metadata (
+        id, actor_id, registration_type, registered_by_actor_id, registered_by_actor_type,
+        channel, device_type, device_info, ip_address, geo_location,
+        actor_snapshot_json, referral_code, campaign_id, utm_source, utm_medium, utm_campaign,
+        terms_accepted_at, privacy_accepted_at, marketing_opt_in,
+        verification_json, metadata_json, started_at, completed_at, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)`,
+    )
+    .bind(
+      meta.id,
+      meta.actor_id,
+      meta.registration_type,
+      meta.registered_by_actor_id ?? null,
+      meta.registered_by_actor_type ?? null,
+      meta.channel ?? null,
+      meta.device_type ?? null,
+      meta.device_info ?? null,
+      meta.ip_address ?? null,
+      meta.geo_location ?? null,
+      meta.actor_snapshot_json,
+      meta.referral_code ?? null,
+      meta.campaign_id ?? null,
+      meta.utm_source ?? null,
+      meta.utm_medium ?? null,
+      meta.utm_campaign ?? null,
+      meta.terms_accepted_at ?? null,
+      meta.privacy_accepted_at ?? null,
+      meta.marketing_opt_in ? 1 : 0,
+      meta.verification_json ?? '{}',
+      meta.metadata_json ?? '{}',
+      meta.started_at,
+      meta.completed_at ?? null,
+      meta.created_at,
+      meta.updated_at,
+    )
+    .run();
+}
+
+export async function getRegistrationMetadataByActorId(db: D1Database, actorId: string): Promise<RegistrationMetadata | null> {
+  return (await db.prepare('SELECT * FROM registration_metadata WHERE actor_id = ?1').bind(actorId).first()) as RegistrationMetadata | null;
+}
+
+// ---------------------------------------------------------------------------
+// Account Balances (actual & available)
+// ---------------------------------------------------------------------------
+
+export async function getAccountBalance(db: D1Database, accountId: string): Promise<AccountBalance | null> {
+  return (await db.prepare('SELECT * FROM account_balances WHERE account_id = ?1').bind(accountId).first()) as AccountBalance | null;
+}
+
+export async function upsertAccountBalance(db: D1Database, bal: AccountBalance): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO account_balances (account_id, actual_balance, available_balance, hold_amount, pending_credits, last_journal_id, currency, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+       ON CONFLICT(account_id) DO UPDATE SET
+         actual_balance = ?2,
+         available_balance = ?3,
+         hold_amount = ?4,
+         pending_credits = ?5,
+         last_journal_id = ?6,
+         updated_at = ?8`,
+    )
+    .bind(
+      bal.account_id,
+      bal.actual_balance,
+      bal.available_balance,
+      bal.hold_amount,
+      bal.pending_credits,
+      bal.last_journal_id ?? null,
+      bal.currency,
+      bal.updated_at,
+    )
+    .run();
+}
+
+export async function getAccountBalancesByOwner(
+  db: D1Database,
+  ownerType: string,
+  ownerId: string,
+  currency: string,
+): Promise<AccountBalance[]> {
+  const res = await db
+    .prepare(
+      `SELECT ab.* FROM account_balances ab
+       JOIN ledger_accounts la ON ab.account_id = la.id
+       WHERE la.owner_type = ?1 AND la.owner_id = ?2 AND la.currency = ?3`,
+    )
+    .bind(ownerType, ownerId, currency)
+    .all();
+  return (res.results ?? []) as AccountBalance[];
+}
+
+/** Initialize account_balances row for a newly created ledger account */
+export async function initAccountBalance(db: D1Database, accountId: string, currency: string): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO account_balances (account_id, actual_balance, available_balance, hold_amount, pending_credits, currency, updated_at)
+       VALUES (?1, '0.00', '0.00', '0.00', '0.00', ?2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+    )
+    .bind(accountId, currency)
+    .run();
+}
+
+// ---------------------------------------------------------------------------
+// Float Operations
+// ---------------------------------------------------------------------------
+
+export async function insertFloatOperation(db: D1Database, op: FloatOperation): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO float_operations (
+        id, agent_actor_id, agent_account_id, staff_actor_id,
+        operation_type, amount, currency, journal_id,
+        balance_before, balance_after, available_before, available_after,
+        requires_approval, approval_id, reason, reference,
+        idempotency_key, correlation_id, created_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
+    )
+    .bind(
+      op.id,
+      op.agent_actor_id,
+      op.agent_account_id,
+      op.staff_actor_id,
+      op.operation_type,
+      op.amount,
+      op.currency,
+      op.journal_id ?? null,
+      op.balance_before,
+      op.balance_after,
+      op.available_before,
+      op.available_after,
+      op.requires_approval ? 1 : 0,
+      op.approval_id ?? null,
+      op.reason ?? null,
+      op.reference ?? null,
+      op.idempotency_key,
+      op.correlation_id,
+      op.created_at,
+    )
+    .run();
+}
+
+export async function getFloatOperationsByAgent(db: D1Database, agentActorId: string, limit: number = 50): Promise<FloatOperation[]> {
+  const res = await db
+    .prepare('SELECT * FROM float_operations WHERE agent_actor_id = ?1 ORDER BY created_at DESC LIMIT ?2')
+    .bind(agentActorId, limit)
+    .all();
+  return (res.results ?? []) as FloatOperation[];
+}
+
+export async function getFloatOperationByIdempotencyKey(db: D1Database, key: string): Promise<FloatOperation | null> {
+  return (await db.prepare('SELECT * FROM float_operations WHERE idempotency_key = ?1').bind(key).first()) as FloatOperation | null;
 }

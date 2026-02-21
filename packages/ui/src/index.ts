@@ -46,6 +46,12 @@ export { DataTable } from './components/shared/data-table.js';
 export { TransactionTable } from './components/shared/transaction-table.js';
 export type { Transaction } from './components/shared/transaction-table.js';
 export { LoginForm } from './components/shared/login-form.js';
+export { MerchantRegisterForm } from './components/shared/merchant-register-form.js';
+export type { MerchantRegisterData } from './components/shared/merchant-register-form.js';
+export { CustomerRegisterForm } from './components/shared/customer-register-form.js';
+export type { CustomerRegisterData, PreferredNameOption } from './components/shared/customer-register-form.js';
+export { NotFoundPage } from './components/shared/not-found-page.js';
+export type { NotFoundPageProps } from './components/shared/not-found-page.js';
 export { PageTransition } from './components/shared/page-transition.js';
 export { ActionCard } from './components/shared/action-card.js';
 

@@ -14,14 +14,17 @@ import {
     ArrowLeftRight,
     Clock,
     QrCode,
+    Users,
 } from 'lucide-react';
-import { AppShell, useAuth, type NavItem } from '@caricash/ui';
+import { AppShell, NotFoundPage, useAuth, type NavItem } from '@caricash/ui';
 import { LoginPage } from './pages/login.js';
+import { RegisterPage } from './pages/register.js';
 import { DashboardPage } from './pages/dashboard.js';
 import { PaymentsPage } from './pages/payments.js';
 import { TransferPage } from './pages/transfer.js';
 import { HistoryPage } from './pages/history.js';
 import { QrCodePage } from './pages/qr-code.js';
+import { TeamPage } from './pages/team.js';
 
 // ── Root ──────────────────────────────────────────────
 const rootRoute = createRootRoute({
@@ -33,6 +36,12 @@ const loginRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/login',
     component: LoginPage,
+});
+
+const registerRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/register',
+    component: RegisterPage,
 });
 
 // ── Auth layout ───────────────────────────────────────
@@ -81,6 +90,12 @@ function AuthLayout() {
             href: '/history',
             icon: <Clock className="h-4 w-4" />,
             active: location.pathname === '/history',
+        },
+        {
+            label: 'Team',
+            href: '/team',
+            icon: <Users className="h-4 w-4" />,
+            active: location.pathname === '/team',
         },
     ];
 
@@ -145,9 +160,16 @@ const qrCodeRoute = createRoute({
     component: QrCodePage,
 });
 
+const teamRoute = createRoute({
+    getParentRoute: () => authLayoutRoute,
+    path: '/team',
+    component: TeamPage,
+});
+
 // ── Router tree ───────────────────────────────────────
 const routeTree = rootRoute.addChildren([
     loginRoute,
+    registerRoute,
     authLayoutRoute.addChildren([
         indexRoute,
         dashboardRoute,
@@ -155,10 +177,14 @@ const routeTree = rootRoute.addChildren([
         transferRoute,
         historyRoute,
         qrCodeRoute,
+        teamRoute,
     ]),
 ]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({
+    routeTree,
+    defaultNotFoundComponent: () => <NotFoundPage homeHref="/dashboard" homeLabel="Go to dashboard" />,
+});
 
 declare module '@tanstack/react-router' {
     interface Register {

@@ -102,6 +102,16 @@ export function createApiClient(baseUrl: string) {
             });
             return handleResponse<T>(response);
         },
+
+        async patch<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+            const response = await fetch(buildUrl(path), {
+                method: 'PATCH',
+                headers: buildHeaders(options),
+                body: body != null ? JSON.stringify(body) : undefined,
+                signal: options?.signal,
+            });
+            return handleResponse<T>(response);
+        },
     };
 }
 

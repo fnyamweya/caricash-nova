@@ -35,6 +35,8 @@ import {
     Sparkles,
     Camera,
     CircleAlert,
+    ShieldAlert,
+    Loader2,
 } from 'lucide-react';
 import { ActionConfirmModal } from '../components/action-confirm-modal.js';
 
@@ -42,6 +44,17 @@ interface PostingReceipt {
     posting_id: string;
     state: string;
     [key: string]: unknown;
+}
+
+interface ActorLookupResult {
+    actor: {
+        id: string;
+        type: string;
+        state: string;
+        name: string;
+        first_name?: string;
+        last_name?: string;
+    };
 }
 
 interface RecentMerchant {
@@ -186,6 +199,11 @@ export function PayMerchantPage() {
     const [manualQrPayload, setManualQrPayload] = useState('');
     const [recentMerchants, setRecentMerchants] = useState<RecentMerchant[]>(() => loadRecentMerchants());
 
+    // Recipient verification state
+    const [verifiedMerchant, setVerifiedMerchant] = useState<ActorLookupResult['actor'] | null>(null);
+    const [verifyLoading, setVerifyLoading] = useState(false);
+    const [verifyError, setVerifyError] = useState<string | null>(null);
+
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const frameRef = useRef<number | null>(null);
@@ -322,13 +340,44 @@ export function PayMerchantPage() {
             setAmount('');
             setConfirmPin('');
             setConfirmOpen(false);
+            setVerifiedMerchant(null);
         },
     });
 
-    function handleReviewSubmit(e: React.FormEvent) {
+    async function handleReviewSubmit(e: React.FormEvent) {
         e.preventDefault();
         if (!canReview) return;
-        setConfirmOpen(true);
+
+        // Look up merchant before showing PIN modal
+        setVerifyLoading(true);
+        setVerifyError(null);
+        setVerifiedMerchant(null);
+
+        try {
+            const result = await api.get<ActorLookupResult>(
+                `/actors/lookup?store_code=${encodeURIComponent(storeCode.trim())}`,
+            );
+            setVerifiedMerchant(result.actor);
+            // Also update merchant name from verified data
+            if (result.actor.name && !merchantName.trim()) {
+                setMerchantName(result.actor.name);
+            }
+            setConfirmOpen(true);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Merchant not found';
+            setVerifyError(msg);
+        } finally {
+            setVerifyLoading(false);
+        }
+    }
+
+    function getMerchantDisplayName(): string {
+        if (verifiedMerchant) {
+            const parts = [verifiedMerchant.first_name, verifiedMerchant.last_name].filter(Boolean);
+            if (parts.length > 0) return `${verifiedMerchant.name} (${parts.join(' ')})`;
+            return verifiedMerchant.name;
+        }
+        return merchantName.trim() || storeCode.trim() || '-';
     }
 
     return (
@@ -467,10 +516,24 @@ export function PayMerchantPage() {
                                         {mutation.error?.message ?? 'Payment failed. Please try again.'}
                                     </p>
                                 ) : null}
+
+                                {verifyError ? (
+                                    <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                                        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                                        <span>{verifyError}</span>
+                                    </div>
+                                ) : null}
                             </CardContent>
                             <CardFooter>
-                                <Button type="submit" className="w-full" disabled={!canReview}>
-                                    Review Payment
+                                <Button type="submit" className="w-full" disabled={!canReview || verifyLoading}>
+                                    {verifyLoading ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Verifying merchant...
+                                        </>
+                                    ) : (
+                                        'Review Payment'
+                                    )}
                                 </Button>
                             </CardFooter>
                         </form>
@@ -501,6 +564,14 @@ export function PayMerchantPage() {
                                     <span className="text-muted-foreground">Merchant</span>
                                     <span className="font-semibold">{merchantName.trim() || 'Not set'}</span>
                                 </div>
+                                {verifiedMerchant ? (
+                                    <div className="mt-2 flex items-center justify-between">
+                                        <span className="text-muted-foreground">Verified as</span>
+                                        <span className="font-semibold text-green-600 dark:text-green-400">
+                                            {getMerchantDisplayName()}
+                                        </span>
+                                    </div>
+                                ) : null}
                                 <div className="mt-2 flex items-center justify-between">
                                     <span className="text-muted-foreground">Service fee</span>
                                     <span className="font-semibold">BBD 0.00</span>
@@ -533,11 +604,11 @@ export function PayMerchantPage() {
                     if (!open) setConfirmPin('');
                 }}
                 title="Confirm Merchant Payment"
-                description="Enter your PIN to authorize this payment."
+                description="Verify the merchant details and enter your PIN to authorize."
                 summary={[
                     { label: 'From', value: actor?.name ?? 'Your wallet' },
                     { label: 'Store code', value: storeCode.trim() || '-' },
-                    { label: 'Merchant', value: merchantName.trim() || 'Not provided' },
+                    { label: 'Merchant', value: getMerchantDisplayName() },
                     { label: 'Amount', value: `BBD ${normalizedAmount}` },
                     { label: 'Fee', value: 'BBD 0.00' },
                 ]}

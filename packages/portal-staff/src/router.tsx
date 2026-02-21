@@ -18,7 +18,7 @@ import {
     Scale,
     Landmark,
 } from 'lucide-react';
-import { AppShell, useAuth, type NavItem } from '@caricash/ui';
+import { AppShell, NotFoundPage, useAuth, type NavItem } from '@caricash/ui';
 import { LoginPage } from './pages/login.js';
 import { DashboardPage } from './pages/dashboard.js';
 import { CustomersPage } from './pages/customers.js';
@@ -204,7 +204,10 @@ const routeTree = rootRoute.addChildren([
     ]),
 ]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({
+    routeTree,
+    defaultNotFoundComponent: () => <NotFoundPage homeHref="/dashboard" homeLabel="Go to dashboard" />,
+});
 
 declare module '@tanstack/react-router' {
     interface Register {

@@ -4,9 +4,12 @@ import { authRoutes } from './routes/auth.js';
 import { customerRoutes } from './routes/customers.js';
 import { agentRoutes } from './routes/agents.js';
 import { merchantRoutes } from './routes/merchants.js';
+import { actorRoutes } from './routes/actors.js';
+import { merchantUserRoutes } from './routes/merchant-users.js';
 import { txRoutes } from './routes/tx.js';
 import { approvalRoutes } from './routes/approvals.js';
 import { walletRoutes } from './routes/wallets.js';
+import { floatRoutes } from './routes/float.js';
 import { opsRoutes } from './routes/ops.js';
 import { docsRoutes } from './routes/docs.js';
 import {
@@ -35,9 +38,12 @@ app.route('/auth', authRoutes);
 app.route('/customers', customerRoutes);
 app.route('/agents', agentRoutes);
 app.route('/merchants', merchantRoutes);
+app.route('/actors', actorRoutes);
+app.route('/merchants', merchantUserRoutes);
 app.route('/tx', txRoutes);
 app.route('/approvals', approvalRoutes);
 app.route('/wallets', walletRoutes);
+app.route('/float', floatRoutes);
 app.route('/ops', opsRoutes);
 
 // Stub routes (spec-required endpoints not yet fully implemented)

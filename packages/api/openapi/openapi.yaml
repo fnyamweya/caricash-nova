@@ -35,6 +35,8 @@ tags:
     description: Merchant registration
   - name: Wallets
     description: Wallet balance and statement queries
+  - name: Float
+    description: Staff-managed agent float top-up, withdrawal, and history
   - name: Transactions
     description: Money movement — deposit, withdrawal, P2P, payment, B2B, reversal
   - name: Approvals
@@ -200,7 +202,9 @@ paths:
       operationId: createCustomer
       tags: [Customers]
       summary: Register a new customer
-      description: Create a customer account with MSISDN, name, and PIN. Automatically creates a BBD wallet.
+      description: |
+        Create a customer account with name details, preferred display name, and registration metadata.
+        Automatically creates a BBD wallet and registration metadata record.
       requestBody:
         required: true
         content:
@@ -209,7 +213,17 @@ paths:
               $ref: '#/components/schemas/CreateCustomerRequest'
             example:
               msisdn: '+12465559999'
-              name: 'Jane Doe'
+              name: 'Jane Marie Doe'
+              first_name: 'Jane'
+              middle_name: 'Marie'
+              last_name: 'Doe'
+              preferred_name: 'FIRST_NAME'
+              display_name: 'Jane'
+              registration_type: SELF_REGISTRATION
+              channel: WEB
+              terms_accepted: true
+              privacy_accepted: true
+              marketing_opt_in: false
               pin: '1234'
               correlation_id: '01HZ...'
       responses:
@@ -670,9 +684,51 @@ paths:
                 currency: BBD
                 account_id: '01HZ...'
                 balance: '1000.00'
+                actual_balance: '1000.00'
+                available_balance: '970.00'
+                hold_amount: '30.00'
+                pending_credits: '0.00'
                 correlation_id: '01HZ...'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /wallets/{ownerType}/{ownerId}/{currency}/all-balances:
+    get:
+      operationId: getAllWalletBalances
+      tags: [Wallets]
+      summary: Get all account balances for an owner
+      description: |
+        Retrieve balances across all account types (e.g. WALLET, CASH_FLOAT, COMMISSIONS_PAYABLE)
+        for the specified owner and currency.
+      parameters:
+        - name: ownerType
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/OwnerType'
+        - name: ownerId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: currency
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/CurrencyCode'
+      responses:
+        '200':
+          description: All balances response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllBalancesResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /wallets/{ownerType}/{ownerId}/{currency}/statement:
     get:
@@ -711,6 +767,161 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================
+  #  FLOAT MANAGEMENT
+  # ============================================================
+  /float/top-up:
+    post:
+      operationId: floatTopUp
+      tags: [Float]
+      summary: Top-up agent float
+      description: |
+        Staff deposits float into an agent's `CASH_FLOAT` account.
+        Posts a double-entry journal (system suspense -> agent cash float), updates account balances,
+        and records an auditable float operation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FloatTopUpRequest'
+            example:
+              agent_code: AGT001
+              amount: '500.00'
+              currency: BBD
+              staff_id: '01HZ...'
+              reason: Branch float replenishment
+              reference: BANK-DEP-1289
+              idempotency_key: float-topup-001
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Float top-up posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FloatOperationResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          description: Staff not found or unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /float/withdrawal:
+    post:
+      operationId: floatWithdrawal
+      tags: [Float]
+      summary: Withdraw agent float
+      description: |
+        Staff withdraws float from an agent's `CASH_FLOAT` account back to system suspense.
+        Records a float operation and emits float withdrawal events.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FloatWithdrawalRequest'
+            example:
+              agent_code: AGT001
+              amount: '200.00'
+              currency: BBD
+              staff_id: '01HZ...'
+              reason: End-of-day settlement
+              reference: BANK-WDL-778
+              idempotency_key: float-withdrawal-001
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Float withdrawal posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FloatOperationResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          description: Staff not found or unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /float/{agentCode}/balance:
+    get:
+      operationId: getAgentFloatBalance
+      tags: [Float]
+      summary: Get agent float balance
+      description: Retrieve current actual and available float balances for the agent.
+      parameters:
+        - name: agentCode
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: currency
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/CurrencyCode'
+      responses:
+        '200':
+          description: Agent float balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FloatBalanceResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /float/{agentCode}/history:
+    get:
+      operationId: getAgentFloatHistory
+      tags: [Float]
+      summary: Get agent float operation history
+      description: List float top-up and withdrawal operations for an agent.
+      parameters:
+        - name: agentCode
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        '200':
+          description: Float operation history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FloatHistoryResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ============================================================
   #  TRANSACTIONS
@@ -1748,7 +1959,16 @@ components:
       enum: [STANDARD, AGGREGATOR]
     TxnType:
       type: string
-      enum: [DEPOSIT, WITHDRAWAL, P2P, PAYMENT, B2B, REVERSAL, MANUAL_ADJUSTMENT, OVERDRAFT_DRAW]
+      enum: [DEPOSIT, WITHDRAWAL, P2P, PAYMENT, B2B, REVERSAL, MANUAL_ADJUSTMENT, OVERDRAFT_DRAW, FLOAT_TOP_UP, FLOAT_WITHDRAWAL]
+    RegistrationType:
+      type: string
+      enum: [SELF_REGISTRATION, AGENT_REGISTRATION, STAFF_REGISTRATION, BULK_IMPORT, API_INTEGRATION, MERCHANT_REFERRAL]
+    RegistrationChannel:
+      type: string
+      enum: [USSD, APP, WEB, API, PORTAL, IN_PERSON]
+    PreferredNameSource:
+      type: string
+      enum: [FIRST_NAME, MIDDLE_NAME, LAST_NAME, FULL_NAME, CUSTOM]
     TxnState:
       type: string
       enum: [INITIATED, VALIDATED, AUTHORIZED, POSTED, COMPLETED, FAILED, REVERSED, PENDING_APPROVAL]
@@ -1908,6 +2128,17 @@ components:
           type: string
         name:
           type: string
+        first_name:
+          type: string
+        middle_name:
+          type: string
+        last_name:
+          type: string
+        display_name:
+          type: string
+        email:
+          type: string
+          format: email
         kyc_state:
           $ref: '#/components/schemas/KycStatus'
         created_at:
@@ -1934,8 +2165,37 @@ components:
           type: string
         name:
           type: string
+        first_name:
+          type: string
+        middle_name:
+          type: string
+        last_name:
+          type: string
+        preferred_name:
+          $ref: '#/components/schemas/PreferredNameSource'
+        display_name:
+          type: string
+        email:
+          type: string
+          format: email
         pin:
           type: string
+        registration_type:
+          $ref: '#/components/schemas/RegistrationType'
+        channel:
+          $ref: '#/components/schemas/RegistrationChannel'
+        registered_by_actor_id:
+          type: string
+        referral_code:
+          type: string
+        campaign_id:
+          type: string
+        terms_accepted:
+          type: boolean
+        privacy_accepted:
+          type: boolean
+        marketing_opt_in:
+          type: boolean
         correlation_id:
           type: string
         idempotency_key:
@@ -1948,6 +2208,10 @@ components:
           $ref: '#/components/schemas/Actor'
         wallet_id:
           type: string
+        registration_id:
+          type: string
+        registration_type:
+          $ref: '#/components/schemas/RegistrationType'
         correlation_id:
           type: string
 
@@ -2057,6 +2321,190 @@ components:
         balance:
           type: string
           description: Decimal string (e.g., "1000.00")
+        actual_balance:
+          type: string
+          description: Materialized actual balance for the account
+        available_balance:
+          type: string
+          description: Spendable or withdrawable balance
+        hold_amount:
+          type: string
+          description: Amount currently on hold
+        pending_credits:
+          type: string
+          description: Credits awaiting release
+        correlation_id:
+          type: string
+
+    AccountBalanceEntry:
+      type: object
+      properties:
+        account_id:
+          type: string
+        owner_type:
+          $ref: '#/components/schemas/OwnerType'
+        owner_id:
+          type: string
+        account_type:
+          $ref: '#/components/schemas/AccountType'
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        actual_balance:
+          type: string
+        available_balance:
+          type: string
+        hold_amount:
+          type: string
+        pending_credits:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+
+    AllBalancesResponse:
+      type: object
+      properties:
+        owner_type:
+          $ref: '#/components/schemas/OwnerType'
+        owner_id:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountBalanceEntry'
+        correlation_id:
+          type: string
+
+    FloatTopUpRequest:
+      type: object
+      required: [agent_code, amount, staff_id, idempotency_key]
+      properties:
+        agent_code:
+          type: string
+        amount:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        staff_id:
+          type: string
+        reason:
+          type: string
+        reference:
+          type: string
+        idempotency_key:
+          type: string
+        correlation_id:
+          type: string
+
+    FloatWithdrawalRequest:
+      allOf:
+        - $ref: '#/components/schemas/FloatTopUpRequest'
+
+    FloatOperation:
+      type: object
+      properties:
+        id:
+          type: string
+        agent_actor_id:
+          type: string
+        agent_account_id:
+          type: string
+        staff_actor_id:
+          type: string
+        operation_type:
+          type: string
+          enum: [TOP_UP, WITHDRAWAL, ADJUSTMENT, CORRECTION]
+        amount:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        journal_id:
+          type: string
+        balance_before:
+          type: string
+        balance_after:
+          type: string
+        available_before:
+          type: string
+        available_after:
+          type: string
+        requires_approval:
+          type: boolean
+        reason:
+          type: string
+        reference:
+          type: string
+        idempotency_key:
+          type: string
+        correlation_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    FloatOperationResponse:
+      type: object
+      properties:
+        operation_id:
+          type: string
+        journal_id:
+          type: string
+        agent_id:
+          type: string
+        agent_code:
+          type: string
+        amount:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        balance_before:
+          type: string
+        balance_after:
+          type: string
+        available_before:
+          type: string
+        available_after:
+          type: string
+        correlation_id:
+          type: string
+
+    FloatBalanceResponse:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        agent_code:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        account_id:
+          type: string
+        actual_balance:
+          type: string
+        available_balance:
+          type: string
+        hold_amount:
+          type: string
+        pending_credits:
+          type: string
+        correlation_id:
+          type: string
+
+    FloatHistoryResponse:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        agent_code:
+          type: string
+        operations:
+          type: array
+          items:
+            $ref: '#/components/schemas/FloatOperation'
+        count:
+          type: integer
         correlation_id:
           type: string
 

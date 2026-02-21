@@ -23,6 +23,9 @@ import {
   getOrCreateLedgerAccount,
   insertApprovalRequest,
   insertEvent,
+  getAccountBalance,
+  upsertAccountBalance,
+  initAccountBalance,
 } from '@caricash/db';
 import {
   buildDepositEntries,
@@ -35,6 +38,7 @@ import {
 } from '@caricash/posting-do';
 import type { CommissionEntry } from '@caricash/posting-do';
 import { postTransaction } from '../lib/posting-client.js';
+import { getBalance } from '../lib/posting-client.js';
 
 export const txRoutes = new Hono<{ Bindings: Env }>();
 
@@ -115,7 +119,64 @@ txRoutes.post('/deposit', async (c) => {
     const domainKey = `wallet:${ActorType.AGENT}:${agent_id}:${cur}`;
     const result = await postTransaction(c.env, domainKey, command);
 
+    // Update account_balances — agent available goes down, customer goes up
+    await initAccountBalance(c.env.DB, agentCashFloat.id, cur);
+    await initAccountBalance(c.env.DB, customerWallet.id, cur);
+
+    const agentBalResult = await getBalance(c.env, domainKey, agentCashFloat.id);
+    const agentBalBefore = await getAccountBalance(c.env.DB, agentCashFloat.id);
+    await upsertAccountBalance(c.env.DB, {
+      account_id: agentCashFloat.id,
+      actual_balance: agentBalResult.balance,
+      available_balance: agentBalResult.balance,
+      hold_amount: agentBalBefore?.hold_amount ?? '0.00',
+      pending_credits: '0.00',
+      last_journal_id: result.journal_id,
+      currency: cur,
+      updated_at: now,
+    });
+
+    const customerDomainKey = `wallet:${ActorType.CUSTOMER}:${customer.id}:${cur}`;
+    const custBalResult = await getBalance(c.env, customerDomainKey, customerWallet.id);
+    const custBalBefore = await getAccountBalance(c.env.DB, customerWallet.id);
+    await upsertAccountBalance(c.env.DB, {
+      account_id: customerWallet.id,
+      actual_balance: custBalResult.balance,
+      available_balance: custBalResult.balance,
+      hold_amount: custBalBefore?.hold_amount ?? '0.00',
+      pending_credits: '0.00',
+      last_journal_id: result.journal_id,
+      currency: cur,
+      updated_at: now,
+    });
+
     await emitTxnEvent(c.env, EventName.TXN_POSTED, result.journal_id, correlationId, ActorType.AGENT, agent_id);
+
+    // Emit deposit-specific events
+    const depositEvent = {
+      id: generateId(),
+      name: EventName.DEPOSIT_COMPLETED,
+      entity_type: 'journal',
+      entity_id: result.journal_id,
+      correlation_id: correlationId,
+      causation_id: result.journal_id,
+      actor_type: ActorType.AGENT,
+      actor_id: agent_id,
+      schema_version: 1,
+      payload_json: JSON.stringify({
+        journal_id: result.journal_id,
+        customer_msisdn,
+        customer_id: customer.id,
+        agent_id,
+        amount,
+        currency: cur,
+        customer_balance_after: custBalResult.balance,
+        agent_float_balance_after: agentBalResult.balance,
+      }),
+      created_at: now,
+    };
+    await insertEvent(c.env.DB, depositEvent);
+    await c.env.EVENTS_QUEUE.send(depositEvent);
 
     return c.json({ ...result, correlation_id: correlationId }, 201);
   } catch (err) {
@@ -328,7 +389,65 @@ txRoutes.post('/payment', async (c) => {
     const domainKey = `wallet:${ActorType.CUSTOMER}:${customer.id}:${cur}`;
     const result = await postTransaction(c.env, domainKey, command);
 
+    // Update account_balances — customer deducted, merchant credited
+    await initAccountBalance(c.env.DB, customerWallet.id, cur);
+    await initAccountBalance(c.env.DB, merchantWallet.id, cur);
+
+    const custBalResult = await getBalance(c.env, domainKey, customerWallet.id);
+    const custBalBefore = await getAccountBalance(c.env.DB, customerWallet.id);
+    await upsertAccountBalance(c.env.DB, {
+      account_id: customerWallet.id,
+      actual_balance: custBalResult.balance,
+      available_balance: custBalResult.balance,
+      hold_amount: custBalBefore?.hold_amount ?? '0.00',
+      pending_credits: '0.00',
+      last_journal_id: result.journal_id,
+      currency: cur,
+      updated_at: now,
+    });
+
+    const merchantDomainKey = `wallet:${ActorType.MERCHANT}:${merchant.id}:${cur}`;
+    const merchBalResult = await getBalance(c.env, merchantDomainKey, merchantWallet.id);
+    const merchBalBefore = await getAccountBalance(c.env.DB, merchantWallet.id);
+    await upsertAccountBalance(c.env.DB, {
+      account_id: merchantWallet.id,
+      actual_balance: merchBalResult.balance,
+      available_balance: merchBalResult.balance,
+      hold_amount: merchBalBefore?.hold_amount ?? '0.00',
+      pending_credits: '0.00',
+      last_journal_id: result.journal_id,
+      currency: cur,
+      updated_at: now,
+    });
+
     await emitTxnEvent(c.env, EventName.TXN_POSTED, result.journal_id, correlationId, ActorType.CUSTOMER, customer.id);
+
+    // Emit payment-specific events
+    const paymentEvent = {
+      id: generateId(),
+      name: EventName.PAYMENT_COMPLETED,
+      entity_type: 'journal',
+      entity_id: result.journal_id,
+      correlation_id: correlationId,
+      causation_id: result.journal_id,
+      actor_type: ActorType.CUSTOMER,
+      actor_id: customer.id,
+      schema_version: 1,
+      payload_json: JSON.stringify({
+        journal_id: result.journal_id,
+        customer_msisdn,
+        customer_id: customer.id,
+        merchant_id: merchant.id,
+        store_code,
+        amount,
+        currency: cur,
+        customer_balance_after: custBalResult.balance,
+        merchant_balance_after: merchBalResult.balance,
+      }),
+      created_at: now,
+    };
+    await insertEvent(c.env.DB, paymentEvent);
+    await c.env.EVENTS_QUEUE.send(paymentEvent);
 
     return c.json({ ...result, correlation_id: correlationId }, 201);
   } catch (err) {

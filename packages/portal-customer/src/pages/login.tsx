@@ -41,6 +41,7 @@ export function LoginPage() {
             portalType="customer"
             loading={mutation.isPending}
             error={error}
+            onRegisterClick={() => navigate({ to: '/register' })}
             onSubmit={async (data) => {
                 setError(null);
                 await mutation.mutateAsync(data);

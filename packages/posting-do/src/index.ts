@@ -69,7 +69,7 @@ type DurableObjectId = {
 };
 
 // Re-export journal templates and calculators for consumers
-export { buildDepositEntries, buildWithdrawalEntries, buildP2PEntries, buildPaymentEntries, buildB2BEntries, buildReversalEntries } from './journal-templates.js';
+export { buildDepositEntries, buildWithdrawalEntries, buildP2PEntries, buildPaymentEntries, buildB2BEntries, buildReversalEntries, buildFloatTopUpEntries, buildFloatWithdrawalEntries } from './journal-templates.js';
 export type { Entry, CommissionEntry } from './journal-templates.js';
 export { calculateFee } from './fee-calculator.js';
 export type { FeeResult } from './fee-calculator.js';

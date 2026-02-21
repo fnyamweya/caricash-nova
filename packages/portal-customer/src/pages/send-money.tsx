@@ -1,6 +1,15 @@
 import { useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowRightLeft, CheckCircle, Clock3, Sparkles, UserRound } from 'lucide-react';
+import {
+    ArrowRightLeft,
+    CheckCircle,
+    Clock3,
+    Sparkles,
+    UserRound,
+    Phone,
+    ShieldAlert,
+    Loader2,
+} from 'lucide-react';
 import {
     useAuth,
     useApi,
@@ -30,6 +39,33 @@ interface PostingReceipt {
     posting_id: string;
     state: string;
     [key: string]: unknown;
+}
+
+interface ActorLookupResult {
+    actor: {
+        id: string;
+        type: string;
+        state: string;
+        name: string;
+        first_name?: string;
+        last_name?: string;
+    };
+}
+
+interface ContactPickerContact {
+    name?: string[];
+    tel?: string[];
+}
+
+interface ContactPickerApi {
+    select: (
+        properties: Array<'name' | 'tel'>,
+        options?: { multiple?: boolean },
+    ) => Promise<ContactPickerContact[]>;
+}
+
+interface ContactNavigator extends Navigator {
+    contacts?: ContactPickerApi;
 }
 
 const QUICK_AMOUNTS = ['20.00', '50.00', '100.00', '200.00'] as const;
@@ -65,6 +101,13 @@ export function SendMoneyPage() {
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [receipt, setReceipt] = useState<PostingReceipt | null>(null);
     const [recentRecipients, setRecentRecipients] = useState<string[]>(() => loadRecentRecipients());
+    const [selectedContactName, setSelectedContactName] = useState<string | null>(null);
+    const [contactPickerError, setContactPickerError] = useState<string | null>(null);
+
+    // Recipient verification state
+    const [verifiedRecipient, setVerifiedRecipient] = useState<ActorLookupResult['actor'] | null>(null);
+    const [verifyLoading, setVerifyLoading] = useState(false);
+    const [verifyError, setVerifyError] = useState<string | null>(null);
 
     const numericAmount = useMemo(() => Number(amount), [amount]);
     const normalizedAmount = Number.isFinite(numericAmount) && numericAmount > 0 ? numericAmount.toFixed(2) : '0.00';
@@ -87,13 +130,64 @@ export function SendMoneyPage() {
             setAmount('');
             setConfirmPin('');
             setConfirmOpen(false);
+            setVerifiedRecipient(null);
         },
     });
 
-    function handleReviewSubmit(e: React.FormEvent) {
+    async function handleReviewSubmit(e: React.FormEvent) {
         e.preventDefault();
         if (!canReview) return;
-        setConfirmOpen(true);
+
+        // Look up recipient before showing PIN modal
+        setVerifyLoading(true);
+        setVerifyError(null);
+        setVerifiedRecipient(null);
+
+        try {
+            const result = await api.get<ActorLookupResult>(
+                `/actors/lookup?msisdn=${encodeURIComponent(receiverMsisdn.trim())}`,
+            );
+            setVerifiedRecipient(result.actor);
+            setConfirmOpen(true);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Recipient not found';
+            setVerifyError(msg);
+        } finally {
+            setVerifyLoading(false);
+        }
+    }
+
+    function getRecipientDisplayName(): string {
+        if (!verifiedRecipient) return receiverMsisdn.trim() || '-';
+        const parts = [verifiedRecipient.first_name, verifiedRecipient.last_name].filter(Boolean);
+        if (parts.length > 0) return parts.join(' ');
+        return verifiedRecipient.name || receiverMsisdn.trim();
+    }
+
+    async function handlePickFromContacts() {
+        setContactPickerError(null);
+        const nav = navigator as ContactNavigator;
+        if (!nav.contacts?.select) {
+            setContactPickerError('Contact picker is not supported on this device/browser.');
+            return;
+        }
+
+        try {
+            const contacts = await nav.contacts.select(['name', 'tel'], {
+                multiple: false,
+            });
+            const first = contacts[0];
+            const tel = first?.tel?.[0]?.trim();
+            if (!tel) {
+                setContactPickerError('Selected contact has no phone number.');
+                return;
+            }
+            const normalized = tel.replace(/[^\d+]/g, '');
+            setReceiverMsisdn(normalized);
+            setSelectedContactName(first?.name?.[0]?.trim() || null);
+        } catch {
+            setContactPickerError('Unable to read contacts. Check permissions and try again.');
+        }
     }
 
     return (
@@ -119,15 +213,35 @@ export function SendMoneyPage() {
                             </CardHeader>
                             <CardContent className="flex flex-col gap-4">
                                 <div className="flex flex-col gap-1.5">
-                                    <Label htmlFor="receiver">Receiver Phone Number</Label>
-                                    <Input
-                                        id="receiver"
-                                        type="tel"
-                                        placeholder="e.g. +1246XXXXXXX"
-                                        value={receiverMsisdn}
-                                        onChange={(e) => setReceiverMsisdn(e.target.value)}
-                                        required
-                                    />
+                                    <Label htmlFor="receiver">Send to</Label>
+                                    <div className="relative">
+                                        <Input
+                                            id="receiver"
+                                            type="tel"
+                                            placeholder="e.g. +1246XXXXXXX"
+                                            value={receiverMsisdn}
+                                            onChange={(e) => setReceiverMsisdn(e.target.value)}
+                                            className="pr-12"
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                            onClick={handlePickFromContacts}
+                                            aria-label="Pick from contacts"
+                                            title="Pick from contacts"
+                                        >
+                                            <Phone className="h-4 w-4" />
+                                        </button>
+                                    </div>
+                                    {selectedContactName ? (
+                                        <p className="text-xs text-muted-foreground">
+                                            Selected contact: {selectedContactName}
+                                        </p>
+                                    ) : null}
+                                    {contactPickerError ? (
+                                        <p className="text-xs text-destructive">{contactPickerError}</p>
+                                    ) : null}
                                 </div>
 
                                 {recentRecipients.length > 0 ? (
@@ -182,10 +296,24 @@ export function SendMoneyPage() {
                                         {mutation.error?.message ?? 'Transfer failed. Please try again.'}
                                     </p>
                                 ) : null}
+
+                                {verifyError ? (
+                                    <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                                        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                                        <span>{verifyError}</span>
+                                    </div>
+                                ) : null}
                             </CardContent>
                             <CardFooter>
-                                <Button type="submit" className="w-full" disabled={!canReview}>
-                                    Review Transfer
+                                <Button type="submit" className="w-full" disabled={!canReview || verifyLoading}>
+                                    {verifyLoading ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Verifying recipient...
+                                        </>
+                                    ) : (
+                                        'Review Transfer'
+                                    )}
                                 </Button>
                             </CardFooter>
                         </form>
@@ -214,6 +342,14 @@ export function SendMoneyPage() {
                                         {receiverMsisdn.trim() || 'Not set'}
                                     </span>
                                 </div>
+                                {verifiedRecipient ? (
+                                    <div className="mt-2 flex items-center justify-between">
+                                        <span className="text-muted-foreground">Recipient name</span>
+                                        <span className="font-semibold text-green-600 dark:text-green-400">
+                                            {getRecipientDisplayName()}
+                                        </span>
+                                    </div>
+                                ) : null}
                                 <div className="mt-2 flex items-center justify-between">
                                     <span className="text-muted-foreground">Transfer fee</span>
                                     <span className="font-semibold">BBD 0.00</span>
@@ -250,10 +386,11 @@ export function SendMoneyPage() {
                     if (!open) setConfirmPin('');
                 }}
                 title="Confirm Transfer"
-                description="Review the details and enter your PIN to complete this transfer."
+                description="Verify the recipient and enter your PIN to complete this transfer."
                 summary={[
                     { label: 'From', value: actor?.name ?? 'Your wallet' },
-                    { label: 'To', value: receiverMsisdn.trim() || '-' },
+                    { label: 'To (MSISDN)', value: receiverMsisdn.trim() || '-' },
+                    { label: 'Recipient name', value: getRecipientDisplayName() },
                     { label: 'Amount', value: `BBD ${normalizedAmount}` },
                     { label: 'Fee', value: 'BBD 0.00' },
                     { label: 'Recipient gets', value: `BBD ${normalizedAmount}` },

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ActorType, TxnType, AgentType } from './enums.js';
+import { ActorType, TxnType, AgentType, MerchantUserRole, RegistrationType, RegistrationChannel, FloatOperationType } from './enums.js';
 import { SUPPORTED_CURRENCIES } from './currency.js';
 
 export const loginSchema = z.object({
@@ -40,7 +40,22 @@ export type ApprovalActionInput = z.infer<typeof approvalActionSchema>;
 export const createCustomerSchema = z.object({
   msisdn: z.string().min(1),
   name: z.string().min(1),
+  first_name: z.string().min(1).optional(),
+  middle_name: z.string().min(1).optional(),
+  last_name: z.string().min(1).optional(),
+  display_name: z.string().min(1).optional(),
+  preferred_name: z.enum(['FIRST_NAME', 'MIDDLE_NAME', 'LAST_NAME', 'FULL_NAME', 'CUSTOM']).optional(),
+  email: z.string().email().optional(),
   pin: z.string().min(1),
+  // Registration metadata (optional — enriched server-side)
+  registration_type: z.nativeEnum(RegistrationType).optional(),
+  channel: z.nativeEnum(RegistrationChannel).optional(),
+  registered_by_actor_id: z.string().min(1).optional(),
+  referral_code: z.string().min(1).optional(),
+  campaign_id: z.string().min(1).optional(),
+  terms_accepted: z.boolean().optional(),
+  privacy_accepted: z.boolean().optional(),
+  marketing_opt_in: z.boolean().optional(),
 });
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
 
@@ -57,9 +72,47 @@ export const createMerchantSchema = z.object({
   store_code: z.string().min(1),
   name: z.string().min(1),
   msisdn: z.string().min(1),
-  pin: z.string().min(1),
+  owner_name: z.string().min(1),
+  email: z.string().email().optional(),
+  pin: z.string().min(4),
+  pin_confirm: z.string().min(4).optional(),
+  parent_store_code: z.string().min(1).optional(),
+}).refine((data) => !data.pin_confirm || data.pin === data.pin_confirm, {
+  message: 'PINs do not match',
+  path: ['pin_confirm'],
 });
 export type CreateMerchantInput = z.infer<typeof createMerchantSchema>;
+
+export const createMerchantUserSchema = z.object({
+  msisdn: z.string().min(1),
+  name: z.string().min(1),
+  role: z.nativeEnum(MerchantUserRole),
+  pin: z.string().min(4),
+});
+export type CreateMerchantUserInput = z.infer<typeof createMerchantUserSchema>;
+
+export const updateMerchantUserSchema = z.object({
+  name: z.string().min(1).optional(),
+  role: z.nativeEnum(MerchantUserRole).optional(),
+  state: z.enum(['ACTIVE', 'SUSPENDED', 'REMOVED']).optional(),
+});
+export type UpdateMerchantUserInput = z.infer<typeof updateMerchantUserSchema>;
+
+export const merchantLoginSchema = z.object({
+  store_code: z.string().min(1),
+  msisdn: z.string().min(1),
+  pin: z.string().min(1),
+});
+export type MerchantLoginInput = z.infer<typeof merchantLoginSchema>;
+
+export const actorLookupSchema = z.object({
+  msisdn: z.string().min(1).optional(),
+  store_code: z.string().min(1).optional(),
+  agent_code: z.string().min(1).optional(),
+}).refine((data) => data.msisdn || data.store_code || data.agent_code, {
+  message: 'At least one lookup parameter is required (msisdn, store_code, or agent_code)',
+});
+export type ActorLookupInput = z.infer<typeof actorLookupSchema>;
 
 export const balanceQuerySchema = z.object({
   owner_type: z.nativeEnum(ActorType),
@@ -67,3 +120,29 @@ export const balanceQuerySchema = z.object({
   currency: z.enum(SUPPORTED_CURRENCIES),
 });
 export type BalanceQueryInput = z.infer<typeof balanceQuerySchema>;
+
+// ---------------------------------------------------------------------------
+// Float management schemas
+// ---------------------------------------------------------------------------
+
+export const floatTopUpSchema = z.object({
+  agent_code: z.string().min(1),
+  amount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Amount must be a decimal with up to 2 places'),
+  currency: z.enum(SUPPORTED_CURRENCIES).default('BBD'),
+  staff_id: z.string().min(1),
+  reason: z.string().min(1).optional(),
+  reference: z.string().optional(),
+  idempotency_key: z.string().min(1),
+});
+export type FloatTopUpInput = z.infer<typeof floatTopUpSchema>;
+
+export const floatWithdrawalSchema = z.object({
+  agent_code: z.string().min(1),
+  amount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Amount must be a decimal with up to 2 places'),
+  currency: z.enum(SUPPORTED_CURRENCIES).default('BBD'),
+  staff_id: z.string().min(1),
+  reason: z.string().min(1).optional(),
+  reference: z.string().optional(),
+  idempotency_key: z.string().min(1),
+});
+export type FloatWithdrawalInput = z.infer<typeof floatWithdrawalSchema>;

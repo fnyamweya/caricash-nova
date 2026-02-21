@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { CreditCard, ArrowLeftRight, TrendingUp, QrCode } from 'lucide-react';
+import { CreditCard, ArrowLeftRight, TrendingUp, QrCode, Users } from 'lucide-react';
 import {
     useAuth,
     useApi,
@@ -83,6 +83,13 @@ export function DashboardPage() {
                         description="Track incoming customer payments"
                         icon={<CreditCard className="h-5 w-5" />}
                         onClick={() => navigate({ to: '/payments' })}
+                    />
+
+                    <ActionCard
+                        title="Manage Team"
+                        description="Add or manage users for your store"
+                        icon={<Users className="h-5 w-5" />}
+                        onClick={() => navigate({ to: '/team' })}
                     />
                 </div>
             </div>

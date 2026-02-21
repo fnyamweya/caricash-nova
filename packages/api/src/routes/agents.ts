@@ -17,6 +17,7 @@ import {
   insertLedgerAccount,
   getActorByAgentCode,
   insertEvent,
+  initAccountBalance,
 } from '@caricash/db';
 import { hashPin, generateSalt } from '../lib/pin.js';
 
@@ -80,6 +81,7 @@ agentRoutes.post('/', async (c) => {
       currency: 'BBD',
       created_at: now,
     });
+    await initAccountBalance(c.env.DB, walletId, 'BBD');
 
     // Create CASH_FLOAT account (BBD)
     const cashFloatId = generateId();
@@ -91,6 +93,7 @@ agentRoutes.post('/', async (c) => {
       currency: 'BBD',
       created_at: now,
     });
+    await initAccountBalance(c.env.DB, cashFloatId, 'BBD');
 
     // Emit AGENT_CREATED event
     const event = {

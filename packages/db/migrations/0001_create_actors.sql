@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS actors (
   agent_type TEXT CHECK(agent_type IN ('STANDARD','AGGREGATOR')),
   store_code TEXT,
   staff_code TEXT,
-  staff_role TEXT CHECK(staff_role IN ('ADMIN','OPERATIONS','COMPLIANCE','FINANCE','SUPPORT')),
+  staff_role TEXT CHECK(staff_role IN ('SUPER_ADMIN','ADMIN','OPERATIONS','COMPLIANCE','FINANCE','SUPPORT')),
   kyc_state TEXT NOT NULL DEFAULT 'NOT_STARTED' CHECK(kyc_state IN ('NOT_STARTED','PENDING','APPROVED','REJECTED')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))

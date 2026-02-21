@@ -178,3 +178,35 @@ export function buildReversalEntries(originalEntries: Entry[]): Entry[] {
     description: `Reversal: ${e.description ?? ''}`.trim(),
   }));
 }
+
+// ---------------------------------------------------------------------------
+// Float Top-Up: System/SUSPENSE → Agent CASH_FLOAT
+// Staff deposits physical cash, increases agent's available float.
+// ---------------------------------------------------------------------------
+
+export function buildFloatTopUpEntries(
+  systemSuspenseAccountId: string,
+  agentCashFloatAccountId: string,
+  amount: string,
+): Entry[] {
+  return [
+    { account_id: systemSuspenseAccountId, entry_type: 'DR', amount, description: 'Float top-up funding source' },
+    { account_id: agentCashFloatAccountId, entry_type: 'CR', amount, description: 'Float top-up to agent' },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Float Withdrawal: Agent CASH_FLOAT → System/SUSPENSE
+// Agent returns physical cash to staff/bank.
+// ---------------------------------------------------------------------------
+
+export function buildFloatWithdrawalEntries(
+  agentCashFloatAccountId: string,
+  systemSuspenseAccountId: string,
+  amount: string,
+): Entry[] {
+  return [
+    { account_id: agentCashFloatAccountId, entry_type: 'DR', amount, description: 'Float withdrawal from agent' },
+    { account_id: systemSuspenseAccountId, entry_type: 'CR', amount, description: 'Float withdrawal received' },
+  ];
+}
