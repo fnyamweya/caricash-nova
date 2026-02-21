@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ActorType, TxnType, AgentType, MerchantUserRole, RegistrationType, RegistrationChannel, FloatOperationType } from './enums.js';
+import { ActorType, TxnType, AgentType, MerchantUserRole, RegistrationType, RegistrationChannel, FloatOperationType, StaffRole, ActorState } from './enums.js';
 import { SUPPORTED_CURRENCIES } from './currency.js';
 
 export const loginSchema = z.object({
@@ -122,6 +122,30 @@ export const merchantLoginSchema = z.object({
   store_code: z.string().min(1).optional(),
 });
 export type MerchantLoginInput = z.infer<typeof merchantLoginSchema>;
+
+export const createStaffSchema = z.object({
+  staff_code: z.string().min(1),
+  name: z.string().min(1),
+  email: z.string().email().optional(),
+  msisdn: z.string().min(1).optional(),
+  staff_role: z.nativeEnum(StaffRole),
+  pin: z.string().min(4),
+});
+export type CreateStaffInput = z.infer<typeof createStaffSchema>;
+
+export const updateStaffSchema = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  staff_role: z.nativeEnum(StaffRole).optional(),
+  state: z.nativeEnum(ActorState).optional(),
+});
+export type UpdateStaffInput = z.infer<typeof updateStaffSchema>;
+
+export const staffActionSchema = z.object({
+  action: z.enum(['ACTIVATE', 'SUSPEND', 'CLOSE', 'UNLOCK']),
+  reason: z.string().min(1).optional(),
+});
+export type StaffActionInput = z.infer<typeof staffActionSchema>;
 
 export const generateCodesSchema = z.object({
   code_type: z.enum(['AGENT', 'STORE']),

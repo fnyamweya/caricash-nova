@@ -13,6 +13,7 @@ import { floatRoutes } from './routes/float.js';
 import { opsRoutes } from './routes/ops.js';
 import { docsRoutes } from './routes/docs.js';
 import { codeRoutes } from './routes/codes.js';
+import { staffRoutes } from './routes/staff.js';
 import {
   customerStubRoutes,
   agentStubRoutes,
@@ -47,6 +48,7 @@ app.route('/wallets', walletRoutes);
 app.route('/float', floatRoutes);
 app.route('/ops', opsRoutes);
 app.route('/codes', codeRoutes);
+app.route('/staff', staffRoutes);
 
 // Stub routes (spec-required endpoints not yet fully implemented)
 app.route('/customers', customerStubRoutes);

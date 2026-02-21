@@ -124,6 +124,73 @@ export async function listActiveStaffByRole(db: D1Database, role: string): Promi
   return (res.results ?? []) as Actor[];
 }
 
+export async function listStaffActors(
+  db: D1Database,
+  filters?: { state?: string; staff_role?: string },
+): Promise<Actor[]> {
+  const where: string[] = ["type = 'STAFF'"];
+  const values: string[] = [];
+  let paramIdx = 1;
+
+  if (filters?.state) {
+    where.push(`state = ?${paramIdx++}`);
+    values.push(filters.state);
+  }
+  if (filters?.staff_role) {
+    where.push(`staff_role = ?${paramIdx++}`);
+    values.push(filters.staff_role);
+  }
+
+  const res = await db
+    .prepare(`SELECT * FROM actors WHERE ${where.join(' AND ')} ORDER BY created_at DESC`)
+    .bind(...values)
+    .all();
+  return (res.results ?? []) as Actor[];
+}
+
+export async function getStaffActorById(db: D1Database, id: string): Promise<Actor | null> {
+  return (await db
+    .prepare("SELECT * FROM actors WHERE id = ?1 AND type = 'STAFF'")
+    .bind(id)
+    .first()) as Actor | null;
+}
+
+export async function updateStaffActor(
+  db: D1Database,
+  staffId: string,
+  fields: { name?: string; email?: string; staff_role?: string; state?: string },
+): Promise<void> {
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+  let paramIdx = 1;
+
+  if (fields.name !== undefined) {
+    sets.push(`name = ?${paramIdx++}`);
+    values.push(fields.name);
+  }
+  if (fields.email !== undefined) {
+    sets.push(`email = ?${paramIdx++}`);
+    values.push(fields.email);
+  }
+  if (fields.staff_role !== undefined) {
+    sets.push(`staff_role = ?${paramIdx++}`);
+    values.push(fields.staff_role);
+  }
+  if (fields.state !== undefined) {
+    sets.push(`state = ?${paramIdx++}`);
+    values.push(fields.state);
+  }
+
+  sets.push(`updated_at = ?${paramIdx++}`);
+  values.push(new Date().toISOString());
+  values.push(staffId);
+
+  await db
+    .prepare(`UPDATE actors SET ${sets.join(', ')} WHERE id = ?${paramIdx} AND type = 'STAFF'`)
+    .bind(...values)
+    .run();
+}
+
 // ---------------------------------------------------------------------------
 // Auth — PINs
 // ---------------------------------------------------------------------------
@@ -910,6 +977,37 @@ export async function insertAgentUser(db: D1Database, user: AgentUser & { pin_ha
       user.created_at,
       user.updated_at,
     )
+    .run();
+}
+
+/** Look up an agent user by agent actor ID + phone number (used for login). */
+export async function getAgentUserByActorAndMsisdn(
+  db: D1Database,
+  actorId: string,
+  msisdn: string,
+): Promise<(AgentUser & { pin_hash: string; salt: string; failed_attempts: number; locked_until: string | null }) | null> {
+  return (await db
+    .prepare(
+      `SELECT id, actor_id, msisdn, name, role, state, pin_hash, salt, failed_attempts, locked_until, created_at, updated_at
+       FROM agent_users
+       WHERE actor_id = ?1 AND msisdn = ?2 AND state = 'ACTIVE'`,
+    )
+    .bind(actorId, msisdn)
+    .first()) as (AgentUser & { pin_hash: string; salt: string; failed_attempts: number; locked_until: string | null }) | null;
+}
+
+/** Update failed_attempts / locked_until on an agent_user row (for auth lockout). */
+export async function updateAgentUserFailedAttempts(
+  db: D1Database,
+  agentUserId: string,
+  attempts: number,
+  lockedUntil?: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE agent_users SET failed_attempts = ?1, locked_until = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?3`,
+    )
+    .bind(attempts, lockedUntil ?? null, agentUserId)
     .run();
 }
 

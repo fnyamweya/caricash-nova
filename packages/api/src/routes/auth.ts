@@ -13,6 +13,8 @@ import {
   getActorByStaffCode,
   getPinByActorId,
   updatePinFailedAttempts,
+  getAgentUserByActorAndMsisdn,
+  updateAgentUserFailedAttempts,
   getMerchantUserByActorAndMsisdn,
   updateMerchantUserFailedAttempts,
   insertSession,
@@ -45,11 +47,16 @@ authRoutes.post('/customer/login', async (c) => {
 
 // ---- Agent login ----
 authRoutes.post('/agent/login', async (c) => {
-  const body = await c.req.json<{ agent_code: string; pin: string }>();
-  const { agent_code, pin } = body;
+  const body = await c.req.json<{ agent_code: string; msisdn?: string; pin: string }>();
+  const { agent_code, msisdn, pin } = body;
   if (!agent_code || !pin) {
     return c.json({ error: 'agent_code and pin are required' }, 400);
   }
+
+  if (msisdn) {
+    return handleAgentUserLogin(c, agent_code, msisdn, pin);
+  }
+
   const actor = await getActorByAgentCode(c.env.DB, agent_code);
   return handleLogin(c, agent_code, pin, actor, ActorType.AGENT);
 });
@@ -329,6 +336,135 @@ async function handleMerchantLogin(
     merchant_user_id: merchantUser.id,
     merchant_user_role: merchantUser.role,
     merchant_user_name: merchantUser.name,
+    session_id: sessionId,
+    correlation_id: correlationId,
+  });
+}
+
+// ---------- Agent-user login (agent_code + msisdn + pin) ----------
+
+async function handleAgentUserLogin(
+  c: { env: Env; json: (data: unknown, status?: number) => Response },
+  agentCode: string,
+  msisdn: string,
+  pin: string,
+): Promise<Response> {
+  const correlationId = generateId();
+  const identifier = `${agentCode}:${msisdn}`;
+
+  // Rate limit by composite identifier
+  const rl = checkRateLimit(identifier, MAX_LOGIN_ATTEMPTS, RATE_LIMIT_WINDOW_MS);
+  if (!rl.allowed) {
+    return c.json({ error: 'Rate limit exceeded', correlation_id: correlationId }, 429);
+  }
+
+  await emitEvent(c.env, EventName.AUTH_LOGIN_ATTEMPTED, ActorType.AGENT, 'unknown', correlationId, {
+    agent_code: agentCode,
+    msisdn,
+  });
+
+  // 1. Resolve the agent actor by agent_code
+  const actor = await getActorByAgentCode(c.env.DB, agentCode);
+  if (!actor) {
+    return c.json({ error: 'Invalid credentials', correlation_id: correlationId }, 401);
+  }
+
+  // 2. Resolve the agent user within that agent by msisdn
+  const agentUser = await getAgentUserByActorAndMsisdn(c.env.DB, actor.id, msisdn);
+  if (!agentUser || !agentUser.pin_hash || !agentUser.salt) {
+    return c.json({ error: 'Invalid credentials', correlation_id: correlationId }, 401);
+  }
+
+  // 3. Check lockout on the agent user
+  if (agentUser.locked_until) {
+    const lockedUntil = new Date(agentUser.locked_until).getTime();
+    if (lockedUntil > Date.now()) {
+      return c.json({ error: 'Account is locked', correlation_id: correlationId }, 423);
+    }
+  }
+
+  // 4. Verify PIN against the agent_user record
+  const valid = await verifyPin(pin, agentUser.salt, c.env.PIN_PEPPER, agentUser.pin_hash);
+
+  if (!valid) {
+    const newAttempts = agentUser.failed_attempts + 1;
+    let lockedUntil: string | undefined;
+
+    if (newAttempts >= MAX_FAILED_BEFORE_LOCK) {
+      lockedUntil = new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString();
+      await emitEvent(c.env, EventName.AUTH_ACCOUNT_LOCKED, ActorType.AGENT, actor.id, correlationId, {
+        agent_code: agentCode,
+        msisdn,
+        agent_user_id: agentUser.id,
+        locked_until: lockedUntil,
+      });
+    }
+
+    await updateAgentUserFailedAttempts(c.env.DB, agentUser.id, newAttempts, lockedUntil);
+
+    await insertAuditLog(c.env.DB, {
+      id: generateId(),
+      action: 'LOGIN_FAILED',
+      actor_type: ActorType.AGENT,
+      actor_id: actor.id,
+      target_type: 'agent_user',
+      target_id: agentUser.id,
+      correlation_id: correlationId,
+      created_at: nowISO(),
+    });
+
+    await emitEvent(c.env, EventName.AUTH_LOGIN_FAILED, ActorType.AGENT, actor.id, correlationId, {
+      agent_code: agentCode,
+      msisdn,
+      agent_user_id: agentUser.id,
+      failed_attempts: newAttempts,
+    });
+
+    return c.json({ error: 'Invalid credentials', correlation_id: correlationId }, 401);
+  }
+
+  // 5. Success — reset failed attempts on the agent user
+  await updateAgentUserFailedAttempts(c.env.DB, agentUser.id, 0);
+
+  // 6. Create session (scoped to the agent actor)
+  const sessionId = generateId();
+  const token = generateId();
+  const now = nowISO();
+
+  await insertSession(c.env.DB, {
+    id: sessionId,
+    actor_id: actor.id,
+    token_hash: token,
+    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    created_at: now,
+  });
+
+  await insertAuditLog(c.env.DB, {
+    id: generateId(),
+    action: 'LOGIN_SUCCESS',
+    actor_type: ActorType.AGENT,
+    actor_id: actor.id,
+    target_type: 'agent_user',
+    target_id: agentUser.id,
+    correlation_id: correlationId,
+    created_at: now,
+  });
+
+  await emitEvent(c.env, EventName.AUTH_LOGIN_SUCCEEDED, ActorType.AGENT, actor.id, correlationId, {
+    agent_code: agentCode,
+    msisdn,
+    agent_user_id: agentUser.id,
+    role: agentUser.role,
+    session_id: sessionId,
+  });
+
+  return c.json({
+    token,
+    actor_id: actor.id,
+    actor_type: ActorType.AGENT,
+    agent_user_id: agentUser.id,
+    agent_user_role: agentUser.role,
+    agent_user_name: agentUser.name,
     session_id: sessionId,
     correlation_id: correlationId,
   });

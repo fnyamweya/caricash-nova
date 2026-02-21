@@ -102,7 +102,7 @@ paths:
       operationId: agentLogin
       tags: [Auth]
       summary: Agent login
-      description: Authenticate an agent using agent_code and PIN.
+      description: Authenticate an agent using `agent_code` and PIN. Include `msisdn` to authenticate against `agent_users` under that agent code.
       requestBody:
         required: true
         content:
@@ -111,6 +111,7 @@ paths:
               $ref: '#/components/schemas/AgentLoginRequest'
             example:
               agent_code: 'AGT001'
+              msisdn: '+12465557777'
               pin: '5678'
       responses:
         '200':
@@ -195,6 +196,284 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/RateLimited'
+
+  # ============================================================
+  #  STAFF
+  # ============================================================
+  /staff:
+    get:
+      operationId: listStaff
+      tags: [Ops]
+      summary: List staff actors
+      description: List staff members with optional state/role filters.
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ActorState'
+        - name: staff_role
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/StaffRole'
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: Staff list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffListResponse'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+
+    post:
+      operationId: createStaff
+      tags: [Ops]
+      summary: Create staff member
+      description: Create a staff actor with login credentials.
+      security:
+        - StaffAuth: []
+      parameters:
+        - $ref: '#/components/parameters/staffIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStaffRequest'
+            example:
+              staff_code: 'OPS001'
+              name: 'Ops Officer'
+              email: 'ops1@caricash.bb'
+              msisdn: '+12465550001'
+              staff_role: OPERATIONS
+              pin: '3456'
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Staff created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Duplicate staff code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /staff/{staffId}:
+    get:
+      operationId: getStaff
+      tags: [Ops]
+      summary: Get staff member
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: staffId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: Staff actor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorResponse'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      operationId: updateStaff
+      tags: [Ops]
+      summary: Update staff member
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: staffId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/staffIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStaffRequest'
+      responses:
+        '200':
+          description: Staff updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      operationId: deleteStaff
+      tags: [Ops]
+      summary: Close staff member
+      description: Soft-delete staff by setting actor state to CLOSED.
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: staffId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: Staff closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffActionResponse'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /staff/{staffId}/actions:
+    post:
+      operationId: staffAction
+      tags: [Ops]
+      summary: Perform staff action
+      description: Supported actions are ACTIVATE, SUSPEND, CLOSE, and UNLOCK.
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: staffId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/staffIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffActionRequest'
+      responses:
+        '200':
+          description: Action applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffActionResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /staff/{staffId}/kyc/initiate:
+    post:
+      operationId: initiateStaffKyc
+      tags: [Ops]
+      summary: Initiate staff KYC
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: staffId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/staffIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycInitiateRequest'
+      responses:
+        '200':
+          description: KYC initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycInitiateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /staff/{staffId}/kyc:
+    get:
+      operationId: getStaffKyc
+      tags: [Ops]
+      summary: Get staff KYC status
+      security:
+        - StaffAuth: []
+      parameters:
+        - name: staffId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/staffIdHeader'
+      responses:
+        '200':
+          description: Staff KYC profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycProfileResponse'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ============================================================
   #  CUSTOMERS
@@ -2084,6 +2363,9 @@ components:
     ActorState:
       type: string
       enum: [PENDING, ACTIVE, SUSPENDED, CLOSED]
+    StaffRole:
+      type: string
+      enum: [SUPER_ADMIN, ADMIN, OPERATIONS, COMPLIANCE, FINANCE, SUPPORT]
     AccountType:
       type: string
       enum: [WALLET, FEE_REVENUE, TAX_PAYABLE, COMMISSIONS_PAYABLE, OVERDRAFT_FACILITY, SUSPENSE, CASH_FLOAT]
@@ -2163,6 +2445,9 @@ components:
         agent_code:
           type: string
           description: Agent identifier code
+        msisdn:
+          type: string
+          description: Optional agent user phone number for agent-user login
         pin:
           type: string
           description: Agent PIN
@@ -2315,6 +2600,82 @@ components:
           $ref: '#/components/schemas/RegistrationType'
         correlation_id:
           type: string
+
+    # ---- Staff ----
+    CreateStaffRequest:
+      type: object
+      required: [staff_code, name, staff_role, pin]
+      properties:
+        staff_code:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        msisdn:
+          type: string
+        staff_role:
+          $ref: '#/components/schemas/StaffRole'
+        pin:
+          type: string
+        correlation_id:
+          type: string
+
+    UpdateStaffRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        staff_role:
+          $ref: '#/components/schemas/StaffRole'
+        state:
+          $ref: '#/components/schemas/ActorState'
+        correlation_id:
+          type: string
+
+    StaffActionRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [ACTIVATE, SUSPEND, CLOSE, UNLOCK]
+        reason:
+          type: string
+        correlation_id:
+          type: string
+
+    StaffActionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        action:
+          type: string
+        actor:
+          $ref: '#/components/schemas/Actor'
+        state:
+          $ref: '#/components/schemas/ActorState'
+        unlocked:
+          type: boolean
+        actor_id:
+          type: string
+        correlation_id:
+          type: string
+
+    StaffListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Actor'
+        count:
+          type: integer
 
     # ---- Agent ----
     CreateAgentRequest:
