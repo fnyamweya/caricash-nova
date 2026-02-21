@@ -11,6 +11,7 @@ import {
     EventName,
     ErrorCode,
     IdempotencyConflictError,
+    InsufficientFundsError,
 } from '@caricash/shared';
 import type { PostTransactionCommand, CurrencyCode, AccountBalance, FloatOperation } from '@caricash/shared';
 import {
@@ -32,6 +33,10 @@ import { buildFloatTopUpEntries, buildFloatWithdrawalEntries } from '@caricash/p
 import { postTransaction, getBalance } from '../lib/posting-client.js';
 
 export const floatRoutes = new Hono<{ Bindings: Env }>();
+
+function toCents(amount: string): number {
+    return Math.round(Number(amount) * 100);
+}
 
 // ---------------------------------------------------------------------------
 // POST /float/top-up — Staff deposits cash to agent's float
@@ -86,6 +91,19 @@ floatRoutes.post('/top-up', async (c) => {
         const balBefore = await getAccountBalance(c.env.DB, agentFloat.id);
         const actualBefore = balBefore?.actual_balance ?? '0.00';
         const availableBefore = balBefore?.available_balance ?? '0.00';
+
+        const suspenseBalance = await getAccountBalance(c.env.DB, systemSuspense.id);
+        const suspenseAvailable = suspenseBalance?.available_balance ?? suspenseBalance?.actual_balance ?? '0.00';
+        if (toCents(suspenseAvailable) < toCents(amount)) {
+            return c.json(
+                {
+                    error: `Insufficient system suspense balance: ${suspenseAvailable} available, ${amount} required`,
+                    code: ErrorCode.INSUFFICIENT_FUNDS,
+                    correlation_id: correlationId,
+                },
+                409,
+            );
+        }
 
         // Build double-entry journal
         const entries = buildFloatTopUpEntries(systemSuspense.id, agentFloat.id, amount);
@@ -230,6 +248,9 @@ floatRoutes.post('/top-up', async (c) => {
     } catch (err) {
         if (err instanceof IdempotencyConflictError) {
             return c.json({ error: err.message, code: ErrorCode.DUPLICATE_IDEMPOTENCY_CONFLICT, correlation_id: correlationId }, 409);
+        }
+        if (err instanceof InsufficientFundsError) {
+            return c.json({ error: err.message, code: ErrorCode.INSUFFICIENT_FUNDS, correlation_id: correlationId }, 409);
         }
         const message = err instanceof Error ? err.message : 'Internal server error';
         return c.json({ error: message, correlation_id: correlationId }, 500);
@@ -394,6 +415,9 @@ floatRoutes.post('/withdrawal', async (c) => {
     } catch (err) {
         if (err instanceof IdempotencyConflictError) {
             return c.json({ error: err.message, code: ErrorCode.DUPLICATE_IDEMPOTENCY_CONFLICT, correlation_id: correlationId }, 409);
+        }
+        if (err instanceof InsufficientFundsError) {
+            return c.json({ error: err.message, code: ErrorCode.INSUFFICIENT_FUNDS, correlation_id: correlationId }, 409);
         }
         const message = err instanceof Error ? err.message : 'Internal server error';
         return c.json({ error: message, correlation_id: correlationId }, 500);
