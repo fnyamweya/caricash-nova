@@ -99,7 +99,9 @@ jobs:
         run: pnpm install --frozen-lockfile || pnpm install
 
       - name: Configure D1 database ID for staging
-        run: sed -i "s/REPLACE_WITH_STAGING_D1_DATABASE_ID/${{ secrets.CLOUDFLARE_D1_DATABASE_ID_STAGING }}/" packages/api/wrangler.toml
+        run: |
+          sed -i "s/REPLACE_WITH_STAGING_D1_DATABASE_ID/${{ secrets.CLOUDFLARE_D1_DATABASE_ID_STAGING }}/g" packages/api/wrangler.toml
+          sed -i "s/REPLACE_WITH_STAGING_D1_DATABASE_ID/${{ secrets.CLOUDFLARE_D1_DATABASE_ID_STAGING }}/g" packages/posting-do/wrangler.toml
 
       - name: Provision Cloudflare resources
         env:
@@ -188,7 +190,9 @@ jobs:
         run: pnpm install --frozen-lockfile || pnpm install
 
       - name: Configure D1 database ID for production
-        run: sed -i "s/REPLACE_WITH_PRODUCTION_D1_DATABASE_ID/${{ secrets.CLOUDFLARE_D1_DATABASE_ID_PROD }}/" packages/api/wrangler.toml
+        run: |
+          sed -i "s/REPLACE_WITH_PRODUCTION_D1_DATABASE_ID/${{ secrets.CLOUDFLARE_D1_DATABASE_ID_PROD }}/g" packages/api/wrangler.toml
+          sed -i "s/REPLACE_WITH_PRODUCTION_D1_DATABASE_ID/${{ secrets.CLOUDFLARE_D1_DATABASE_ID_PROD }}/g" packages/posting-do/wrangler.toml
 
       - name: Provision Cloudflare resources
         env:

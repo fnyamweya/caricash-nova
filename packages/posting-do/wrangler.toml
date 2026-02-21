@@ -23,7 +23,7 @@ name = "caricash-posting-do-staging"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "caricash-db-staging"
-database_id = "${CLOUDFLARE_D1_DATABASE_ID_STAGING}"
+database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
 migrations_dir = "../../packages/db/migrations"
 
 [env.staging.durable_objects]
@@ -38,7 +38,7 @@ name = "caricash-posting-do"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "caricash-db"
-database_id = "${CLOUDFLARE_D1_DATABASE_ID_PRODUCTION}"
+database_id = "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID"
 migrations_dir = "../../packages/db/migrations"
 
 [env.production.durable_objects]
