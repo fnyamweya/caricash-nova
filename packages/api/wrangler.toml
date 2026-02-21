@@ -34,7 +34,7 @@ route = { pattern = "api-staging.caricash.com/*", zone_name = "caricash.com" }
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "caricash-db-staging"
-database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"  # Set via: npx wrangler d1 create caricash-db-staging
+database_id = "${CLOUDFLARE_D1_DATABASE_ID_STAGING}"
 migrations_dir = "../../packages/db/migrations"
 
 [env.staging.durable_objects]
@@ -57,7 +57,7 @@ route = { pattern = "api.caricash.com/*", zone_name = "caricash.com" }
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "caricash-db"
-database_id = "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID"  # Set via: npx wrangler d1 create caricash-db
+database_id = "${CLOUDFLARE_D1_DATABASE_ID_PRODUCTION}"
 migrations_dir = "../../packages/db/migrations"
 
 [env.production.durable_objects]
