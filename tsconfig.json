@@ -3,7 +3,9 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -19,13 +21,30 @@
   },
   "files": [],
   "references": [
-    { "path": "packages/api" },
-    { "path": "packages/db" },
-    { "path": "packages/jobs" },
-    { "path": "packages/posting-do" },
-    { "path": "packages/shared" },
-    { "path": "packages/tests" },
-    { "path": "packages/web" }
+    {
+      "path": "packages/api"
+    },
+    {
+      "path": "packages/db"
+    },
+    {
+      "path": "packages/jobs"
+    },
+    {
+      "path": "packages/posting-do"
+    },
+    {
+      "path": "packages/shared"
+    },
+    {
+      "path": "packages/tests"
+    },
+    {
+      "path": "packages/web"
+    }
   ],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }
