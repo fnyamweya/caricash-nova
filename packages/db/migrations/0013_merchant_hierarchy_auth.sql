@@ -45,6 +45,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_merchant_users_actor_msisdn
 
 -- ── 3. Drop redundant profile columns from merchant_users ───────────────────
 -- These duplicate data already present on the actors table.
+DROP INDEX IF EXISTS idx_merchant_users_email;
+DROP INDEX IF EXISTS idx_merchant_users_actor_email;
 ALTER TABLE merchant_users DROP COLUMN first_name;
 ALTER TABLE merchant_users DROP COLUMN last_name;
 ALTER TABLE merchant_users DROP COLUMN email;
