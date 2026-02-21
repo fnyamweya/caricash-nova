@@ -24,23 +24,43 @@ const SUPER_ADMIN_DEFAULT_PIN = '2468';
 export async function ensureSuperAdminSeeded(env: Env): Promise<void> {
     const now = nowISO();
     let actor = await getActorByStaffCode(env.DB, SUPER_ADMIN_STAFF_CODE);
+    let seededRole: StaffRole = StaffRole.SUPER_ADMIN;
 
     if (!actor) {
         const actorId = 'staff_super_admin_seed';
-        await insertActor(env.DB, {
-            id: actorId,
-            type: ActorType.STAFF,
-            state: ActorState.ACTIVE,
-            name: 'CariCash Super Admin',
-            first_name: 'Super',
-            last_name: 'Admin',
-            display_name: 'Super Admin',
-            staff_code: SUPER_ADMIN_STAFF_CODE,
-            staff_role: StaffRole.SUPER_ADMIN,
-            kyc_state: KycState.APPROVED,
-            created_at: now,
-            updated_at: now,
-        });
+        try {
+            await insertActor(env.DB, {
+                id: actorId,
+                type: ActorType.STAFF,
+                state: ActorState.ACTIVE,
+                name: 'CariCash Super Admin',
+                first_name: 'Super',
+                last_name: 'Admin',
+                display_name: 'Super Admin',
+                staff_code: SUPER_ADMIN_STAFF_CODE,
+                staff_role: StaffRole.SUPER_ADMIN,
+                kyc_state: KycState.APPROVED,
+                created_at: now,
+                updated_at: now,
+            });
+            seededRole = StaffRole.SUPER_ADMIN;
+        } catch {
+            await insertActor(env.DB, {
+                id: actorId,
+                type: ActorType.STAFF,
+                state: ActorState.ACTIVE,
+                name: 'CariCash Super Admin',
+                first_name: 'Super',
+                last_name: 'Admin',
+                display_name: 'Super Admin',
+                staff_code: SUPER_ADMIN_STAFF_CODE,
+                staff_role: StaffRole.ADMIN,
+                kyc_state: KycState.APPROVED,
+                created_at: now,
+                updated_at: now,
+            });
+            seededRole = StaffRole.ADMIN;
+        }
 
         actor = await getActorByStaffCode(env.DB, SUPER_ADMIN_STAFF_CODE);
         if (!actor) return;
@@ -54,7 +74,7 @@ export async function ensureSuperAdminSeeded(env: Env): Promise<void> {
             actor_type: ActorType.STAFF,
             actor_id: actor.id,
             schema_version: 1,
-            payload_json: JSON.stringify({ staff_code: SUPER_ADMIN_STAFF_CODE, staff_role: StaffRole.SUPER_ADMIN }),
+            payload_json: JSON.stringify({ staff_code: SUPER_ADMIN_STAFF_CODE, staff_role: seededRole }),
             created_at: now,
         };
         await insertEvent(env.DB, event);
