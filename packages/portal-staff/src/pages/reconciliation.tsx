@@ -3,7 +3,6 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import {
     useApi,
-    PageHeader,
     PageTransition,
     Card,
     CardContent,
@@ -17,6 +16,7 @@ import {
     TabsTrigger,
     TabsContent,
 } from '@caricash/ui';
+import { ModulePage } from '../components/module-page.js';
 
 interface ReconciliationRunResponse {
     run_id: string;
@@ -99,14 +99,18 @@ export function ReconciliationPage() {
 
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6">
-                <PageHeader
-                    title="Reconciliation"
-                    description="Run reconciliation, review findings, and inspect run history"
-                />
-
+            <ModulePage
+                module="Controls"
+                title="Reconciliation"
+                description="Run reconciliations, track findings, and validate historical run outcomes"
+                playbook={[
+                    'Execute a run before reviewing findings when context is stale.',
+                    'Filter findings by state to prioritize unresolved exposures.',
+                    'Capture run IDs when escalating or documenting remediation.',
+                ]}
+            >
                 <Tabs defaultValue="run">
-                    <TabsList>
+                    <TabsList className="h-auto flex-wrap justify-start">
                         <TabsTrigger value="run">Run Reconciliation</TabsTrigger>
                         <TabsTrigger value="findings">Findings</TabsTrigger>
                         <TabsTrigger value="history">Run History</TabsTrigger>
@@ -240,7 +244,7 @@ export function ReconciliationPage() {
                         </div>
                     </TabsContent>
                 </Tabs>
-            </div>
+            </ModulePage>
         </PageTransition>
     );
 }

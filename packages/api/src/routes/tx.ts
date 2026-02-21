@@ -43,6 +43,117 @@ import { getBalance } from '../lib/posting-client.js';
 export const txRoutes = new Hono<{ Bindings: Env }>();
 
 // ---------------------------------------------------------------------------
+// GET /tx/agent/:agent_id/summary
+// ---------------------------------------------------------------------------
+txRoutes.get('/agent/:agent_id/summary', async (c) => {
+  const agentId = c.req.param('agent_id');
+  const currencyRaw = c.req.query('currency') ?? 'BBD';
+  const correlationId = generateId();
+  const today = nowISO().slice(0, 10);
+
+  if (currencyRaw !== 'BBD' && currencyRaw !== 'USD') {
+    return c.json({
+      error: 'Invalid currency. Must be BBD or USD',
+      code: ErrorCode.VALIDATION_ERROR,
+      correlation_id: correlationId,
+    }, 400);
+  }
+
+  const currency = currencyRaw as CurrencyCode;
+
+  try {
+    const agentCashFloat = await getLedgerAccount(c.env.DB, ActorType.AGENT, agentId, AccountType.CASH_FLOAT, currency);
+    if (!agentCashFloat) {
+      return c.json({ error: 'Agent cash float account not found', correlation_id: correlationId }, 404);
+    }
+
+    const todayDepositsRow = (await c.env.DB
+      .prepare(
+        `SELECT COALESCE(SUM(CAST(ll.amount AS REAL)), 0) AS total
+         FROM ledger_journals lj
+         JOIN ledger_lines ll ON ll.journal_id = lj.id
+         WHERE ll.account_id = ?1
+           AND lj.currency = ?2
+           AND lj.txn_type = 'DEPOSIT'
+           AND ll.entry_type = 'DR'
+           AND substr(lj.created_at, 1, 10) = ?3`,
+      )
+      .bind(agentCashFloat.id, currency, today)
+      .first()) as { total: number | string } | null;
+
+    const totalTransactedRow = (await c.env.DB
+      .prepare(
+        `SELECT COALESCE(SUM(CAST(ll.amount AS REAL)), 0) AS total
+         FROM ledger_journals lj
+         JOIN ledger_lines ll ON ll.journal_id = lj.id
+         WHERE ll.account_id = ?1
+           AND lj.currency = ?2
+           AND (
+             (lj.txn_type = 'DEPOSIT' AND ll.entry_type = 'DR')
+             OR
+             (lj.txn_type = 'WITHDRAWAL' AND ll.entry_type = 'CR')
+           )`,
+      )
+      .bind(agentCashFloat.id, currency)
+      .first()) as { total: number | string } | null;
+
+    const todayCashOutRow = (await c.env.DB
+      .prepare(
+        `SELECT COALESCE(SUM(CAST(ll.amount AS REAL)), 0) AS total
+         FROM ledger_journals lj
+         JOIN ledger_lines ll ON ll.journal_id = lj.id
+         WHERE ll.account_id = ?1
+           AND lj.currency = ?2
+           AND lj.txn_type = 'WITHDRAWAL'
+           AND ll.entry_type = 'CR'
+           AND substr(lj.created_at, 1, 10) = ?3`,
+      )
+      .bind(agentCashFloat.id, currency, today)
+      .first()) as { total: number | string } | null;
+
+    const todayTxnCountRow = (await c.env.DB
+      .prepare(
+        `SELECT COUNT(1) AS count
+         FROM ledger_journals lj
+         JOIN ledger_lines ll ON ll.journal_id = lj.id
+         WHERE ll.account_id = ?1
+           AND lj.currency = ?2
+           AND (
+             (lj.txn_type = 'DEPOSIT' AND ll.entry_type = 'DR')
+             OR
+             (lj.txn_type = 'WITHDRAWAL' AND ll.entry_type = 'CR')
+           )
+           AND substr(lj.created_at, 1, 10) = ?3`,
+      )
+      .bind(agentCashFloat.id, currency, today)
+      .first()) as { count: number | string } | null;
+
+    await initAccountBalance(c.env.DB, agentCashFloat.id, currency);
+    const agentBalance = await getAccountBalance(c.env.DB, agentCashFloat.id);
+    const cashFloatBalance = agentBalance?.actual_balance ?? '0.00';
+    const cashFloatAvailableBalance = agentBalance?.available_balance ?? cashFloatBalance;
+
+    return c.json({
+      agent_id: agentId,
+      cash_float_account_id: agentCashFloat.id,
+      currency,
+      today_date: today,
+      today_deposits: Number(todayDepositsRow?.total ?? 0).toFixed(2),
+      total_transacted: Number(totalTransactedRow?.total ?? 0).toFixed(2),
+      today_cash: Number(todayCashOutRow?.total ?? 0).toFixed(2),
+      today_withdrawals: Number(todayCashOutRow?.total ?? 0).toFixed(2),
+      today_txn_count: Number(todayTxnCountRow?.count ?? 0),
+      cash_float_balance: cashFloatBalance,
+      cash_float_available_balance: cashFloatAvailableBalance,
+      correlation_id: correlationId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, code: ErrorCode.INTERNAL_ERROR, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /tx/deposit
 // ---------------------------------------------------------------------------
 txRoutes.post('/deposit', async (c) => {

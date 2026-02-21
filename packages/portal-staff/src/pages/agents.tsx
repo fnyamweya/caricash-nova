@@ -3,7 +3,6 @@ import { useMutation } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import {
     useApi,
-    PageHeader,
     PageTransition,
     Card,
     CardContent,
@@ -23,6 +22,7 @@ import {
     TabsTrigger,
     TabsContent,
 } from '@caricash/ui';
+import { ModulePage } from '../components/module-page.js';
 
 type AgentType = 'STANDARD' | 'AGGREGATOR';
 type CurrencyCode = 'BBD' | 'USD';
@@ -1643,14 +1643,18 @@ function OverdraftActionsPanel() {
 export function AgentsPage() {
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6">
-                <PageHeader
-                    title="Agent Management"
-                    description="Create agents and run agent operational actions from a single console"
-                />
-
+            <ModulePage
+                module="Core"
+                title="Agent Management"
+                description="Operate agent lifecycle, float controls, KYC, approvals, and overdraft actions"
+                playbook={[
+                    'Create or locate the target agent before financial actions.',
+                    'Use dedicated tabs to keep float, KYC, and approvals operationally separate.',
+                    'Persist request IDs and correlation IDs for each high-risk operation.',
+                ]}
+            >
                 <Tabs defaultValue="create">
-                    <TabsList className="flex flex-wrap h-auto">
+                    <TabsList className="flex h-auto flex-wrap justify-start">
                         <TabsTrigger value="create">Create Agent</TabsTrigger>
                         <TabsTrigger value="float">Float</TabsTrigger>
                         <TabsTrigger value="kyc">KYC</TabsTrigger>
@@ -1678,7 +1682,7 @@ export function AgentsPage() {
                         <OverdraftActionsPanel />
                     </TabsContent>
                 </Tabs>
-            </div>
+            </ModulePage>
         </PageTransition>
     );
 }

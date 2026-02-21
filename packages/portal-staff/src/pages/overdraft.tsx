@@ -3,7 +3,6 @@ import { useMutation } from '@tanstack/react-query';
 import { CheckCircle, XCircle } from 'lucide-react';
 import {
     useApi,
-    PageHeader,
     PageTransition,
     Card,
     CardContent,
@@ -27,6 +26,7 @@ import {
     DialogClose,
     Separator,
 } from '@caricash/ui';
+import { ModulePage } from '../components/module-page.js';
 
 interface OverdraftRequestResponse {
     id: string;
@@ -105,14 +105,17 @@ export function OverdraftPage() {
 
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6">
-                <PageHeader
-                    title="Overdraft Facility"
-                    description="Request, approve, or reject overdraft facilities"
-                />
-
-                {/* Request Overdraft */}
-                <Card className="max-w-lg">
+            <ModulePage
+                module="Operations"
+                title="Overdraft Facility"
+                description="Submit, approve, and reject overdraft facilities with controlled decision flows"
+                playbook={[
+                    'Confirm target account and approved limit before submission.',
+                    'Use the same request ID for downstream approval or rejection decisions.',
+                    'Document rejection rationale and correlation IDs in incident records.',
+                ]}
+            >
+                <Card className="max-w-2xl">
                     <form
                         onSubmit={(e) => {
                             e.preventDefault();
@@ -185,8 +188,7 @@ export function OverdraftPage() {
 
                 <Separator />
 
-                {/* Approve / Reject Overdraft */}
-                <Card className="max-w-lg">
+                <Card className="max-w-2xl">
                     <CardHeader>
                         <CardTitle className="text-base">Approve / Reject Overdraft</CardTitle>
                     </CardHeader>
@@ -268,7 +270,7 @@ export function OverdraftPage() {
                         </div>
                     </CardContent>
                 </Card>
-            </div>
+            </ModulePage>
 
             {/* Request success dialog */}
             <Dialog open={!!requestResult} onOpenChange={() => setRequestResult(null)}>

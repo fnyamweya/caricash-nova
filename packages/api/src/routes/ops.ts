@@ -31,6 +31,23 @@ import {
   insertAuditLog,
   getActorById,
   listActiveStaffByRole,
+  // V2 Accounting
+  getChartOfAccounts,
+  getChartOfAccountByCode,
+  insertChartOfAccount,
+  getAccountInstance,
+  listAccountInstancesByOwner,
+  updateAccountInstanceStatus,
+  listAccountingPeriods,
+  checkOverlappingPeriod,
+  getAccountingPeriod,
+  updateAccountingPeriodStatus,
+  insertAccountingPeriod,
+  getTrialBalance,
+  getGLDetail,
+  getAccountStatement,
+  getSubledgerRollup,
+  getSubledgerAccountsByParent,
 } from '@caricash/db';
 
 export const opsRoutes = new Hono<{ Bindings: Env }>();
@@ -548,4 +565,351 @@ opsRoutes.post('/overdraft/:id/reject', async (c) => {
     state: ApprovalState.REJECTED,
     correlation_id: correlationId,
   });
+});
+
+// ===========================================================================
+// V2 Accounting — Chart of Accounts
+// ===========================================================================
+
+// GET /ops/accounting/coa?include_inactive=true&account_class=ASSET
+opsRoutes.get('/accounting/coa', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+
+  const includeInactive = c.req.query('include_inactive') === 'true';
+  const accountClass = c.req.query('account_class');
+
+  const accounts = await getChartOfAccounts(c.env.DB, { includeInactive, accountClass });
+
+  // Build class summary
+  const classSummary: Record<string, number> = {};
+  for (const acc of accounts) {
+    classSummary[String(acc.account_class)] = (classSummary[String(acc.account_class)] ?? 0) + 1;
+  }
+
+  return c.json({
+    accounts,
+    count: accounts.length,
+    class_summary: classSummary,
+  });
+});
+
+// GET /ops/accounting/coa/:code
+opsRoutes.get('/accounting/coa/:code', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const code = c.req.param('code');
+  const account = await getChartOfAccountByCode(c.env.DB, code);
+  if (!account) return c.json({ error: 'Chart of account not found', code: ErrorCode.NOT_FOUND }, 404);
+  return c.json(account);
+});
+
+// POST /ops/accounting/coa
+opsRoutes.post('/accounting/coa', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const body = await c.req.json();
+  const now = nowISO();
+  const coa = {
+    code: body.code,
+    name: body.name,
+    account_class: body.account_class,
+    normal_balance: body.normal_balance,
+    parent_code: body.parent_code ?? null,
+    description: body.description ?? null,
+    ifrs_mapping: body.ifrs_mapping ?? null,
+    is_header: body.is_header ?? false,
+    active_from: body.active_from ?? now,
+    active_to: body.active_to ?? null,
+    created_at: now,
+    updated_at: now,
+  };
+  if (!coa.code || !coa.name || !coa.account_class || !coa.normal_balance) {
+    return c.json({ error: 'code, name, account_class, normal_balance are required', code: ErrorCode.MISSING_REQUIRED_FIELD }, 400);
+  }
+  await insertChartOfAccount(c.env.DB, coa);
+  await insertAuditLog(c.env.DB, {
+    id: generateId(), action: 'COA_CREATED', actor_type: ActorType.STAFF, actor_id: staffId,
+    target_type: 'chart_of_accounts', target_id: coa.code, after_json: JSON.stringify(coa),
+    correlation_id: generateId(), created_at: now,
+  });
+  return c.json(coa, 201);
+});
+
+// ===========================================================================
+// V2 Accounting — Account Instances
+// ===========================================================================
+
+// GET /ops/accounting/instances/:id
+opsRoutes.get('/accounting/instances/:id', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const instance = await getAccountInstance(c.env.DB, c.req.param('id'));
+  if (!instance) return c.json({ error: 'Account instance not found', code: ErrorCode.NOT_FOUND }, 404);
+  return c.json(instance);
+});
+
+// GET /ops/accounting/instances?owner_type=...&owner_id=...&currency=...
+opsRoutes.get('/accounting/instances', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const ownerType = c.req.query('owner_type');
+  const ownerId = c.req.query('owner_id');
+  if (!ownerType || !ownerId) return c.json({ error: 'owner_type and owner_id are required', code: ErrorCode.MISSING_REQUIRED_FIELD }, 400);
+  const currency = c.req.query('currency');
+  const instances = await listAccountInstancesByOwner(c.env.DB, ownerType, ownerId, currency);
+  return c.json({ instances, count: instances.length });
+});
+
+// POST /ops/accounting/instances/:id/freeze
+opsRoutes.post('/accounting/instances/:id/freeze', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const id = c.req.param('id');
+  const instance = await getAccountInstance(c.env.DB, id);
+  if (!instance) return c.json({ error: 'Account instance not found', code: ErrorCode.NOT_FOUND }, 404);
+  await updateAccountInstanceStatus(c.env.DB, id, 'FROZEN');
+  await insertAuditLog(c.env.DB, {
+    id: generateId(), action: 'ACCOUNT_FROZEN', actor_type: ActorType.STAFF, actor_id: staffId,
+    target_type: 'account_instance', target_id: id, before_json: JSON.stringify({ status: instance.status }),
+    after_json: JSON.stringify({ status: 'FROZEN' }), correlation_id: generateId(), created_at: nowISO(),
+  });
+  return c.json({ id, status: 'FROZEN' });
+});
+
+// POST /ops/accounting/instances/:id/close
+opsRoutes.post('/accounting/instances/:id/close', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const id = c.req.param('id');
+  const instance = await getAccountInstance(c.env.DB, id);
+  if (!instance) return c.json({ error: 'Account instance not found', code: ErrorCode.NOT_FOUND }, 404);
+  const now = nowISO();
+  await updateAccountInstanceStatus(c.env.DB, id, 'CLOSED', now);
+  await insertAuditLog(c.env.DB, {
+    id: generateId(), action: 'ACCOUNT_CLOSED', actor_type: ActorType.STAFF, actor_id: staffId,
+    target_type: 'account_instance', target_id: id, before_json: JSON.stringify({ status: instance.status }),
+    after_json: JSON.stringify({ status: 'CLOSED' }), correlation_id: generateId(), created_at: now,
+  });
+  return c.json({ id, status: 'CLOSED', closed_at: now });
+});
+
+// ===========================================================================
+// V2 Accounting — Accounting Periods
+// ===========================================================================
+
+// GET /ops/accounting/periods?status=OPEN&limit=50&offset=0
+opsRoutes.get('/accounting/periods', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+
+  const status = c.req.query('status');
+  const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined;
+  const offset = c.req.query('offset') ? parseInt(c.req.query('offset')!, 10) : undefined;
+
+  const periods = await listAccountingPeriods(c.env.DB, { status, limit, offset });
+
+  // Identify the currently active period (OPEN, covering today)
+  const today = nowISO().slice(0, 10);
+  const currentPeriod = periods.find(
+    (p) => p.status === 'OPEN' && p.start_date.slice(0, 10) <= today && p.end_date.slice(0, 10) > today,
+  );
+
+  // Status summary
+  const statusSummary: Record<string, number> = {};
+  for (const p of periods) {
+    statusSummary[String(p.status)] = (statusSummary[String(p.status)] ?? 0) + 1;
+  }
+
+  return c.json({
+    periods,
+    count: periods.length,
+    current_period_id: currentPeriod?.id ?? null,
+    status_summary: statusSummary,
+  });
+});
+
+// GET /ops/accounting/periods/:id
+opsRoutes.get('/accounting/periods/:id', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const period = await getAccountingPeriod(c.env.DB, c.req.param('id'));
+  if (!period) return c.json({ error: 'Accounting period not found', code: ErrorCode.NOT_FOUND }, 404);
+  return c.json(period);
+});
+
+// POST /ops/accounting/periods
+opsRoutes.post('/accounting/periods', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const body = await c.req.json();
+  const now = nowISO();
+  if (!body.name || !body.start_date || !body.end_date) {
+    return c.json({ error: 'name, start_date, end_date are required', code: ErrorCode.MISSING_REQUIRED_FIELD }, 400);
+  }
+
+  // Validate start < end
+  if (body.start_date >= body.end_date) {
+    return c.json({ error: 'start_date must be before end_date', code: ErrorCode.VALIDATION_ERROR }, 400);
+  }
+
+  // Check for overlapping periods
+  const overlap = await checkOverlappingPeriod(c.env.DB, body.start_date, body.end_date);
+  if (overlap) {
+    return c.json({
+      error: `Overlapping period exists: ${overlap.name} (${overlap.start_date} – ${overlap.end_date})`,
+      code: ErrorCode.PERIOD_CLOSED,
+      overlapping_period_id: overlap.id,
+    }, 409);
+  }
+
+  const period = {
+    id: generateId(),
+    name: body.name,
+    start_date: body.start_date,
+    end_date: body.end_date,
+    status: 'OPEN' as const,
+    closed_by: undefined as string | undefined,
+    closed_at: undefined as string | undefined,
+    created_at: now,
+    updated_at: now,
+  };
+  await insertAccountingPeriod(c.env.DB, period);
+  await insertAuditLog(c.env.DB, {
+    id: generateId(), action: 'PERIOD_CREATED', actor_type: ActorType.STAFF, actor_id: staffId,
+    target_type: 'accounting_period', target_id: period.id, after_json: JSON.stringify(period),
+    correlation_id: generateId(), created_at: now,
+  });
+  return c.json(period, 201);
+});
+
+// POST /ops/accounting/periods/:id/close
+opsRoutes.post('/accounting/periods/:id/close', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const id = c.req.param('id');
+  const period = await getAccountingPeriod(c.env.DB, id);
+  if (!period) return c.json({ error: 'Accounting period not found', code: ErrorCode.NOT_FOUND }, 404);
+  if (period.status !== 'OPEN') return c.json({ error: `Period is already ${period.status}`, code: ErrorCode.PERIOD_CLOSED }, 409);
+  await updateAccountingPeriodStatus(c.env.DB, id, 'CLOSED', staffId);
+  await insertAuditLog(c.env.DB, {
+    id: generateId(), action: 'PERIOD_CLOSED', actor_type: ActorType.STAFF, actor_id: staffId,
+    target_type: 'accounting_period', target_id: id, before_json: JSON.stringify({ status: 'OPEN' }),
+    after_json: JSON.stringify({ status: 'CLOSED' }), correlation_id: generateId(), created_at: nowISO(),
+  });
+  return c.json({ id, status: 'CLOSED' });
+});
+
+// POST /ops/accounting/periods/:id/lock
+opsRoutes.post('/accounting/periods/:id/lock', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const id = c.req.param('id');
+  const period = await getAccountingPeriod(c.env.DB, id);
+  if (!period) return c.json({ error: 'Accounting period not found', code: ErrorCode.NOT_FOUND }, 404);
+  if (period.status !== 'CLOSED') return c.json({ error: 'Period must be CLOSED before it can be LOCKED', code: ErrorCode.PERIOD_CLOSED }, 409);
+  await updateAccountingPeriodStatus(c.env.DB, id, 'LOCKED', staffId);
+  return c.json({ id, status: 'LOCKED' });
+});
+
+// ===========================================================================
+// V2 Accounting — Reporting
+// ===========================================================================
+
+// GET /ops/accounting/reports/trial-balance?currency=BBD&from=...&to=...&period_id=...
+opsRoutes.get('/accounting/reports/trial-balance', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+
+  const currency = c.req.query('currency');
+  const from = c.req.query('from');
+  const to = c.req.query('to');
+  const periodId = c.req.query('period_id');
+
+  const rows = await getTrialBalance(c.env.DB, { currency, from, to, periodId });
+
+  // Compute totals and balance check
+  let totalDebitMinor = 0;
+  let totalCreditMinor = 0;
+  for (const row of rows) {
+    totalDebitMinor += Number(row.total_debit_minor) || 0;
+    totalCreditMinor += Number(row.total_credit_minor) || 0;
+  }
+
+  const netDifference = totalDebitMinor - totalCreditMinor;
+  const balanced = Math.abs(netDifference) === 0;
+
+  // Add formatted amounts (minor units → major units)
+  const formattedRows = rows.map((row) => ({
+    ...row,
+    total_debit: ((Number(row.total_debit_minor) || 0) / 100).toFixed(2),
+    total_credit: ((Number(row.total_credit_minor) || 0) / 100).toFixed(2),
+    net_balance: ((Number(row.net_balance_minor) || 0) / 100).toFixed(2),
+  }));
+
+  return c.json({
+    rows: formattedRows,
+    count: rows.length,
+    summary: {
+      total_debit_minor: totalDebitMinor,
+      total_credit_minor: totalCreditMinor,
+      total_debit: (totalDebitMinor / 100).toFixed(2),
+      total_credit: (totalCreditMinor / 100).toFixed(2),
+      net_difference_minor: netDifference,
+      net_difference: (netDifference / 100).toFixed(2),
+      balanced,
+      currency: currency ?? 'ALL',
+    },
+    filters: {
+      currency: currency ?? null,
+      from: from ?? null,
+      to: to ?? null,
+      period_id: periodId ?? null,
+    },
+    generated_at: nowISO(),
+  });
+});
+
+// GET /ops/accounting/reports/gl-detail?currency=...&from=...&to=...&coa_code=...&limit=...
+opsRoutes.get('/accounting/reports/gl-detail', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const rows = await getGLDetail(c.env.DB, {
+    currency: c.req.query('currency'),
+    from: c.req.query('from'),
+    to: c.req.query('to'),
+    coa_code: c.req.query('coa_code'),
+    limit: c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined,
+  });
+  return c.json({ rows, count: rows.length });
+});
+
+// GET /ops/accounting/reports/account-statement/:instance_id?from=...&to=...&limit=...
+opsRoutes.get('/accounting/reports/account-statement/:instance_id', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const rows = await getAccountStatement(
+    c.env.DB,
+    c.req.param('instance_id'),
+    c.req.query('from'),
+    c.req.query('to'),
+    c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined,
+  );
+  return c.json({ rows, count: rows.length });
+});
+
+// GET /ops/accounting/reports/subledger-rollup/:parent_actor_id?currency=...
+opsRoutes.get('/accounting/reports/subledger-rollup/:parent_actor_id', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const rows = await getSubledgerRollup(c.env.DB, c.req.param('parent_actor_id'), c.req.query('currency'));
+  return c.json({ rows, count: rows.length });
+});
+
+// GET /ops/accounting/subledgers/:parent_actor_id
+opsRoutes.get('/accounting/subledgers/:parent_actor_id', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  const subs = await getSubledgerAccountsByParent(c.env.DB, c.req.param('parent_actor_id'));
+  return c.json({ subledgers: subs, count: subs.length });
 });

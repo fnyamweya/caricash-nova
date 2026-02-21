@@ -1250,6 +1250,44 @@ paths:
   # ============================================================
   #  TRANSACTIONS
   # ============================================================
+  /tx/agent/{agentId}/summary:
+    get:
+      operationId: getAgentTransactionSummary
+      tags: [Transactions]
+      summary: Get agent transaction summary
+      description: |
+        Return transaction summary metrics for an agent cash-float account for the selected currency.
+        Includes today's deposits, withdrawals (cash-out), transaction count, and current balances.
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: currency
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/CurrencyCode'
+          description: Currency code (defaults to BBD)
+      responses:
+        '200':
+          description: Agent transaction summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentTransactionSummaryResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /tx/deposit:
     post:
       operationId: createDeposit
@@ -3171,6 +3209,42 @@ components:
         created_at:
           type: string
           format: date-time
+
+    AgentTransactionSummaryResponse:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        cash_float_account_id:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        today_date:
+          type: string
+          description: Date key in YYYY-MM-DD format
+        today_deposits:
+          type: string
+          description: Sum of today's deposits for this agent/currency
+        total_transacted:
+          type: string
+          description: Lifetime total of deposits and withdrawals for this agent/currency
+        today_cash:
+          type: string
+          description: Sum of today's withdrawals (cash-out) for backward compatibility
+        today_withdrawals:
+          type: string
+          description: Sum of today's withdrawals (cash-out)
+        today_txn_count:
+          type: integer
+          description: Count of today's deposit and withdrawal journals
+        cash_float_balance:
+          type: string
+          description: Current actual cash-float balance
+        cash_float_available_balance:
+          type: string
+          description: Current available cash-float balance
+        correlation_id:
+          type: string
 
     # ---- Transaction requests ----
     DepositRequest:

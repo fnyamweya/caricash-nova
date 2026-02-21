@@ -3,7 +3,6 @@ import { useMutation } from '@tanstack/react-query';
 import { CheckCircle } from 'lucide-react';
 import {
     useApi,
-    PageHeader,
     PageTransition,
     Card,
     CardContent,
@@ -27,6 +26,7 @@ import {
     SelectItem,
     EmptyState,
 } from '@caricash/ui';
+import { ModulePage } from '../components/module-page.js';
 
 interface CreateMerchantResponse {
     actor: { id: string; name: string; type: string };
@@ -140,14 +140,17 @@ export function MerchantsPage() {
 
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6">
-                <PageHeader
-                    title="Merchant Management"
-                    description="Create and manage merchant accounts"
-                />
-
-                {/* Create Merchant form */}
-                <Card className="max-w-lg">
+            <ModulePage
+                module="Core"
+                title="Merchant Management"
+                description="Provision merchants and stores with clear ownership and code assignment"
+                playbook={[
+                    'Create merchant actor and confirm owner details.',
+                    'Generate store codes only after merchant ID validation.',
+                    'Persist wallet and correlation identifiers for audit trace.',
+                ]}
+            >
+                <Card className="max-w-2xl">
                     <form onSubmit={handleSubmit}>
                         <CardHeader>
                             <CardTitle className="text-base">Create Merchant</CardTitle>
@@ -221,7 +224,7 @@ export function MerchantsPage() {
                     </form>
                 </Card>
 
-                <Card className="max-w-lg">
+                <Card className="max-w-2xl">
                     <form onSubmit={handleCreateStore}>
                         <CardHeader>
                             <CardTitle className="text-base">Create Store</CardTitle>
@@ -341,7 +344,7 @@ export function MerchantsPage() {
                         <EmptyState title="No merchant list API available yet" />
                     </CardContent>
                 </Card>
-            </div>
+            </ModulePage>
 
             {/* Success dialog */}
             <Dialog

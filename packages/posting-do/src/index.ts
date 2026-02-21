@@ -208,17 +208,34 @@ export class PostingDO implements DurableObject {
       created_at: now,
       initiator_actor_id: command.actor_id,
       prev_hash: prevHash,
+      // V2 fields
+      effective_date: now.slice(0, 10),
     };
 
-    const lines: LedgerLine[] = command.entries.map((e) => ({
-      id: generateId(),
-      journal_id: journalId,
-      account_id: e.account_id,
-      entry_type: e.entry_type,
-      amount: e.amount,
-      description: e.description,
-      created_at: now,
-    }));
+    // Compute total_amount_minor as sum of all DR amounts (= sum of CR amounts when balanced)
+    const totalMinor = command.entries
+      .filter(e => e.entry_type === 'DR')
+      .reduce((sum, e) => sum + parseAmount(e.amount), 0n);
+    journal.total_amount_minor = Number(totalMinor);
+
+    let lineNumber = 0;
+    const lines: LedgerLine[] = command.entries.map((e) => {
+      lineNumber++;
+      const amountMinor = Number(parseAmount(e.amount));
+      return {
+        id: generateId(),
+        journal_id: journalId,
+        account_id: e.account_id,
+        entry_type: e.entry_type,
+        amount: e.amount,
+        description: e.description,
+        created_at: now,
+        // V2 fields
+        line_number: lineNumber,
+        debit_amount_minor: e.entry_type === 'DR' ? amountMinor : 0,
+        credit_amount_minor: e.entry_type === 'CR' ? amountMinor : 0,
+      };
+    });
 
     const eventPosted: Event = {
       id: generateId(),
@@ -313,8 +330,8 @@ export class PostingDO implements DurableObject {
     stmts.push(
       db
         .prepare(
-          `INSERT INTO ledger_journals (id, txn_type, currency, correlation_id, idempotency_key, state, fee_version_id, commission_version_id, description, created_at, initiator_actor_id, prev_hash, hash)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+          `INSERT INTO ledger_journals (id, txn_type, currency, correlation_id, idempotency_key, state, fee_version_id, commission_version_id, description, created_at, initiator_actor_id, prev_hash, hash, effective_date, total_amount_minor)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
         )
         .bind(
           journal.id,
@@ -330,6 +347,8 @@ export class PostingDO implements DurableObject {
           journal.initiator_actor_id ?? null,
           journal.prev_hash ?? null,
           journal.hash ?? null,
+          journal.effective_date ?? null,
+          journal.total_amount_minor ?? null,
         ),
     );
 
@@ -337,8 +356,8 @@ export class PostingDO implements DurableObject {
       stmts.push(
         db
           .prepare(
-            `INSERT INTO ledger_lines (id, journal_id, account_id, entry_type, amount, description, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+            `INSERT INTO ledger_lines (id, journal_id, account_id, entry_type, amount, description, created_at, line_number, debit_amount_minor, credit_amount_minor)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
           )
           .bind(
             line.id,
@@ -348,6 +367,9 @@ export class PostingDO implements DurableObject {
             line.amount,
             line.description ?? null,
             line.created_at,
+            line.line_number ?? null,
+            line.debit_amount_minor ?? null,
+            line.credit_amount_minor ?? null,
           ),
       );
     }

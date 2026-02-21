@@ -3,7 +3,6 @@ import { useMutation } from '@tanstack/react-query';
 import { CheckCircle } from 'lucide-react';
 import {
     useApi,
-    PageHeader,
     PageTransition,
     Card,
     CardContent,
@@ -22,6 +21,7 @@ import {
     DialogClose,
     EmptyState,
 } from '@caricash/ui';
+import { ModulePage } from '../components/module-page.js';
 
 interface CreateCustomerResponse {
     actor: { id: string; name: string; type: string };
@@ -60,14 +60,17 @@ export function CustomersPage() {
 
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6">
-                <PageHeader
-                    title="Customer Management"
-                    description="Create and manage customer accounts"
-                />
-
-                {/* Create Customer form */}
-                <Card className="max-w-lg">
+            <ModulePage
+                module="Core"
+                title="Customer Management"
+                description="Create and maintain customer accounts with clear onboarding controls"
+                playbook={[
+                    'Create customer profile using verified identity details.',
+                    'Capture actor and wallet identifiers for support handoff.',
+                    'Track failures with correlation IDs for API troubleshooting.',
+                ]}
+            >
+                <Card className="max-w-2xl">
                     <form onSubmit={handleSubmit}>
                         <CardHeader>
                             <CardTitle className="text-base">Create Customer</CardTitle>
@@ -129,7 +132,6 @@ export function CustomersPage() {
                     </form>
                 </Card>
 
-                {/* Customer list placeholder */}
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base">Customer List</CardTitle>
@@ -138,9 +140,8 @@ export function CustomersPage() {
                         <EmptyState title="No customer list API available yet" />
                     </CardContent>
                 </Card>
-            </div>
+            </ModulePage>
 
-            {/* Success dialog */}
             <Dialog open={!!result} onOpenChange={() => setResult(null)}>
                 <DialogContent>
                     <DialogHeader>

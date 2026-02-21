@@ -23,6 +23,16 @@ import type {
   FloatOperation,
   KycProfile,
   KycRequirement,
+  ChartOfAccount,
+  AccountInstance,
+  AccountingPeriod,
+  PostingBatch,
+  SubledgerAccount,
+  DailyBalanceSnapshot,
+  TrialBalanceRow,
+  GLDetailRow,
+  AccountStatementRow,
+  SubledgerRollupRow,
 } from '@caricash/shared';
 
 // D1Database from @cloudflare/workers-types
@@ -1505,3 +1515,372 @@ export async function listKycRequirementsByActorType(db: D1Database, actorType: 
     .all();
   return (res.results ?? []) as KycRequirement[];
 }
+
+// ===========================================================================
+// V2 Accounting — Chart of Accounts
+// ===========================================================================
+
+export async function getChartOfAccounts(
+  db: D1Database,
+  opts: { includeInactive?: boolean; accountClass?: string } = {},
+): Promise<ChartOfAccount[]> {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  let idx = 1;
+
+  if (!opts.includeInactive) {
+    clauses.push(`(active_to IS NULL OR active_to > strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);
+  }
+  if (opts.accountClass) {
+    clauses.push(`account_class = ?${idx++}`);
+    params.push(opts.accountClass);
+  }
+
+  const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
+  const sql = `SELECT *, (SELECT name FROM chart_of_accounts p WHERE p.code = chart_of_accounts.parent_code) AS parent_name FROM chart_of_accounts${where} ORDER BY code ASC`;
+  const res = params.length > 0
+    ? await db.prepare(sql).bind(...params).all()
+    : await db.prepare(sql).all();
+
+  return ((res.results ?? []) as Record<string, unknown>[]).map((row) => ({
+    ...row,
+    is_header: Boolean(row.is_header),
+  })) as ChartOfAccount[];
+}
+
+export async function getChartOfAccountByCode(db: D1Database, code: string): Promise<ChartOfAccount | null> {
+  return (await db.prepare('SELECT * FROM chart_of_accounts WHERE code = ?1').bind(code).first()) as ChartOfAccount | null;
+}
+
+export async function insertChartOfAccount(db: D1Database, coa: ChartOfAccount): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO chart_of_accounts (code, name, account_class, normal_balance, parent_code, description, ifrs_mapping, is_header, active_from, active_to, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+    )
+    .bind(
+      coa.code, coa.name, coa.account_class, coa.normal_balance,
+      coa.parent_code ?? null, coa.description ?? null, coa.ifrs_mapping ?? null,
+      coa.is_header ? 1 : 0, coa.active_from, coa.active_to ?? null,
+      coa.created_at, coa.updated_at,
+    )
+    .run();
+}
+
+// ===========================================================================
+// V2 Accounting — Account Instances
+// ===========================================================================
+
+export async function getAccountInstance(db: D1Database, id: string): Promise<AccountInstance | null> {
+  return (await db.prepare('SELECT * FROM account_instances WHERE id = ?1').bind(id).first()) as AccountInstance | null;
+}
+
+export async function getAccountInstanceByOwner(
+  db: D1Database,
+  ownerType: string,
+  ownerId: string,
+  coaCode: string,
+  currency: string,
+): Promise<AccountInstance | null> {
+  return (await db
+    .prepare('SELECT * FROM account_instances WHERE owner_type = ?1 AND owner_id = ?2 AND coa_code = ?3 AND currency = ?4')
+    .bind(ownerType, ownerId, coaCode, currency)
+    .first()) as AccountInstance | null;
+}
+
+export async function getAccountInstanceByLegacyId(db: D1Database, legacyAccountId: string): Promise<AccountInstance | null> {
+  return (await db
+    .prepare('SELECT * FROM account_instances WHERE legacy_account_id = ?1')
+    .bind(legacyAccountId)
+    .first()) as AccountInstance | null;
+}
+
+export async function insertAccountInstance(db: D1Database, ai: AccountInstance): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO account_instances (id, coa_code, owner_type, owner_id, currency, status, opened_at, closed_at, parent_instance_id, legacy_account_id, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+    )
+    .bind(
+      ai.id, ai.coa_code, ai.owner_type, ai.owner_id, ai.currency,
+      ai.status, ai.opened_at, ai.closed_at ?? null,
+      ai.parent_instance_id ?? null, ai.legacy_account_id ?? null,
+      ai.created_at, ai.updated_at,
+    )
+    .run();
+}
+
+export async function updateAccountInstanceStatus(db: D1Database, id: string, status: string, closedAt?: string): Promise<void> {
+  await db
+    .prepare("UPDATE account_instances SET status = ?1, closed_at = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?3")
+    .bind(status, closedAt ?? null, id)
+    .run();
+}
+
+export async function listAccountInstancesByOwner(
+  db: D1Database,
+  ownerType: string,
+  ownerId: string,
+  currency?: string,
+): Promise<AccountInstance[]> {
+  const sql = currency
+    ? "SELECT * FROM account_instances WHERE owner_type = ?1 AND owner_id = ?2 AND currency = ?3 AND status = 'OPEN' ORDER BY coa_code ASC"
+    : "SELECT * FROM account_instances WHERE owner_type = ?1 AND owner_id = ?2 AND status = 'OPEN' ORDER BY coa_code ASC";
+  const stmt = currency
+    ? db.prepare(sql).bind(ownerType, ownerId, currency)
+    : db.prepare(sql).bind(ownerType, ownerId);
+  const res = await stmt.all();
+  return (res.results ?? []) as AccountInstance[];
+}
+
+// ===========================================================================
+// V2 Accounting — Accounting Periods
+// ===========================================================================
+
+export async function getAccountingPeriodForDate(db: D1Database, dateIso: string): Promise<AccountingPeriod | null> {
+  return (await db
+    .prepare("SELECT * FROM accounting_periods WHERE start_date <= ?1 AND end_date > ?1 AND status IN ('OPEN','CLOSING') LIMIT 1")
+    .bind(dateIso)
+    .first()) as AccountingPeriod | null;
+}
+
+export async function getAccountingPeriod(db: D1Database, id: string): Promise<AccountingPeriod | null> {
+  return (await db.prepare('SELECT * FROM accounting_periods WHERE id = ?1').bind(id).first()) as AccountingPeriod | null;
+}
+
+export async function listAccountingPeriods(
+  db: D1Database,
+  opts: { status?: string; limit?: number; offset?: number } = {},
+): Promise<AccountingPeriod[]> {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  let idx = 1;
+
+  if (opts.status) {
+    clauses.push(`status = ?${idx++}`);
+    params.push(opts.status);
+  }
+
+  const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
+  const limit = opts.limit ?? 100;
+  const offset = opts.offset ?? 0;
+  const sql = `SELECT * FROM accounting_periods${where} ORDER BY start_date DESC LIMIT ?${idx++} OFFSET ?${idx}`;
+  params.push(limit, offset);
+
+  const res = await db.prepare(sql).bind(...params).all();
+  return (res.results ?? []) as AccountingPeriod[];
+}
+
+export async function checkOverlappingPeriod(
+  db: D1Database,
+  startDate: string,
+  endDate: string,
+  excludeId?: string,
+): Promise<AccountingPeriod | null> {
+  const sql = excludeId
+    ? 'SELECT * FROM accounting_periods WHERE start_date < ?2 AND end_date > ?1 AND id != ?3 LIMIT 1'
+    : 'SELECT * FROM accounting_periods WHERE start_date < ?2 AND end_date > ?1 LIMIT 1';
+  const stmt = excludeId
+    ? db.prepare(sql).bind(startDate, endDate, excludeId)
+    : db.prepare(sql).bind(startDate, endDate);
+  return (await stmt.first()) as AccountingPeriod | null;
+}
+
+export async function updateAccountingPeriodStatus(
+  db: D1Database,
+  id: string,
+  status: string,
+  closedBy?: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  await db
+    .prepare("UPDATE accounting_periods SET status = ?1, closed_by = ?2, closed_at = ?3, updated_at = ?4 WHERE id = ?5")
+    .bind(status, closedBy ?? null, status === 'CLOSED' || status === 'LOCKED' ? now : null, now, id)
+    .run();
+}
+
+export async function insertAccountingPeriod(db: D1Database, period: AccountingPeriod): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO accounting_periods (id, name, start_date, end_date, status, closed_by, closed_at, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    )
+    .bind(period.id, period.name, period.start_date, period.end_date, period.status, period.closed_by ?? null, period.closed_at ?? null, period.created_at, period.updated_at)
+    .run();
+}
+
+// ===========================================================================
+// V2 Accounting — Posting Batches
+// ===========================================================================
+
+export async function insertPostingBatch(db: D1Database, batch: PostingBatch): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO posting_batches (id, source_system, source_doc_type, source_doc_id, description, status, journal_count, created_by, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    )
+    .bind(batch.id, batch.source_system, batch.source_doc_type ?? null, batch.source_doc_id ?? null, batch.description ?? null, batch.status, batch.journal_count, batch.created_by ?? null, batch.created_at)
+    .run();
+}
+
+export async function getPostingBatch(db: D1Database, id: string): Promise<PostingBatch | null> {
+  return (await db.prepare('SELECT * FROM posting_batches WHERE id = ?1').bind(id).first()) as PostingBatch | null;
+}
+
+// ===========================================================================
+// V2 Accounting — Sub-Ledger Accounts
+// ===========================================================================
+
+export async function insertSubledgerAccount(db: D1Database, sla: SubledgerAccount): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO subledger_accounts (id, parent_actor_id, child_actor_id, account_instance_id, relationship_type, effective_from, effective_to, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+    )
+    .bind(sla.id, sla.parent_actor_id, sla.child_actor_id, sla.account_instance_id, sla.relationship_type, sla.effective_from, sla.effective_to ?? null, sla.created_at)
+    .run();
+}
+
+export async function getSubledgerAccountsByParent(db: D1Database, parentActorId: string): Promise<SubledgerAccount[]> {
+  const res = await db
+    .prepare("SELECT * FROM subledger_accounts WHERE parent_actor_id = ?1 AND effective_to IS NULL ORDER BY created_at ASC")
+    .bind(parentActorId)
+    .all();
+  return (res.results ?? []) as SubledgerAccount[];
+}
+
+export async function getSubledgerAccountsByChild(db: D1Database, childActorId: string): Promise<SubledgerAccount[]> {
+  const res = await db
+    .prepare("SELECT * FROM subledger_accounts WHERE child_actor_id = ?1 AND effective_to IS NULL ORDER BY created_at ASC")
+    .bind(childActorId)
+    .all();
+  return (res.results ?? []) as SubledgerAccount[];
+}
+
+// ===========================================================================
+// V2 Accounting — Daily Balance Snapshots
+// ===========================================================================
+
+export async function insertDailyBalanceSnapshot(db: D1Database, snap: DailyBalanceSnapshot): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO daily_balance_snapshots (id, account_instance_id, snapshot_date, opening_balance_minor, debit_total_minor, credit_total_minor, closing_balance_minor, journal_count, currency, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+       ON CONFLICT(account_instance_id, snapshot_date) DO UPDATE SET
+         opening_balance_minor = ?4, debit_total_minor = ?5, credit_total_minor = ?6,
+         closing_balance_minor = ?7, journal_count = ?8`,
+    )
+    .bind(snap.id, snap.account_instance_id, snap.snapshot_date, snap.opening_balance_minor, snap.debit_total_minor, snap.credit_total_minor, snap.closing_balance_minor, snap.journal_count, snap.currency, snap.created_at)
+    .run();
+}
+
+export async function getDailyBalanceSnapshots(
+  db: D1Database,
+  accountInstanceId: string,
+  fromDate?: string,
+  toDate?: string,
+): Promise<DailyBalanceSnapshot[]> {
+  let sql = 'SELECT * FROM daily_balance_snapshots WHERE account_instance_id = ?1';
+  const params: unknown[] = [accountInstanceId];
+  if (fromDate) { sql += ' AND snapshot_date >= ?2'; params.push(fromDate); }
+  if (toDate) { sql += ` AND snapshot_date <= ?${params.length + 1}`; params.push(toDate); }
+  sql += ' ORDER BY snapshot_date ASC';
+  const res = await db.prepare(sql).bind(...params).all();
+  return (res.results ?? []) as DailyBalanceSnapshot[];
+}
+
+// ===========================================================================
+// V2 Accounting — Reporting Views
+// ===========================================================================
+
+export async function getTrialBalance(
+  db: D1Database,
+  opts: { currency?: string; from?: string; to?: string; periodId?: string } = {},
+): Promise<TrialBalanceRow[]> {
+  // If date range or period filters are given, use a custom query instead of the view
+  if (opts.from || opts.to || opts.periodId) {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    let idx = 1;
+
+    if (opts.currency) { clauses.push(`ai.currency = ?${idx++}`); params.push(opts.currency); }
+    if (opts.from) { clauses.push(`lj.created_at >= ?${idx++}`); params.push(opts.from); }
+    if (opts.to) { clauses.push(`lj.created_at <= ?${idx++}`); params.push(opts.to); }
+    if (opts.periodId) { clauses.push(`lj.accounting_period_id = ?${idx++}`); params.push(opts.periodId); }
+
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
+    const sql = `SELECT
+        coa.code AS coa_code,
+        coa.name AS account_name,
+        coa.account_class,
+        coa.normal_balance,
+        ai.currency,
+        COALESCE(SUM(ll.debit_amount_minor), 0) AS total_debit_minor,
+        COALESCE(SUM(ll.credit_amount_minor), 0) AS total_credit_minor,
+        COALESCE(SUM(ll.debit_amount_minor), 0) - COALESCE(SUM(ll.credit_amount_minor), 0) AS net_balance_minor
+      FROM chart_of_accounts coa
+      JOIN account_instances ai ON ai.coa_code = coa.code AND ai.status = 'OPEN'
+      LEFT JOIN ledger_lines ll ON ll.account_instance_id = ai.id
+      LEFT JOIN ledger_journals lj ON lj.id = ll.journal_id
+      ${where}
+      GROUP BY coa.code, coa.name, coa.account_class, coa.normal_balance, ai.currency`;
+
+    const res = params.length > 0
+      ? await db.prepare(sql).bind(...params).all()
+      : await db.prepare(sql).all();
+    return (res.results ?? []) as TrialBalanceRow[];
+  }
+
+  // Default: use the materialised view
+  const sql = opts.currency
+    ? 'SELECT * FROM v_trial_balance WHERE currency = ?1 ORDER BY coa_code ASC'
+    : 'SELECT * FROM v_trial_balance ORDER BY coa_code ASC';
+  const stmt = opts.currency ? db.prepare(sql).bind(opts.currency) : db.prepare(sql);
+  const res = await stmt.all();
+  return (res.results ?? []) as TrialBalanceRow[];
+}
+
+export async function getGLDetail(
+  db: D1Database,
+  filters?: { currency?: string; from?: string; to?: string; coa_code?: string; limit?: number },
+): Promise<GLDetailRow[]> {
+  let sql = 'SELECT * FROM v_gl_detail WHERE 1=1';
+  const params: unknown[] = [];
+  let idx = 1;
+  if (filters?.currency) { sql += ` AND currency = ?${idx++}`; params.push(filters.currency); }
+  if (filters?.from) { sql += ` AND posted_at >= ?${idx++}`; params.push(filters.from); }
+  if (filters?.to) { sql += ` AND posted_at <= ?${idx++}`; params.push(filters.to); }
+  if (filters?.coa_code) { sql += ` AND coa_code = ?${idx++}`; params.push(filters.coa_code); }
+  sql += ` ORDER BY posted_at DESC, line_number ASC LIMIT ?${idx}`;
+  params.push(filters?.limit ?? 500);
+  const res = await db.prepare(sql).bind(...params).all();
+  return (res.results ?? []) as GLDetailRow[];
+}
+
+export async function getAccountStatement(
+  db: D1Database,
+  accountInstanceId: string,
+  from?: string,
+  to?: string,
+  limit?: number,
+): Promise<AccountStatementRow[]> {
+  let sql = 'SELECT * FROM v_account_statement WHERE account_instance_id = ?1';
+  const params: unknown[] = [accountInstanceId];
+  let idx = 2;
+  if (from) { sql += ` AND posted_at >= ?${idx++}`; params.push(from); }
+  if (to) { sql += ` AND posted_at <= ?${idx++}`; params.push(to); }
+  sql += ` ORDER BY posted_at DESC, line_number ASC LIMIT ?${idx}`;
+  params.push(limit ?? 200);
+  const res = await db.prepare(sql).bind(...params).all();
+  return (res.results ?? []) as AccountStatementRow[];
+}
+
+export async function getSubledgerRollup(db: D1Database, parentActorId: string, currency?: string): Promise<SubledgerRollupRow[]> {
+  const sql = currency
+    ? 'SELECT * FROM v_subledger_rollup WHERE parent_actor_id = ?1 AND currency = ?2'
+    : 'SELECT * FROM v_subledger_rollup WHERE parent_actor_id = ?1';
+  const stmt = currency ? db.prepare(sql).bind(parentActorId, currency) : db.prepare(sql).bind(parentActorId);
+  const res = await stmt.all();
+  return (res.results ?? []) as SubledgerRollupRow[];
+}
+

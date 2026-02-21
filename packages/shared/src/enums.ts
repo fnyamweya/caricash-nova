@@ -99,6 +99,39 @@ export const FloatOperationType = {
 } as const;
 export type FloatOperationType = typeof FloatOperationType[keyof typeof FloatOperationType];
 
+// ---------------------------------------------------------------------------
+// V2 Accounting Enums
+// ---------------------------------------------------------------------------
+
+export const AccountClass = {
+  ASSET: 'ASSET', LIABILITY: 'LIABILITY', EQUITY: 'EQUITY', INCOME: 'INCOME', EXPENSE: 'EXPENSE',
+} as const;
+export type AccountClass = typeof AccountClass[keyof typeof AccountClass];
+
+export const NormalBalance = { DR: 'DR', CR: 'CR' } as const;
+export type NormalBalance = typeof NormalBalance[keyof typeof NormalBalance];
+
+export const AccountInstanceStatus = {
+  OPEN: 'OPEN', FROZEN: 'FROZEN', CLOSED: 'CLOSED',
+} as const;
+export type AccountInstanceStatus = typeof AccountInstanceStatus[keyof typeof AccountInstanceStatus];
+
+export const AccountingPeriodStatus = {
+  OPEN: 'OPEN', CLOSING: 'CLOSING', CLOSED: 'CLOSED', LOCKED: 'LOCKED',
+} as const;
+export type AccountingPeriodStatus = typeof AccountingPeriodStatus[keyof typeof AccountingPeriodStatus];
+
+export const PostingBatchStatus = {
+  OPEN: 'OPEN', POSTED: 'POSTED', REVERSED: 'REVERSED',
+} as const;
+export type PostingBatchStatus = typeof PostingBatchStatus[keyof typeof PostingBatchStatus];
+
+export const SubledgerRelationshipType = {
+  AGGREGATOR_CHILD: 'AGGREGATOR_CHILD', MERCHANT_STORE: 'MERCHANT_STORE',
+  FRANCHISE: 'FRANCHISE', BRANCH: 'BRANCH',
+} as const;
+export type SubledgerRelationshipType = typeof SubledgerRelationshipType[keyof typeof SubledgerRelationshipType];
+
 export const PreferredNameSource = {
   FIRST_NAME: 'FIRST_NAME',
   MIDDLE_NAME: 'MIDDLE_NAME',

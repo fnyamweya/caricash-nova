@@ -24,6 +24,7 @@ export function LoginPage() {
             });
         },
         onSuccess: (res, variables) => {
+            localStorage.setItem('caricash_agent_code', variables.identifier);
             auth.login(res.token, {
                 id: res.actor_id,
                 type: res.actor_type,

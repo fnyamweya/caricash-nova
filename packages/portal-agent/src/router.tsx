@@ -90,6 +90,7 @@ function AuthLayout() {
             appName="CariCash Agent"
             user={actor ? { name: actor.name, role: 'Agent' } : null}
             onLogout={() => {
+                localStorage.removeItem('caricash_agent_code');
                 logout();
                 navigate({ to: '/login' });
             }}

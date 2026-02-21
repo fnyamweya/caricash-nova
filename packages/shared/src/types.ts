@@ -1,4 +1,4 @@
-import type { ActorType, ActorState, KycState, AccountType, TxnType, TxnState, ApprovalType, ApprovalState, MerchantUserRole, MerchantUserState, AgentUserRole, AgentUserState, RegistrationType, RegistrationChannel, FloatOperationType, StaffRole, AgentType } from './enums.js';
+import type { ActorType, ActorState, KycState, AccountType, TxnType, TxnState, ApprovalType, ApprovalState, MerchantUserRole, MerchantUserState, AgentUserRole, AgentUserState, RegistrationType, RegistrationChannel, FloatOperationType, StaffRole, AgentType, AccountClass, NormalBalance, AccountInstanceStatus, AccountingPeriodStatus, PostingBatchStatus, SubledgerRelationshipType } from './enums.js';
 import type { CurrencyCode } from './currency.js';
 import type { EventName } from './events.js';
 
@@ -89,6 +89,16 @@ export interface LedgerJournal {
   initiator_actor_id?: string;
   prev_hash?: string;
   hash?: string;
+  /** V2 fields — optional until full migration */
+  posting_batch_id?: string;
+  source_system?: string;
+  source_doc_type?: string;
+  source_doc_id?: string;
+  reversal_of_journal_id?: string;
+  correction_of_journal_id?: string;
+  accounting_period_id?: string;
+  effective_date?: string;
+  total_amount_minor?: number;
 }
 
 export interface LedgerLine {
@@ -99,6 +109,163 @@ export interface LedgerLine {
   amount: string;
   description?: string;
   created_at: string;
+  /** V2 fields — optional until full migration */
+  line_number?: number;
+  debit_amount_minor?: number;
+  credit_amount_minor?: number;
+  account_instance_id?: string;
+  coa_code?: string;
+}
+
+// ---------------------------------------------------------------------------
+// V2 Accounting Types
+// ---------------------------------------------------------------------------
+
+export interface ChartOfAccount {
+  code: string;
+  name: string;
+  account_class: AccountClass;
+  normal_balance: NormalBalance;
+  parent_code?: string;
+  description?: string;
+  ifrs_mapping?: string;
+  is_header: boolean;
+  active_from: string;
+  active_to?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AccountInstance {
+  id: string;
+  coa_code: string;
+  owner_type: string;
+  owner_id: string;
+  currency: CurrencyCode;
+  status: AccountInstanceStatus;
+  opened_at: string;
+  closed_at?: string;
+  parent_instance_id?: string;
+  legacy_account_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AccountingPeriod {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  status: AccountingPeriodStatus;
+  closed_by?: string;
+  closed_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PostingBatch {
+  id: string;
+  source_system: string;
+  source_doc_type?: string;
+  source_doc_id?: string;
+  description?: string;
+  status: PostingBatchStatus;
+  journal_count: number;
+  created_by?: string;
+  created_at: string;
+}
+
+export interface SubledgerAccount {
+  id: string;
+  parent_actor_id: string;
+  child_actor_id: string;
+  account_instance_id: string;
+  relationship_type: SubledgerRelationshipType;
+  effective_from: string;
+  effective_to?: string;
+  created_at: string;
+}
+
+export interface DailyBalanceSnapshot {
+  id: string;
+  account_instance_id: string;
+  snapshot_date: string;
+  opening_balance_minor: number;
+  debit_total_minor: number;
+  credit_total_minor: number;
+  closing_balance_minor: number;
+  journal_count: number;
+  currency: CurrencyCode;
+  created_at: string;
+}
+
+export interface TrialBalanceRow {
+  coa_code: string;
+  account_name: string;
+  account_class: AccountClass;
+  normal_balance: NormalBalance;
+  currency: CurrencyCode;
+  total_debit_minor: number;
+  total_credit_minor: number;
+  net_balance_minor: number;
+}
+
+export interface GLDetailRow {
+  journal_id: string;
+  txn_type: string;
+  currency: string;
+  journal_state: string;
+  effective_date?: string;
+  posted_at: string;
+  correlation_id: string;
+  journal_description: string;
+  posting_batch_id?: string;
+  accounting_period_id?: string;
+  line_id: string;
+  line_number?: number;
+  account_id: string;
+  account_instance_id?: string;
+  coa_code?: string;
+  account_name?: string;
+  account_class?: string;
+  entry_type: 'DR' | 'CR';
+  amount: string;
+  debit_amount_minor?: number;
+  credit_amount_minor?: number;
+  line_description?: string;
+}
+
+export interface AccountStatementRow {
+  account_instance_id: string;
+  owner_type: string;
+  owner_id: string;
+  coa_code: string;
+  account_name: string;
+  currency: string;
+  journal_id: string;
+  txn_type: string;
+  posted_at: string;
+  effective_date?: string;
+  correlation_id: string;
+  line_id: string;
+  line_number?: number;
+  entry_type: 'DR' | 'CR';
+  amount: string;
+  debit_amount_minor?: number;
+  credit_amount_minor?: number;
+  line_description?: string;
+}
+
+export interface SubledgerRollupRow {
+  parent_actor_id: string;
+  relationship_type: string;
+  coa_code: string;
+  account_name: string;
+  currency: string;
+  child_count: number;
+  total_debit_minor: number;
+  total_credit_minor: number;
+  net_balance_minor: number;
 }
 
 export interface ApprovalRequest {
