@@ -1250,7 +1250,7 @@ paths:
   # ============================================================
   #  TRANSACTIONS
   # ============================================================
-  /tx/agent/{agentId}/summary:
+  /tx/agent/{agent_id}/summary:
     get:
       operationId: getAgentTransactionSummary
       tags: [Transactions]
@@ -1259,7 +1259,7 @@ paths:
         Return transaction summary metrics for an agent cash-float account for the selected currency.
         Includes today's deposits, withdrawals (cash-out), transaction count, and current balances.
       parameters:
-        - name: agentId
+        - name: agent_id
           in: path
           required: true
           schema:
