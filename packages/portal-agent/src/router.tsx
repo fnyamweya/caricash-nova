@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import {
     createRouter,
     createRoute,
@@ -40,8 +41,13 @@ function AuthLayout() {
     const navigate = useNavigate();
     const location = useLocation();
 
+    useEffect(() => {
+        if (!isAuthenticated) {
+            navigate({ to: '/login' });
+        }
+    }, [isAuthenticated, navigate]);
+
     if (!isAuthenticated) {
-        navigate({ to: '/login' });
         return null;
     }
 
