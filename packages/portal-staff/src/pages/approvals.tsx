@@ -1,9 +1,8 @@
-import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import {
     useApi,
-    PageHeader,
     PageTransition,
     Card,
     CardContent,
@@ -14,14 +13,29 @@ import {
     Label,
     Button,
     Badge,
-    Tabs,
-    TabsList,
-    TabsTrigger,
-    TabsContent,
+    EmptyState,
 } from '@caricash/ui';
+import { ModulePage } from '../components/module-page.js';
+
+interface ApprovalRecord {
+    id: string;
+    type: string;
+    state: string;
+    maker_staff_id: string;
+    checker_staff_id?: string;
+    created_at: string;
+    decided_at?: string;
+    payload?: Record<string, unknown> | null;
+    payload_json?: string;
+}
+
+interface ApprovalListResponse {
+    items: ApprovalRecord[];
+    nextCursor: string | null;
+}
 
 interface ApprovalActionResponse {
-    approval_id: string;
+    request_id: string;
     state: string;
     correlation_id?: string;
     [key: string]: unknown;
@@ -38,16 +52,12 @@ export function ApprovalsPage() {
     const api = useApi();
     const staffId = localStorage.getItem('caricash_staff_id') ?? '';
 
-    // Approve state
-    const [approveId, setApproveId] = useState('');
-    const [approveCorrelation, setApproveCorrelation] = useState('');
-    const [approveResult, setApproveResult] = useState<ApprovalActionResponse | null>(null);
-
-    // Reject state
-    const [rejectId, setRejectId] = useState('');
+    const [statusFilter, setStatusFilter] = useState('PENDING');
+    const [typeFilter, setTypeFilter] = useState('');
+    const [selectedId, setSelectedId] = useState('');
+    const [actionCorrelation, setActionCorrelation] = useState('');
     const [rejectReason, setRejectReason] = useState('');
-    const [rejectCorrelation, setRejectCorrelation] = useState('');
-    const [rejectResult, setRejectResult] = useState<ApprovalActionResponse | null>(null);
+    const [actionResult, setActionResult] = useState<ApprovalActionResponse | null>(null);
 
     const [fundAmount, setFundAmount] = useState('');
     const [fundReason, setFundReason] = useState('');
@@ -56,33 +66,57 @@ export function ApprovalsPage() {
     const [fundCorrelation, setFundCorrelation] = useState('');
     const [fundResult, setFundResult] = useState<SuspenseFundResponse | null>(null);
 
+    const approvalsQuery = useQuery({
+        queryKey: ['approvals', statusFilter, typeFilter],
+        queryFn: async () => {
+            const params = new URLSearchParams();
+            params.set('pageSize', '50');
+            if (statusFilter) params.set('status', statusFilter);
+            if (typeFilter) params.set('type', typeFilter);
+            return api.get<ApprovalListResponse>(`/approvals?${params.toString()}`);
+        },
+    });
+
+    const selectedRequest = useMemo(
+        () => approvalsQuery.data?.items.find((item) => item.id === selectedId) ?? null,
+        [approvalsQuery.data?.items, selectedId],
+    );
+
+    const availableTypes = useMemo(() => {
+        const records = approvalsQuery.data?.items ?? [];
+        return Array.from(new Set(records.map((item) => item.type))).sort();
+    }, [approvalsQuery.data?.items]);
+
     const approveMutation = useMutation({
-        mutationFn: async () => {
-            return api.post<ApprovalActionResponse>(`/approvals/${approveId}/approve`, {
+        mutationFn: async (requestId: string) => {
+            return api.post<ApprovalActionResponse>(`/approvals/${requestId}/approve`, {
                 staff_id: staffId,
-                ...(approveCorrelation ? { correlation_id: approveCorrelation } : {}),
+                ...(actionCorrelation ? { correlation_id: actionCorrelation } : {}),
             });
         },
-        onSuccess: (res) => {
-            setApproveResult(res);
-            setApproveId('');
-            setApproveCorrelation('');
+        onSuccess: async (res, requestId) => {
+            setActionResult(res);
+            setSelectedId(requestId);
+            setActionCorrelation('');
+            setRejectReason('');
+            await approvalsQuery.refetch();
         },
     });
 
     const rejectMutation = useMutation({
-        mutationFn: async () => {
-            return api.post<ApprovalActionResponse>(`/approvals/${rejectId}/reject`, {
+        mutationFn: async (requestId: string) => {
+            return api.post<ApprovalActionResponse>(`/approvals/${requestId}/reject`, {
                 staff_id: staffId,
                 reason: rejectReason,
-                ...(rejectCorrelation ? { correlation_id: rejectCorrelation } : {}),
+                ...(actionCorrelation ? { correlation_id: actionCorrelation } : {}),
             });
         },
-        onSuccess: (res) => {
-            setRejectResult(res);
-            setRejectId('');
+        onSuccess: async (res, requestId) => {
+            setActionResult(res);
+            setSelectedId(requestId);
+            setActionCorrelation('');
             setRejectReason('');
-            setRejectCorrelation('');
+            await approvalsQuery.refetch();
         },
     });
 
@@ -107,15 +141,210 @@ export function ApprovalsPage() {
         },
     });
 
+    const workingAction = approveMutation.isPending || rejectMutation.isPending;
+
+    function formatType(value: string): string {
+        return value
+            .toLowerCase()
+            .split('_')
+            .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ');
+    }
+
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6">
-                <PageHeader
-                    title="Approval Management"
-                    description="Review, approve, or reject pending requests"
-                />
+            <ModulePage
+                module="Operations"
+                title="Approval Management"
+                description="Review, approve, reject, and request suspense funding with full traceability"
+                playbook={[
+                    'Use request IDs from verified workflow sources only.',
+                    'Capture rejection reason and correlation IDs for audit evidence.',
+                    'Submit suspense requests with unique idempotency keys.',
+                ]}
+            >
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base">Approval Queue</CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-4">
+                        <div className="flex flex-wrap gap-2">
+                            {['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED'].map((status) => (
+                                <Button
+                                    key={status}
+                                    size="sm"
+                                    variant={statusFilter === status ? 'default' : 'outline'}
+                                    onClick={() => {
+                                        setStatusFilter(status);
+                                        setSelectedId('');
+                                    }}
+                                >
+                                    {status}
+                                </Button>
+                            ))}
+                        </div>
 
-                <Card className="max-w-xl">
+                        <div className="flex flex-wrap gap-2">
+                            <Button
+                                size="sm"
+                                variant={typeFilter === '' ? 'default' : 'outline'}
+                                onClick={() => {
+                                    setTypeFilter('');
+                                    setSelectedId('');
+                                }}
+                            >
+                                All Types
+                            </Button>
+                            {availableTypes.map((approvalType) => (
+                                <Button
+                                    key={approvalType}
+                                    size="sm"
+                                    variant={typeFilter === approvalType ? 'default' : 'outline'}
+                                    onClick={() => {
+                                        setTypeFilter(approvalType);
+                                        setSelectedId('');
+                                    }}
+                                >
+                                    {formatType(approvalType)}
+                                </Button>
+                            ))}
+                        </div>
+
+                        {approvalsQuery.isError && (
+                            <p className="text-sm text-destructive">
+                                {approvalsQuery.error?.message ?? 'Failed to load approvals.'}
+                            </p>
+                        )}
+
+                        {!approvalsQuery.isFetching && (approvalsQuery.data?.items.length ?? 0) === 0 && (
+                            <EmptyState title="No approvals found for selected filters" />
+                        )}
+
+                        <div className="flex flex-col gap-3">
+                            {(approvalsQuery.data?.items ?? []).map((item) => {
+                                const selected = selectedId === item.id;
+                                return (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        className={`rounded-md border p-3 text-left transition ${selected ? 'border-primary bg-muted/50' : 'border-border hover:bg-muted/30'}`}
+                                        onClick={() => {
+                                            setSelectedId(item.id);
+                                            setActionResult(null);
+                                        }}
+                                    >
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <Badge variant="outline">{formatType(item.type)}</Badge>
+                                            <Badge variant={item.state === 'PENDING' ? 'default' : 'secondary'}>{item.state}</Badge>
+                                        </div>
+                                        <p className="mt-2 text-sm font-medium">{item.id}</p>
+                                        <p className="text-xs text-muted-foreground">Maker: {item.maker_staff_id}</p>
+                                        <p className="text-xs text-muted-foreground">Created: {item.created_at}</p>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="max-w-2xl">
+                    <CardHeader>
+                        <CardTitle className="text-base">Maker-Checker Action</CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-4">
+                        {!selectedRequest && (
+                            <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                                Select an approval request from the queue above to take action.
+                            </div>
+                        )}
+
+                        {selectedRequest && (
+                            <>
+                                <div className="rounded-md bg-muted p-3 text-sm flex flex-col gap-1">
+                                    <p><span className="font-medium">Request ID:</span> {selectedRequest.id}</p>
+                                    <p><span className="font-medium">Type:</span> {formatType(selectedRequest.type)}</p>
+                                    <p><span className="font-medium">State:</span> {selectedRequest.state}</p>
+                                    <p><span className="font-medium">Maker Staff ID:</span> {selectedRequest.maker_staff_id}</p>
+                                </div>
+
+                                <div className="flex flex-col gap-1.5">
+                                    <Label htmlFor="action-corr">Correlation ID (optional)</Label>
+                                    <Input
+                                        id="action-corr"
+                                        type="text"
+                                        placeholder="Optional correlation ID"
+                                        value={actionCorrelation}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setActionCorrelation(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="flex flex-col gap-1.5">
+                                    <Label htmlFor="reject-reason">Reject Reason</Label>
+                                    <Input
+                                        id="reject-reason"
+                                        type="text"
+                                        placeholder="Required only for reject"
+                                        value={rejectReason}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRejectReason(e.target.value)}
+                                    />
+                                </div>
+
+                                {approveMutation.isError && (
+                                    <p className="text-sm text-destructive">
+                                        {approveMutation.error?.message ?? 'Approval failed.'}
+                                    </p>
+                                )}
+
+                                {rejectMutation.isError && (
+                                    <p className="text-sm text-destructive">
+                                        {rejectMutation.error?.message ?? 'Rejection failed.'}
+                                    </p>
+                                )}
+
+                                {actionResult && (
+                                    <div className={`rounded-md p-3 text-sm flex items-center gap-2 ${actionResult.state === 'APPROVED' ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
+                                        {actionResult.state === 'APPROVED' ? (
+                                            <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+                                        ) : (
+                                            <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+                                        )}
+                                        <span>
+                                            Updated request <span className="font-medium">{actionResult.request_id}</span> to{' '}
+                                            <span className="font-medium">{actionResult.state}</span>
+                                        </span>
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </CardContent>
+                    <CardFooter className="gap-2">
+                        <Button
+                            type="button"
+                            className="flex-1"
+                            disabled={!selectedRequest || !staffId || workingAction || selectedRequest?.state !== 'PENDING'}
+                            onClick={() => {
+                                if (!selectedRequest) return;
+                                approveMutation.mutate(selectedRequest.id);
+                            }}
+                        >
+                            {approveMutation.isPending ? 'Approving…' : 'Approve'}
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="destructive"
+                            className="flex-1"
+                            disabled={!selectedRequest || !staffId || workingAction || !rejectReason || selectedRequest?.state !== 'PENDING'}
+                            onClick={() => {
+                                if (!selectedRequest) return;
+                                rejectMutation.mutate(selectedRequest.id);
+                            }}
+                        >
+                            {rejectMutation.isPending ? 'Rejecting…' : 'Reject'}
+                        </Button>
+                    </CardFooter>
+                </Card>
+
+                <Card className="max-w-2xl">
                     <form
                         onSubmit={(e) => {
                             e.preventDefault();
@@ -166,165 +395,17 @@ export function ApprovalsPage() {
                     </form>
                 </Card>
 
-                {/* Notice about list endpoint */}
-                <Card>
-                    <CardContent className="flex items-center gap-3 pt-6">
-                        <AlertTriangle className="h-5 w-5 text-yellow-500 shrink-0" />
-                        <p className="text-sm text-muted-foreground">
-                            The <Badge variant="outline">GET /approvals</Badge> endpoint currently
-                            returns <Badge variant="secondary">501 Not Implemented</Badge>. Use the
-                            forms below to approve or reject requests by ID.
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Tabs defaultValue="approve">
-                    <TabsList>
-                        <TabsTrigger value="approve">Approve</TabsTrigger>
-                        <TabsTrigger value="reject">Reject</TabsTrigger>
-                    </TabsList>
-
-                    {/* Approve tab */}
-                    <TabsContent value="approve">
-                        <Card className="max-w-lg">
-                            <form
-                                onSubmit={(e) => {
-                                    e.preventDefault();
-                                    approveMutation.mutate();
-                                }}
-                            >
-                                <CardHeader>
-                                    <CardTitle className="text-base">Approve Request</CardTitle>
-                                </CardHeader>
-                                <CardContent className="flex flex-col gap-4">
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="approve-id">Request ID</Label>
-                                        <Input
-                                            id="approve-id"
-                                            type="text"
-                                            placeholder="Approval request ID"
-                                            value={approveId}
-                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApproveId(e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="approve-corr">Correlation ID (optional)</Label>
-                                        <Input
-                                            id="approve-corr"
-                                            type="text"
-                                            placeholder="Optional correlation ID"
-                                            value={approveCorrelation}
-                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApproveCorrelation(e.target.value)}
-                                        />
-                                    </div>
-
-                                    {approveMutation.isError && (
-                                        <p className="text-sm text-destructive">
-                                            {approveMutation.error?.message ?? 'Approval failed.'}
-                                        </p>
-                                    )}
-
-                                    {approveResult && (
-                                        <div className="rounded-md bg-green-500/10 p-3 text-sm flex items-center gap-2">
-                                            <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
-                                            <span>
-                                                Approved successfully. State:{' '}
-                                                <span className="font-medium">{approveResult.state}</span>
-                                            </span>
-                                        </div>
-                                    )}
-                                </CardContent>
-                                <CardFooter>
-                                    <Button
-                                        type="submit"
-                                        className="w-full"
-                                        disabled={approveMutation.isPending || !approveId}
-                                    >
-                                        {approveMutation.isPending ? 'Approving…' : 'Approve'}
-                                    </Button>
-                                </CardFooter>
-                            </form>
-                        </Card>
-                    </TabsContent>
-
-                    {/* Reject tab */}
-                    <TabsContent value="reject">
-                        <Card className="max-w-lg">
-                            <form
-                                onSubmit={(e) => {
-                                    e.preventDefault();
-                                    rejectMutation.mutate();
-                                }}
-                            >
-                                <CardHeader>
-                                    <CardTitle className="text-base">Reject Request</CardTitle>
-                                </CardHeader>
-                                <CardContent className="flex flex-col gap-4">
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="reject-id">Request ID</Label>
-                                        <Input
-                                            id="reject-id"
-                                            type="text"
-                                            placeholder="Approval request ID"
-                                            value={rejectId}
-                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRejectId(e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="reject-reason">Reason</Label>
-                                        <Input
-                                            id="reject-reason"
-                                            type="text"
-                                            placeholder="Reason for rejection"
-                                            value={rejectReason}
-                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRejectReason(e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="reject-corr">Correlation ID (optional)</Label>
-                                        <Input
-                                            id="reject-corr"
-                                            type="text"
-                                            placeholder="Optional correlation ID"
-                                            value={rejectCorrelation}
-                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRejectCorrelation(e.target.value)}
-                                        />
-                                    </div>
-
-                                    {rejectMutation.isError && (
-                                        <p className="text-sm text-destructive">
-                                            {rejectMutation.error?.message ?? 'Rejection failed.'}
-                                        </p>
-                                    )}
-
-                                    {rejectResult && (
-                                        <div className="rounded-md bg-red-500/10 p-3 text-sm flex items-center gap-2">
-                                            <XCircle className="h-4 w-4 text-red-500 shrink-0" />
-                                            <span>
-                                                Rejected successfully. State:{' '}
-                                                <span className="font-medium">{rejectResult.state}</span>
-                                            </span>
-                                        </div>
-                                    )}
-                                </CardContent>
-                                <CardFooter>
-                                    <Button
-                                        type="submit"
-                                        variant="destructive"
-                                        className="w-full"
-                                        disabled={rejectMutation.isPending || !rejectId || !rejectReason}
-                                    >
-                                        {rejectMutation.isPending ? 'Rejecting…' : 'Reject'}
-                                    </Button>
-                                </CardFooter>
-                            </form>
-                        </Card>
-                    </TabsContent>
-                </Tabs>
-            </div>
+                {!staffId && (
+                    <Card>
+                        <CardContent className="flex items-center gap-3 pt-6">
+                            <AlertTriangle className="h-5 w-5 text-yellow-500 shrink-0" />
+                            <p className="text-sm text-muted-foreground">
+                                Staff identity is missing. Sign in again before taking approval actions.
+                            </p>
+                        </CardContent>
+                    </Card>
+                )}
+            </ModulePage>
         </PageTransition>
     );
 }

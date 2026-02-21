@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import {
     useApi,
-    PageHeader,
     PageTransition,
     Card,
     CardContent,
@@ -18,11 +17,20 @@ import {
     TabsTrigger,
     TabsContent,
 } from '@caricash/ui';
+import { ModulePage } from '../components/module-page.js';
 
 interface JournalLine {
-    line_id: string;
+    id: string;
     account_id: string;
-    direction: string;
+    entry_type: 'DR' | 'CR';
+    amount: string;
+}
+
+interface JournalLineRow {
+    line_id: string;
+    account_label: string;
+    account_id: string;
+    direction: 'DR' | 'CR';
     amount: string;
     currency: string;
 }
@@ -48,7 +56,16 @@ interface IntegrityResult {
 
 const journalLineColumns = [
     { key: 'line_id' as const, header: 'Line ID' },
-    { key: 'account_id' as const, header: 'Account' },
+    {
+        key: 'account_label' as const,
+        header: 'Account',
+        render: (_value: unknown, row: JournalLineRow) => (
+            <div className="flex flex-col">
+                <span className="font-medium">Ledger Account</span>
+                <span className="text-xs text-muted-foreground">{row.account_id.toLowerCase()}</span>
+            </div>
+        ),
+    },
     { key: 'direction' as const, header: 'Direction' },
     { key: 'amount' as const, header: 'Amount' },
     { key: 'currency' as const, header: 'Currency' },
@@ -85,16 +102,30 @@ export function LedgerPage() {
         },
     });
 
+    const journalLineRows: JournalLineRow[] =
+        journalResult?.lines.map((line) => ({
+            line_id: line.id,
+            account_label: 'Ledger Account',
+            account_id: line.account_id,
+            direction: line.entry_type,
+            amount: line.amount,
+            currency: String(journalResult.journal.currency ?? ''),
+        })) ?? [];
+
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6">
-                <PageHeader
-                    title="Ledger Inspection"
-                    description="Look up journal entries and verify ledger integrity"
-                />
-
+            <ModulePage
+                module="Controls"
+                title="Ledger Inspection"
+                description="Inspect journal activity and verify double-entry ledger integrity"
+                playbook={[
+                    'Validate journal ID and source context before investigation.',
+                    'Run integrity checks over explicit time windows.',
+                    'Escalate and track each ledger error as a control incident.',
+                ]}
+            >
                 <Tabs defaultValue="journal">
-                    <TabsList>
+                    <TabsList className="h-auto flex-wrap justify-start">
                         <TabsTrigger value="journal">Journal Lookup</TabsTrigger>
                         <TabsTrigger value="integrity">Integrity Check</TabsTrigger>
                     </TabsList>
@@ -176,7 +207,7 @@ export function LedgerPage() {
                                         </CardHeader>
                                         <CardContent>
                                             <DataTable
-                                                data={journalResult.lines}
+                                                data={journalLineRows}
                                                 columns={journalLineColumns}
                                                 emptyMessage="No journal lines"
                                             />
@@ -277,7 +308,7 @@ export function LedgerPage() {
                         </div>
                     </TabsContent>
                 </Tabs>
-            </div>
+            </ModulePage>
         </PageTransition>
     );
 }

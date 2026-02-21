@@ -414,6 +414,42 @@ export async function getApprovalRequest(
   return (await db.prepare('SELECT * FROM approval_requests WHERE id = ?1').bind(id).first()) as ApprovalRequest | null;
 }
 
+export async function listApprovalRequests(
+  db: D1Database,
+  filters?: { state?: string; type?: string; limit?: number },
+): Promise<ApprovalRequest[]> {
+  const where: string[] = [];
+  const values: (string | number)[] = [];
+  let paramIdx = 1;
+
+  if (filters?.state) {
+    where.push(`state = ?${paramIdx++}`);
+    values.push(filters.state);
+  }
+
+  if (filters?.type) {
+    where.push(`type = ?${paramIdx++}`);
+    values.push(filters.type);
+  }
+
+  const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
+  const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  values.push(limit);
+
+  const res = await db
+    .prepare(
+      `SELECT *
+       FROM approval_requests
+       ${whereSql}
+       ORDER BY created_at DESC
+       LIMIT ?${paramIdx}`,
+    )
+    .bind(...values)
+    .all();
+
+  return (res.results ?? []) as ApprovalRequest[];
+}
+
 export async function updateApprovalRequest(
   db: D1Database,
   id: string,

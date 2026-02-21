@@ -1653,7 +1653,7 @@ paths:
       operationId: listApprovals
       tags: [Approvals]
       summary: List approval requests
-      description: List approval requests with optional status/type filters. Returns 501 (stub).
+      description: List approval requests with optional status/type filters.
       parameters:
         - name: status
           in: query
@@ -1680,8 +1680,8 @@ paths:
                   nextCursor:
                     type: string
                     nullable: true
-        '501':
-          description: Not yet implemented
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -1692,7 +1692,7 @@ paths:
       operationId: getApproval
       tags: [Approvals]
       summary: Get approval details
-      description: Retrieve a specific approval request by ID. Returns 501 (stub).
+      description: Retrieve a specific approval request by ID.
       parameters:
         - $ref: '#/components/parameters/approvalId'
       responses:
@@ -1702,8 +1702,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApprovalResponse'
-        '501':
-          description: Not yet implemented
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -3418,6 +3420,10 @@ components:
           type: string
         payload_json:
           type: string
+        payload:
+          type: object
+          nullable: true
+          additionalProperties: true
         created_at:
           type: string
           format: date-time

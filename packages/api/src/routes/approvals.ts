@@ -13,6 +13,7 @@ import {
 import type { PostTransactionCommand } from '@caricash/shared';
 import {
   getApprovalRequest,
+  listApprovalRequests,
   updateApprovalRequest,
   insertEvent,
   insertAuditLog,
@@ -27,6 +28,53 @@ import type { Entry } from '@caricash/posting-do';
 import { postTransaction, getBalance } from '../lib/posting-client.js';
 
 export const approvalRoutes = new Hono<{ Bindings: Env }>();
+
+// GET /approvals
+approvalRoutes.get('/', async (c) => {
+  const status = c.req.query('status');
+  const type = c.req.query('type');
+  const pageSizeRaw = Number(c.req.query('pageSize') ?? '50');
+  const pageSize = Number.isFinite(pageSizeRaw) ? pageSizeRaw : 50;
+
+  try {
+    const items = await listApprovalRequests(c.env.DB, {
+      state: status || undefined,
+      type: type || undefined,
+      limit: pageSize,
+    });
+
+    return c.json({
+      items: items.map((item) => ({
+        ...item,
+        payload: safeParsePayload(item.payload_json),
+      })),
+      nextCursor: null,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message }, 500);
+  }
+});
+
+// GET /approvals/:id
+approvalRoutes.get('/:id', async (c) => {
+  const requestId = c.req.param('id');
+
+  try {
+    const request = await getApprovalRequest(c.env.DB, requestId);
+    if (!request) {
+      return c.json({ error: 'Approval request not found' }, 404);
+    }
+
+    return c.json({
+      ...request,
+      payload: safeParsePayload(request.payload_json),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message }, 500);
+  }
+});
 
 // POST /approvals/:id/approve
 approvalRoutes.post('/:id/approve', async (c) => {
@@ -280,6 +328,14 @@ approvalRoutes.post('/:id/approve', async (c) => {
     return c.json({ error: message, correlation_id: correlationId }, 500);
   }
 });
+
+function safeParsePayload(payloadJson: string): unknown {
+  try {
+    return JSON.parse(payloadJson);
+  } catch {
+    return null;
+  }
+}
 
 // POST /approvals/:id/reject
 approvalRoutes.post('/:id/reject', async (c) => {
