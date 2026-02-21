@@ -26,8 +26,8 @@ async function handleResponse<T>(response: Response): Promise<T> {
             body && typeof body === 'object' && 'error' in body
                 ? String((body as { error: string }).error)
                 : body && typeof body === 'object' && 'message' in body
-                  ? String((body as { message: string }).message)
-                  : `Request failed with status ${response.status}`;
+                    ? String((body as { message: string }).message)
+                    : `Request failed with status ${response.status}`;
         throw new ApiError(response.status, message, body);
     }
 

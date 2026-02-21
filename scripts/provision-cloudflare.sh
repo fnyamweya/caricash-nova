@@ -29,11 +29,19 @@ if [ "$ENV" = "production" ]; then
   D1_DB_NAME="caricash-db"
   QUEUE_NAME="caricash-events"
   PAGES_PROJECT="caricash-web"
+  PAGES_CUSTOMER="caricash-customer"
+  PAGES_AGENT="caricash-agent"
+  PAGES_MERCHANT="caricash-merchant"
+  PAGES_STAFF="caricash-staff"
   API_HOSTNAME="api.${ZONE_NAME}"
 else
   D1_DB_NAME="caricash-db-staging"
   QUEUE_NAME="caricash-events-staging"
   PAGES_PROJECT="caricash-web-staging"
+  PAGES_CUSTOMER="caricash-customer-staging"
+  PAGES_AGENT="caricash-agent-staging"
+  PAGES_MERCHANT="caricash-merchant-staging"
+  PAGES_STAFF="caricash-staff-staging"
   API_HOSTNAME="api-staging.${ZONE_NAME}"
 fi
 
@@ -252,6 +260,10 @@ provision_pages() {
 provision_d1  "$D1_DB_NAME"
 provision_queue "$QUEUE_NAME"
 provision_pages "$PAGES_PROJECT"
+provision_pages "$PAGES_CUSTOMER"
+provision_pages "$PAGES_AGENT"
+provision_pages "$PAGES_MERCHANT"
+provision_pages "$PAGES_STAFF"
 provision_dns_record "$ZONE_NAME" "$API_HOSTNAME"
 
 echo ""

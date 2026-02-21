@@ -65,6 +65,12 @@ jobs:
         run: pnpm --filter @caricash/api build
       - name: Build Web
         run: pnpm --filter @caricash/web build
+      - name: Build Portals
+        run: |
+          pnpm --filter @caricash/portal-customer build
+          pnpm --filter @caricash/portal-agent build
+          pnpm --filter @caricash/portal-merchant build
+          pnpm --filter @caricash/portal-staff build
 
   # ────────────────────────────────────────────────────────────
   # STAGING deploy — on push to main or manual dispatch
@@ -130,6 +136,25 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm --filter @caricash/api exec wrangler pages deploy ../web/dist --project-name=caricash-web-staging --branch=staging --commit-dirty=true
+
+      - name: Build portals (staging)
+        env:
+          VITE_API_URL: https://api-staging.caricash.com
+        run: |
+          pnpm --filter @caricash/portal-customer build
+          pnpm --filter @caricash/portal-agent build
+          pnpm --filter @caricash/portal-merchant build
+          pnpm --filter @caricash/portal-staff build
+
+      - name: Deploy portals to Pages (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          pnpm --filter @caricash/api exec wrangler pages deploy ../portal-customer/dist --project-name=caricash-customer-staging --branch=staging --commit-dirty=true
+          pnpm --filter @caricash/api exec wrangler pages deploy ../portal-agent/dist --project-name=caricash-agent-staging --branch=staging --commit-dirty=true
+          pnpm --filter @caricash/api exec wrangler pages deploy ../portal-merchant/dist --project-name=caricash-merchant-staging --branch=staging --commit-dirty=true
+          pnpm --filter @caricash/api exec wrangler pages deploy ../portal-staff/dist --project-name=caricash-staff-staging --branch=staging --commit-dirty=true
 
       - name: Smoke tests (staging)
         env:
@@ -200,6 +225,25 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm --filter @caricash/api exec wrangler pages deploy ../web/dist --project-name=caricash-web --branch=main --commit-dirty=true
+
+      - name: Build portals (production)
+        env:
+          VITE_API_URL: https://api.caricash.com
+        run: |
+          pnpm --filter @caricash/portal-customer build
+          pnpm --filter @caricash/portal-agent build
+          pnpm --filter @caricash/portal-merchant build
+          pnpm --filter @caricash/portal-staff build
+
+      - name: Deploy portals to Pages (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          pnpm --filter @caricash/api exec wrangler pages deploy ../portal-customer/dist --project-name=caricash-customer --branch=main --commit-dirty=true
+          pnpm --filter @caricash/api exec wrangler pages deploy ../portal-agent/dist --project-name=caricash-agent --branch=main --commit-dirty=true
+          pnpm --filter @caricash/api exec wrangler pages deploy ../portal-merchant/dist --project-name=caricash-merchant --branch=main --commit-dirty=true
+          pnpm --filter @caricash/api exec wrangler pages deploy ../portal-staff/dist --project-name=caricash-staff --branch=main --commit-dirty=true
 
       - name: Smoke tests (production)
         env:
