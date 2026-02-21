@@ -293,3 +293,29 @@ export interface FloatOperation {
   correlation_id: string;
   created_at: string;
 }
+
+export interface KycProfile {
+  id: string;
+  actor_id: string;
+  actor_type: ActorType;
+  status: KycState;
+  verification_level?: string;
+  submitted_at?: string;
+  reviewed_at?: string;
+  reviewer_actor_id?: string;
+  documents_json?: string;
+  metadata_json?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KycRequirement {
+  id: string;
+  actor_type: ActorType;
+  requirement_code: string;
+  display_name: string;
+  is_required: boolean;
+  config_json?: string;
+  created_at: string;
+  updated_at: string;
+}

@@ -3,7 +3,6 @@ import { motion } from 'framer-motion';
 import {
     Lock,
     Phone,
-    Store,
     UserCog,
     Shield,
     Sparkles,
@@ -50,9 +49,9 @@ const portalConfig: Record<
         trustText: 'Branch-grade tooling',
     },
     merchant: {
-        label: 'Store Code',
-        placeholder: 'Enter your store code',
-        icon: <Store className="h-4 w-4" />,
+        label: 'Phone Number',
+        placeholder: 'Enter your phone number',
+        icon: <Phone className="h-4 w-4" />,
         title: 'Merchant Portal',
         subtitle: 'Track payments and transfer settlement funds between stores.',
         trustText: 'Business operations suite',
@@ -69,7 +68,7 @@ const portalConfig: Record<
 
 export interface LoginFormProps {
     portalType: PortalType;
-    onSubmit: (data: { identifier: string; pin: string; msisdn?: string }) => Promise<void>;
+    onSubmit: (data: { identifier: string; pin: string }) => Promise<void>;
     loading?: boolean;
     error?: string | null;
     onRegisterClick?: () => void;
@@ -83,18 +82,13 @@ export function LoginForm({
     onRegisterClick,
 }: LoginFormProps) {
     const [identifier, setIdentifier] = useState('');
-    const [msisdn, setMsisdn] = useState('');
     const [pin, setPin] = useState('');
     const [showPin, setShowPin] = useState(false);
     const config = portalConfig[portalType];
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        await onSubmit({
-            identifier,
-            pin,
-            ...(portalType === 'merchant' ? { msisdn } : {}),
-        });
+        await onSubmit({ identifier, pin });
     }
 
     return (
@@ -171,28 +165,6 @@ export function LoginForm({
                                     />
                                 </div>
                             </div>
-
-                            {portalType === 'merchant' && (
-                                <div className="flex flex-col gap-2">
-                                    <Label htmlFor="msisdn">Phone Number</Label>
-                                    <div className="relative">
-                                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
-                                            <Phone className="h-4 w-4" />
-                                        </span>
-                                        <Input
-                                            id="msisdn"
-                                            value={msisdn}
-                                            onChange={(e) => setMsisdn(e.target.value)}
-                                            placeholder="Enter your phone number"
-                                            className="pl-10"
-                                            required
-                                            disabled={loading}
-                                            autoComplete="tel"
-                                            inputMode="tel"
-                                        />
-                                    </div>
-                                </div>
-                            )}
 
                             <div className="flex flex-col gap-2">
                                 <Label htmlFor="pin">PIN</Label>

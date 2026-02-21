@@ -12,6 +12,7 @@ import {
     Eye,
     EyeOff,
     Building2,
+    FileBadge2,
 } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card.js';
@@ -22,9 +23,12 @@ import { Badge } from '../ui/badge.js';
 import { LoadingSpinner } from './loading-spinner.js';
 
 export interface MerchantRegisterData {
-    store_code: string;
     name: string;
     owner_name: string;
+    owner_first_name?: string;
+    owner_last_name?: string;
+    business_registration_no?: string;
+    tax_id?: string;
     msisdn: string;
     email?: string;
     pin: string;
@@ -43,9 +47,12 @@ export function MerchantRegisterForm({
     error = null,
     onLoginClick,
 }: MerchantRegisterFormProps) {
-    const [storeCode, setStoreCode] = useState('');
     const [storeName, setStoreName] = useState('');
     const [ownerName, setOwnerName] = useState('');
+    const [ownerFirstName, setOwnerFirstName] = useState('');
+    const [ownerLastName, setOwnerLastName] = useState('');
+    const [businessRegistrationNo, setBusinessRegistrationNo] = useState('');
+    const [taxId, setTaxId] = useState('');
     const [msisdn, setMsisdn] = useState('');
     const [email, setEmail] = useState('');
     const [pin, setPin] = useState('');
@@ -67,9 +74,12 @@ export function MerchantRegisterForm({
         }
 
         await onSubmit({
-            store_code: storeCode,
             name: storeName,
             owner_name: ownerName,
+            owner_first_name: ownerFirstName || undefined,
+            owner_last_name: ownerLastName || undefined,
+            business_registration_no: businessRegistrationNo || undefined,
+            tax_id: taxId || undefined,
             msisdn,
             email: email || undefined,
             pin,
@@ -134,26 +144,6 @@ export function MerchantRegisterForm({
                                 </div>
                             )}
 
-                            {/* Store details */}
-                            <div className="flex flex-col gap-2">
-                                <Label htmlFor="store-code">Store Code</Label>
-                                <div className="relative">
-                                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
-                                        <Building2 className="h-4 w-4" />
-                                    </span>
-                                    <Input
-                                        id="store-code"
-                                        value={storeCode}
-                                        onChange={(e) => setStoreCode(e.target.value.toUpperCase())}
-                                        placeholder="e.g. STORE001"
-                                        className="pl-10"
-                                        required
-                                        disabled={loading}
-                                        autoComplete="off"
-                                    />
-                                </div>
-                            </div>
-
                             <div className="flex flex-col gap-2">
                                 <Label htmlFor="store-name">Store Name</Label>
                                 <div className="relative">
@@ -189,6 +179,76 @@ export function MerchantRegisterForm({
                                         disabled={loading}
                                         autoComplete="name"
                                     />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="flex flex-col gap-2">
+                                    <Label htmlFor="owner-first-name">Owner First Name</Label>
+                                    <div className="relative">
+                                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                                            <User className="h-4 w-4" />
+                                        </span>
+                                        <Input
+                                            id="owner-first-name"
+                                            value={ownerFirstName}
+                                            onChange={(e) => setOwnerFirstName(e.target.value)}
+                                            placeholder="First name"
+                                            className="pl-10"
+                                            disabled={loading}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <Label htmlFor="owner-last-name">Owner Last Name</Label>
+                                    <div className="relative">
+                                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                                            <User className="h-4 w-4" />
+                                        </span>
+                                        <Input
+                                            id="owner-last-name"
+                                            value={ownerLastName}
+                                            onChange={(e) => setOwnerLastName(e.target.value)}
+                                            placeholder="Last name"
+                                            className="pl-10"
+                                            disabled={loading}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="flex flex-col gap-2">
+                                    <Label htmlFor="business-reg-no">Business Registration No.</Label>
+                                    <div className="relative">
+                                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                                            <Building2 className="h-4 w-4" />
+                                        </span>
+                                        <Input
+                                            id="business-reg-no"
+                                            value={businessRegistrationNo}
+                                            onChange={(e) => setBusinessRegistrationNo(e.target.value)}
+                                            placeholder="Optional"
+                                            className="pl-10"
+                                            disabled={loading}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <Label htmlFor="tax-id">Tax ID</Label>
+                                    <div className="relative">
+                                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                                            <FileBadge2 className="h-4 w-4" />
+                                        </span>
+                                        <Input
+                                            id="tax-id"
+                                            value={taxId}
+                                            onChange={(e) => setTaxId(e.target.value)}
+                                            placeholder="Optional"
+                                            className="pl-10"
+                                            disabled={loading}
+                                        />
+                                    </div>
                                 </div>
                             </div>
 

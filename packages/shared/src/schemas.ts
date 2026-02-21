@@ -60,7 +60,7 @@ export const createCustomerSchema = z.object({
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
 
 export const createAgentSchema = z.object({
-  agent_code: z.string().min(1),
+  agent_code: z.string().length(6).regex(/^\d{6}$/).optional(),
   name: z.string().min(1),
   msisdn: z.string().min(1),
   pin: z.string().min(1),
@@ -69,19 +69,35 @@ export const createAgentSchema = z.object({
 export type CreateAgentInput = z.infer<typeof createAgentSchema>;
 
 export const createMerchantSchema = z.object({
-  store_code: z.string().min(1),
+  name: z.string().min(1),
+  msisdn: z.string().min(1),
+  owner_name: z.string().min(1),
+  owner_first_name: z.string().min(1).optional(),
+  owner_last_name: z.string().min(1).optional(),
+  business_registration_no: z.string().min(1).optional(),
+  tax_id: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  pin: z.string().min(4),
+  pin_confirm: z.string().min(4).optional(),
+}).refine((data) => !data.pin_confirm || data.pin === data.pin_confirm, {
+  message: 'PINs do not match',
+  path: ['pin_confirm'],
+});
+export type CreateMerchantInput = z.infer<typeof createMerchantSchema>;
+
+export const createStoreSchema = z.object({
+  store_code: z.string().length(6).regex(/^\d{6}$/).optional(),
   name: z.string().min(1),
   msisdn: z.string().min(1),
   owner_name: z.string().min(1),
   email: z.string().email().optional(),
   pin: z.string().min(4),
   pin_confirm: z.string().min(4).optional(),
-  parent_store_code: z.string().min(1).optional(),
 }).refine((data) => !data.pin_confirm || data.pin === data.pin_confirm, {
   message: 'PINs do not match',
   path: ['pin_confirm'],
 });
-export type CreateMerchantInput = z.infer<typeof createMerchantSchema>;
+export type CreateStoreInput = z.infer<typeof createStoreSchema>;
 
 export const createMerchantUserSchema = z.object({
   msisdn: z.string().min(1),
@@ -99,11 +115,19 @@ export const updateMerchantUserSchema = z.object({
 export type UpdateMerchantUserInput = z.infer<typeof updateMerchantUserSchema>;
 
 export const merchantLoginSchema = z.object({
-  store_code: z.string().min(1),
   msisdn: z.string().min(1),
   pin: z.string().min(1),
+  store_code: z.string().min(1).optional(),
 });
 export type MerchantLoginInput = z.infer<typeof merchantLoginSchema>;
+
+export const generateCodesSchema = z.object({
+  code_type: z.enum(['AGENT', 'STORE']),
+  count: z.number().int().min(1).max(20).default(5),
+  merchant_id: z.string().min(1).optional(),
+  ttl_minutes: z.number().int().min(5).max(240).default(30),
+});
+export type GenerateCodesInput = z.infer<typeof generateCodesSchema>;
 
 export const actorLookupSchema = z.object({
   msisdn: z.string().min(1).optional(),

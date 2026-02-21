@@ -56,11 +56,22 @@ authRoutes.post('/agent/login', async (c) => {
 
 // ---- Merchant login (store_code + msisdn + pin) ----
 authRoutes.post('/merchant/login', async (c) => {
-  const body = await c.req.json<{ store_code: string; msisdn: string; pin: string }>();
+  const body = await c.req.json<{ store_code?: string; msisdn: string; pin: string }>();
   const { store_code, msisdn, pin } = body;
-  if (!store_code || !msisdn || !pin) {
-    return c.json({ error: 'store_code, msisdn and pin are required' }, 400);
+  if (!msisdn || !pin) {
+    return c.json({ error: 'msisdn and pin are required' }, 400);
   }
+
+  // Default merchant login path: merchant actor by msisdn + pin
+  if (!store_code) {
+    const actor = await getActorByMsisdn(c.env.DB, msisdn);
+    if (!actor || actor.type !== ActorType.MERCHANT) {
+      return c.json({ error: 'Invalid credentials' }, 401);
+    }
+    return handleLogin(c, msisdn, pin, actor, ActorType.MERCHANT);
+  }
+
+  // Backward compatibility for store-scoped merchant users
   return handleMerchantLogin(c, store_code, msisdn, pin);
 });
 

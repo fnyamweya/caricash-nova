@@ -38,12 +38,33 @@ interface CreateAgentResponse {
 export function AgentsPage() {
     const api = useApi();
 
+    const [availableCodes, setAvailableCodes] = useState<string[]>([]);
     const [agentCode, setAgentCode] = useState('');
+    const [codesError, setCodesError] = useState<string | null>(null);
+    const [loadingCodes, setLoadingCodes] = useState(false);
     const [name, setName] = useState('');
     const [msisdn, setMsisdn] = useState('');
     const [pin, setPin] = useState('');
     const [agentType, setAgentType] = useState<'STANDARD' | 'AGGREGATOR'>('STANDARD');
     const [result, setResult] = useState<CreateAgentResponse | null>(null);
+
+    async function loadAgentCodes() {
+        setLoadingCodes(true);
+        setCodesError(null);
+        try {
+            const response = await api.post<{ codes: string[] }>('/codes/generate', {
+                code_type: 'AGENT',
+                count: 5,
+            });
+            const codes = response.codes ?? [];
+            setAvailableCodes(codes);
+            setAgentCode(codes[0] ?? '');
+        } catch (err) {
+            setCodesError(err instanceof Error ? err.message : 'Failed to generate codes');
+        } finally {
+            setLoadingCodes(false);
+        }
+    }
 
     const mutation = useMutation({
         mutationFn: async () => {
@@ -58,6 +79,7 @@ export function AgentsPage() {
         onSuccess: (res) => {
             setResult(res);
             setAgentCode('');
+            setAvailableCodes([]);
             setName('');
             setMsisdn('');
             setPin('');
@@ -87,14 +109,27 @@ export function AgentsPage() {
                         <CardContent className="flex flex-col gap-4">
                             <div className="flex flex-col gap-1.5">
                                 <Label htmlFor="agent-code">Agent Code</Label>
-                                <Input
-                                    id="agent-code"
-                                    type="text"
-                                    placeholder="e.g. AGT-001"
-                                    value={agentCode}
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAgentCode(e.target.value)}
-                                    required
-                                />
+                                <div className="flex gap-2">
+                                    <Select value={agentCode} onValueChange={setAgentCode}>
+                                        <SelectTrigger id="agent-code" className="flex-1">
+                                            <SelectValue placeholder="Generate and select code" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {availableCodes.map((code) => (
+                                                <SelectItem key={code} value={code}>{code}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => void loadAgentCodes()}
+                                        disabled={loadingCodes || mutation.isPending}
+                                    >
+                                        {loadingCodes ? 'Generating…' : 'Get 5 Codes'}
+                                    </Button>
+                                </div>
+                                {codesError ? <p className="text-xs text-destructive">{codesError}</p> : null}
                             </div>
 
                             <div className="flex flex-col gap-1.5">
@@ -161,7 +196,7 @@ export function AgentsPage() {
                             <Button
                                 type="submit"
                                 className="w-full"
-                                disabled={mutation.isPending || !agentCode || !name || !msisdn || !pin}
+                                disabled={mutation.isPending || loadingCodes || !agentCode || !name || !msisdn || !pin}
                             >
                                 {mutation.isPending ? 'Creating…' : 'Create Agent'}
                             </Button>

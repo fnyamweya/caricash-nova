@@ -133,6 +133,7 @@ describe('OpenAPI Spec Endpoints Inventory', () => {
     { method: 'GET', path: '/agents/{agentId}' },
     { method: 'POST', path: '/merchants' },
     { method: 'GET', path: '/merchants/{merchantId}' },
+    { method: 'POST', path: '/codes/generate' },
     { method: 'GET', path: '/wallets/{ownerType}/{ownerId}/{currency}/balance' },
     { method: 'POST', path: '/tx/deposit' },
     { method: 'POST', path: '/tx/withdrawal' },
@@ -191,6 +192,8 @@ describe('Route-to-Spec Coverage', () => {
     { method: 'GET', path: '/merchants/:id/kyc' },
     { method: 'POST', path: '/merchants/:id/stores' },
     { method: 'GET', path: '/merchants/:id/stores' },
+    // Codes
+    { method: 'POST', path: '/codes/generate' },
     // Stores
     { method: 'GET', path: '/stores/:id' },
     // Wallets

@@ -15,6 +15,7 @@ import {
     insertPin,
     insertEvent,
     insertAuditLog,
+    ensureKycProfile,
 } from '@caricash/db';
 import { generateSalt, hashPin } from './pin.js';
 
@@ -81,6 +82,15 @@ export async function ensureSuperAdminSeeded(env: Env): Promise<void> {
     }
 
     const pinRecord = await getPinByActorId(env.DB, actor.id);
+    await ensureKycProfile(env.DB, {
+        id: `kyc_${actor.id}`,
+        actor_id: actor.id,
+        actor_type: ActorType.STAFF,
+        status: KycState.NOT_STARTED,
+        created_at: now,
+        updated_at: now,
+    });
+
     if (pinRecord) {
         return;
     }

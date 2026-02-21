@@ -22,6 +22,10 @@ import {
   insertAuditLog,
   insertRegistrationMetadata,
   initAccountBalance,
+  ensureKycProfile,
+  upsertKycProfile,
+  getKycProfileByActorId,
+  listKycRequirementsByActorType,
 } from '@caricash/db';
 import { hashPin, generateSalt } from '../lib/pin.js';
 
@@ -125,6 +129,16 @@ customerRoutes.post('/', async (c) => {
 
     // Initialize account_balances row
     await initAccountBalance(c.env.DB, walletId, 'BBD');
+
+    // Ensure linked KYC profile exists
+    await ensureKycProfile(c.env.DB, {
+      id: `kyc_${actorId}`,
+      actor_id: actorId,
+      actor_type: ActorType.CUSTOMER,
+      status: KycState.NOT_STARTED,
+      created_at: now,
+      updated_at: now,
+    });
 
     // Determine registration type
     let regType = registration_type ?? RegistrationType.SELF_REGISTRATION;
@@ -298,6 +312,20 @@ customerRoutes.post('/:id/kyc', async (c) => {
   return handleKycInitiate(c);
 });
 
+customerRoutes.get('/:id/kyc', async (c) => {
+  const actorId = c.req.param('id');
+  const correlationId = generateId();
+
+  try {
+    const profile = await getKycProfileByActorId(c.env.DB, actorId);
+    const requirements = await listKycRequirementsByActorType(c.env.DB, ActorType.CUSTOMER);
+    return c.json({ profile, requirements, correlation_id: correlationId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
 async function handleKycInitiate(c: any) {
   const actorId = c.req.param('id');
   const body = await c.req.json();
@@ -316,6 +344,19 @@ async function handleKycInitiate(c: any) {
       .prepare("UPDATE actors SET kyc_state = 'PENDING', updated_at = ?1 WHERE id = ?2")
       .bind(now, actorId)
       .run();
+
+    // Upsert KYC profile details
+    await upsertKycProfile(c.env.DB, {
+      id: `kyc_${actorId}`,
+      actor_id: actorId,
+      actor_type: ActorType.CUSTOMER,
+      status: KycState.PENDING,
+      submitted_at: now,
+      documents_json: JSON.stringify({ document_type, document_number }),
+      metadata_json: JSON.stringify({ source: 'customers/:id/kyc/initiate' }),
+      created_at: now,
+      updated_at: now,
+    });
 
     // Audit log
     await insertAuditLog(c.env.DB, {

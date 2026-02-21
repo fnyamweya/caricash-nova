@@ -20,6 +20,8 @@ import type {
   RegistrationMetadata,
   AccountBalance,
   FloatOperation,
+  KycProfile,
+  KycRequirement,
 } from '@caricash/shared';
 
 // D1Database from @cloudflare/workers-types
@@ -44,6 +46,19 @@ export interface Session {
   token_hash: string;
   expires_at: string;
   created_at: string;
+}
+
+export interface CodeReservation {
+  id: string;
+  code_type: 'AGENT' | 'STORE';
+  code_value: string;
+  reserved_by_actor_id?: string;
+  status: 'RESERVED' | 'USED' | 'EXPIRED';
+  expires_at: string;
+  used_by_actor_id?: string;
+  used_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +96,10 @@ export async function insertActor(db: D1Database, actor: Actor): Promise<void> {
 
 export async function getActorByMsisdn(db: D1Database, msisdn: string): Promise<Actor | null> {
   return (await db.prepare('SELECT * FROM actors WHERE msisdn = ?1').bind(msisdn).first()) as Actor | null;
+}
+
+export async function getActorByMsisdnAndType(db: D1Database, msisdn: string, actorType: string): Promise<Actor | null> {
+  return (await db.prepare('SELECT * FROM actors WHERE msisdn = ?1 AND type = ?2').bind(msisdn, actorType).first()) as Actor | null;
 }
 
 export async function getActorByAgentCode(db: D1Database, code: string): Promise<Actor | null> {
@@ -1168,4 +1187,154 @@ export async function getFloatOperationsByAgent(db: D1Database, agentActorId: st
 
 export async function getFloatOperationByIdempotencyKey(db: D1Database, key: string): Promise<FloatOperation | null> {
   return (await db.prepare('SELECT * FROM float_operations WHERE idempotency_key = ?1').bind(key).first()) as FloatOperation | null;
+}
+
+// ---------------------------------------------------------------------------
+// Code Reservations
+// ---------------------------------------------------------------------------
+
+export async function getCodeReservation(
+  db: D1Database,
+  codeType: 'AGENT' | 'STORE',
+  codeValue: string,
+): Promise<CodeReservation | null> {
+  return (await db
+    .prepare('SELECT * FROM code_reservations WHERE code_type = ?1 AND code_value = ?2')
+    .bind(codeType, codeValue)
+    .first()) as CodeReservation | null;
+}
+
+export async function getActiveCodeReservation(
+  db: D1Database,
+  codeType: 'AGENT' | 'STORE',
+  codeValue: string,
+  nowIso: string,
+): Promise<CodeReservation | null> {
+  return (await db
+    .prepare(
+      `SELECT * FROM code_reservations
+       WHERE code_type = ?1
+         AND code_value = ?2
+         AND status = 'RESERVED'
+         AND expires_at > ?3`,
+    )
+    .bind(codeType, codeValue, nowIso)
+    .first()) as CodeReservation | null;
+}
+
+export async function reserveCode(
+  db: D1Database,
+  reservation: Pick<CodeReservation, 'id' | 'code_type' | 'code_value' | 'status' | 'expires_at' | 'created_at' | 'updated_at'> & {
+    reserved_by_actor_id?: string;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO code_reservations (
+        id, code_type, code_value, reserved_by_actor_id, status, expires_at, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+    )
+    .bind(
+      reservation.id,
+      reservation.code_type,
+      reservation.code_value,
+      reservation.reserved_by_actor_id ?? null,
+      reservation.status,
+      reservation.expires_at,
+      reservation.created_at,
+      reservation.updated_at,
+    )
+    .run();
+}
+
+export async function expireCodeReservations(db: D1Database, nowIso: string): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE code_reservations
+       SET status = 'EXPIRED', updated_at = ?1
+       WHERE status = 'RESERVED' AND expires_at <= ?1`,
+    )
+    .bind(nowIso)
+    .run();
+}
+
+export async function markCodeReservationUsed(
+  db: D1Database,
+  codeType: 'AGENT' | 'STORE',
+  codeValue: string,
+  usedByActorId: string,
+  nowIso: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE code_reservations
+       SET status = 'USED', used_by_actor_id = ?1, used_at = ?2, updated_at = ?2
+       WHERE code_type = ?3 AND code_value = ?4 AND status = 'RESERVED'`,
+    )
+    .bind(usedByActorId, nowIso, codeType, codeValue)
+    .run();
+}
+
+// ---------------------------------------------------------------------------
+// KYC Profiles + Requirements
+// ---------------------------------------------------------------------------
+
+export async function ensureKycProfile(
+  db: D1Database,
+  profile: Pick<KycProfile, 'id' | 'actor_id' | 'actor_type' | 'status' | 'created_at' | 'updated_at'>,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO kyc_profiles (id, actor_id, actor_type, status, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    )
+    .bind(profile.id, profile.actor_id, profile.actor_type, profile.status, profile.created_at, profile.updated_at)
+    .run();
+}
+
+export async function getKycProfileByActorId(db: D1Database, actorId: string): Promise<KycProfile | null> {
+  return (await db.prepare('SELECT * FROM kyc_profiles WHERE actor_id = ?1').bind(actorId).first()) as KycProfile | null;
+}
+
+export async function upsertKycProfile(db: D1Database, profile: KycProfile): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO kyc_profiles (
+        id, actor_id, actor_type, status, verification_level, submitted_at, reviewed_at,
+        reviewer_actor_id, documents_json, metadata_json, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+      ON CONFLICT(actor_id) DO UPDATE SET
+        actor_type = excluded.actor_type,
+        status = excluded.status,
+        verification_level = excluded.verification_level,
+        submitted_at = excluded.submitted_at,
+        reviewed_at = excluded.reviewed_at,
+        reviewer_actor_id = excluded.reviewer_actor_id,
+        documents_json = excluded.documents_json,
+        metadata_json = excluded.metadata_json,
+        updated_at = excluded.updated_at`,
+    )
+    .bind(
+      profile.id,
+      profile.actor_id,
+      profile.actor_type,
+      profile.status,
+      profile.verification_level ?? null,
+      profile.submitted_at ?? null,
+      profile.reviewed_at ?? null,
+      profile.reviewer_actor_id ?? null,
+      profile.documents_json ?? '{}',
+      profile.metadata_json ?? '{}',
+      profile.created_at,
+      profile.updated_at,
+    )
+    .run();
+}
+
+export async function listKycRequirementsByActorType(db: D1Database, actorType: string): Promise<KycRequirement[]> {
+  const res = await db
+    .prepare('SELECT * FROM kyc_requirements WHERE actor_type = ?1 ORDER BY requirement_code ASC')
+    .bind(actorType)
+    .all();
+  return (res.results ?? []) as KycRequirement[];
 }

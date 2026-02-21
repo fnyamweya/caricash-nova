@@ -9,7 +9,6 @@ interface RegisterResponse {
         id: string;
         type: string;
         name: string;
-        store_code: string;
     };
     wallet_id: string;
     owner_user_id: string;
@@ -20,9 +19,6 @@ interface LoginResponse {
     token: string;
     actor_id: string;
     actor_type: string;
-    merchant_user_id: string;
-    merchant_user_role: string;
-    merchant_user_name: string;
     session_id: string;
 }
 
@@ -36,9 +32,12 @@ export function RegisterPage() {
         mutationFn: async (data: MerchantRegisterData) => {
             // 1. Register the merchant (creates actor + store_owner user)
             const reg = await api.post<RegisterResponse>('/merchants', {
-                store_code: data.store_code,
                 name: data.name,
                 owner_name: data.owner_name,
+                owner_first_name: data.owner_first_name,
+                owner_last_name: data.owner_last_name,
+                business_registration_no: data.business_registration_no,
+                tax_id: data.tax_id,
                 msisdn: data.msisdn,
                 email: data.email,
                 pin: data.pin,
@@ -46,23 +45,18 @@ export function RegisterPage() {
 
             // 2. Auto-login with the new credentials
             const login = await api.post<LoginResponse>('/auth/merchant/login', {
-                store_code: data.store_code,
                 msisdn: data.msisdn,
                 pin: data.pin,
             });
 
-            return { reg, login, store_code: data.store_code };
+            return { reg, login };
         },
-        onSuccess: ({ reg, login, store_code }) => {
-            // Persist context
-            localStorage.setItem('caricash_store_code', store_code);
-            localStorage.setItem('caricash_merchant_user_id', login.merchant_user_id);
-            localStorage.setItem('caricash_merchant_user_role', login.merchant_user_role);
+        onSuccess: ({ reg, login }) => {
 
             auth.login(login.token, {
                 id: login.actor_id,
                 type: login.actor_type,
-                name: login.merchant_user_name || reg.actor.name,
+                name: reg.actor.name,
             });
             navigate({ to: '/dashboard' });
         },

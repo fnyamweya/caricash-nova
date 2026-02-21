@@ -11,6 +11,8 @@ import {
     lookupActorByAgentCode,
     getActorById,
     updateActorProfile,
+    getKycProfileByActorId,
+    listKycRequirementsByActorType,
 } from '@caricash/db';
 import { generateId, nowISO, ActorState } from '@caricash/shared';
 
@@ -107,5 +109,25 @@ actorRoutes.patch('/:id/profile', async (c) => {
     } catch (err) {
         const message = err instanceof Error ? err.message : 'Internal server error';
         return c.json({ error: message }, 500);
+    }
+});
+
+// GET /actors/:id/kyc - actor-linked KYC profile + requirements (all actor types)
+actorRoutes.get('/:id/kyc', async (c) => {
+    const actorId = c.req.param('id');
+    const correlationId = generateId();
+
+    try {
+        const actor = await getActorById(c.env.DB, actorId);
+        if (!actor) {
+            return c.json({ error: 'Actor not found', correlation_id: correlationId }, 404);
+        }
+
+        const profile = await getKycProfileByActorId(c.env.DB, actorId);
+        const requirements = await listKycRequirementsByActorType(c.env.DB, actor.type);
+        return c.json({ actor_id: actorId, actor_type: actor.type, profile, requirements, correlation_id: correlationId });
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'Internal server error';
+        return c.json({ error: message, correlation_id: correlationId }, 500);
     }
 });
