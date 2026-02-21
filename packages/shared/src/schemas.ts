@@ -170,3 +170,12 @@ export const floatWithdrawalSchema = z.object({
   idempotency_key: z.string().min(1),
 });
 export type FloatWithdrawalInput = z.infer<typeof floatWithdrawalSchema>;
+
+export const suspenseFundRequestSchema = z.object({
+  amount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Amount must be a decimal with up to 2 places'),
+  currency: z.enum(SUPPORTED_CURRENCIES).default('BBD'),
+  reason: z.string().min(1),
+  reference: z.string().min(1).optional(),
+  idempotency_key: z.string().min(1),
+});
+export type SuspenseFundRequestInput = z.infer<typeof suspenseFundRequestSchema>;

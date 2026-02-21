@@ -6,6 +6,7 @@ import {
   ApprovalState,
   ApprovalType,
   ActorType,
+  StaffRole,
   TxnType,
   EventName,
 } from '@caricash/shared';
@@ -15,10 +16,15 @@ import {
   updateApprovalRequest,
   insertEvent,
   insertAuditLog,
+  getActorById,
+  getOrCreateLedgerAccount,
+  initAccountBalance,
+  getAccountBalance,
+  upsertAccountBalance,
 } from '@caricash/db';
 import { buildReversalEntries } from '@caricash/posting-do';
 import type { Entry } from '@caricash/posting-do';
-import { postTransaction } from '../lib/posting-client.js';
+import { postTransaction, getBalance } from '../lib/posting-client.js';
 
 export const approvalRoutes = new Hono<{ Bindings: Env }>();
 
@@ -83,6 +89,7 @@ approvalRoutes.post('/:id/approve', async (c) => {
 
     // If reversal, execute the reversal posting
     let reversalResult;
+    let manualAdjustmentResult;
     if (request.type === ApprovalType.REVERSAL_REQUESTED) {
       const payload = JSON.parse(request.payload_json) as {
         original_journal_id: string;
@@ -150,10 +157,122 @@ approvalRoutes.post('/:id/approve', async (c) => {
       await c.env.EVENTS_QUEUE.send(reversalEvent);
     }
 
+    if (request.type === ApprovalType.MANUAL_ADJUSTMENT_REQUESTED) {
+      const payload = JSON.parse(request.payload_json) as {
+        operation?: string;
+        amount: string;
+        currency: string;
+        reason: string;
+        reference?: string | null;
+        idempotency_key: string;
+        correlation_id?: string;
+      };
+
+      if (payload.operation !== 'SUSPENSE_FUNDING') {
+        return c.json({ error: 'Unsupported manual adjustment payload', correlation_id: correlationId }, 400);
+      }
+
+      const adjustmentCurrency = payload.currency as 'BBD' | 'USD';
+
+      const checker = await getActorById(c.env.DB, staff_id);
+      if (!checker || checker.type !== ActorType.STAFF) {
+        return c.json({ error: 'Staff actor not found', correlation_id: correlationId }, 404);
+      }
+      if (checker.staff_role !== StaffRole.FINANCE) {
+        return c.json({ error: 'Only FINANCE staff can approve suspense funding', correlation_id: correlationId }, 403);
+      }
+
+      const sourceAccount = await getOrCreateLedgerAccount(c.env.DB, ActorType.STAFF, 'TREASURY', 'SUSPENSE', adjustmentCurrency);
+      const destinationAccount = await getOrCreateLedgerAccount(c.env.DB, ActorType.STAFF, 'SYSTEM', 'SUSPENSE', adjustmentCurrency);
+
+      await initAccountBalance(c.env.DB, sourceAccount.id, adjustmentCurrency);
+      await initAccountBalance(c.env.DB, destinationAccount.id, adjustmentCurrency);
+
+      const sourceBefore = await getAccountBalance(c.env.DB, sourceAccount.id);
+      const destBefore = await getAccountBalance(c.env.DB, destinationAccount.id);
+
+      const command: PostTransactionCommand = {
+        idempotency_key: `suspense-fund:${requestId}:${payload.idempotency_key}`,
+        correlation_id: correlationId,
+        txn_type: TxnType.MANUAL_ADJUSTMENT,
+        currency: adjustmentCurrency,
+        entries: [
+          {
+            account_id: sourceAccount.id,
+            entry_type: 'DR',
+            amount: payload.amount,
+            description: `Treasury suspense funding source${payload.reference ? ` (${payload.reference})` : ''}`,
+          },
+          {
+            account_id: destinationAccount.id,
+            entry_type: 'CR',
+            amount: payload.amount,
+            description: `System suspense funded: ${payload.reason}`,
+          },
+        ],
+        description: `SUSPENSE_FUNDING ${payload.amount} ${payload.currency} - ${payload.reason}`,
+        actor_type: ActorType.STAFF,
+        actor_id: staff_id,
+      };
+
+      const domainKey = `ops:suspense:${adjustmentCurrency}`;
+      manualAdjustmentResult = await postTransaction(c.env, domainKey, command);
+
+      const sourceAfter = await getBalance(c.env, domainKey, sourceAccount.id);
+      const destAfter = await getBalance(c.env, domainKey, destinationAccount.id);
+
+      await upsertAccountBalance(c.env.DB, {
+        account_id: sourceAccount.id,
+        actual_balance: sourceAfter.balance,
+        available_balance: sourceAfter.balance,
+        hold_amount: sourceBefore?.hold_amount ?? '0.00',
+        pending_credits: sourceBefore?.pending_credits ?? '0.00',
+        last_journal_id: manualAdjustmentResult.journal_id,
+        currency: adjustmentCurrency,
+        updated_at: now,
+      });
+      await upsertAccountBalance(c.env.DB, {
+        account_id: destinationAccount.id,
+        actual_balance: destAfter.balance,
+        available_balance: destAfter.balance,
+        hold_amount: destBefore?.hold_amount ?? '0.00',
+        pending_credits: destBefore?.pending_credits ?? '0.00',
+        last_journal_id: manualAdjustmentResult.journal_id,
+        currency: adjustmentCurrency,
+        updated_at: now,
+      });
+
+      const adjustmentEvent = {
+        id: generateId(),
+        name: EventName.MANUAL_ADJUSTMENT_POSTED,
+        entity_type: 'journal',
+        entity_id: manualAdjustmentResult.journal_id,
+        correlation_id: correlationId,
+        causation_id: requestId,
+        actor_type: ActorType.STAFF,
+        actor_id: staff_id,
+        schema_version: 1,
+        payload_json: JSON.stringify({
+          operation: 'SUSPENSE_FUNDING',
+          amount: payload.amount,
+          currency: adjustmentCurrency,
+          reason: payload.reason,
+          reference: payload.reference ?? null,
+          source_account_id: sourceAccount.id,
+          destination_account_id: destinationAccount.id,
+          journal_id: manualAdjustmentResult.journal_id,
+        }),
+        created_at: now,
+      };
+      await insertEvent(c.env.DB, adjustmentEvent);
+      await c.env.EVENTS_QUEUE.send(adjustmentEvent);
+    }
+
     return c.json({
       request_id: requestId,
       state: ApprovalState.APPROVED,
       reversal: reversalResult ?? null,
+      manual_adjustment: manualAdjustmentResult ?? null,
       correlation_id: correlationId,
     });
   } catch (err) {

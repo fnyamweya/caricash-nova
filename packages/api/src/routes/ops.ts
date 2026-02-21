@@ -10,8 +10,10 @@ import {
   ApprovalState,
   ApprovalType,
   ActorType,
+  StaffRole,
   EventName,
   ErrorCode,
+  suspenseFundRequestSchema,
 } from '@caricash/shared';
 import {
   getJournalById,
@@ -27,7 +29,8 @@ import {
   getReconciliationRuns,
   insertEvent,
   insertAuditLog,
-  getActorByStaffCode,
+  getActorById,
+  listActiveStaffByRole,
 } from '@caricash/db';
 
 export const opsRoutes = new Hono<{ Bindings: Env }>();
@@ -237,6 +240,116 @@ opsRoutes.post('/repair/state/:journal_id', async (c) => {
     ...result,
     correlation_id: correlationId,
   });
+});
+
+// ---------------------------------------------------------------------------
+// POST /ops/float/suspense/fund
+// ---------------------------------------------------------------------------
+opsRoutes.post('/float/suspense/fund', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) {
+    return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  }
+
+  const body = await c.req.json();
+  const parsed = suspenseFundRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'Validation failed', code: ErrorCode.VALIDATION_ERROR, issues: parsed.error.issues }, 400);
+  }
+
+  const maker = await getActorById(c.env.DB, staffId);
+  if (!maker || maker.type !== ActorType.STAFF) {
+    return c.json({ error: 'Staff actor not found', code: ErrorCode.ACTOR_NOT_FOUND }, 404);
+  }
+  if (maker.staff_role !== StaffRole.SUPER_ADMIN && maker.staff_role !== StaffRole.ADMIN) {
+    return c.json({ error: 'Only SUPER_ADMIN or ADMIN can request suspense funding', code: ErrorCode.FORBIDDEN }, 403);
+  }
+
+  const financeReviewers = await listActiveStaffByRole(c.env.DB, StaffRole.FINANCE);
+  if (financeReviewers.length === 0) {
+    return c.json({ error: 'No active FINANCE reviewer is available', code: ErrorCode.MAKER_CHECKER_REQUIRED }, 409);
+  }
+
+  const correlationId = (body.correlation_id as string) || generateId();
+  const now = nowISO();
+  const requestId = generateId();
+  const { amount, currency, reason, reference, idempotency_key } = parsed.data;
+
+  const payload = {
+    operation: 'SUSPENSE_FUNDING',
+    amount,
+    currency,
+    reason,
+    reference: reference ?? null,
+    idempotency_key,
+    source_account: {
+      owner_type: ActorType.STAFF,
+      owner_id: 'TREASURY',
+      account_type: 'SUSPENSE',
+    },
+    destination_account: {
+      owner_type: ActorType.STAFF,
+      owner_id: 'SYSTEM',
+      account_type: 'SUSPENSE',
+    },
+    requester: {
+      staff_id: maker.id,
+      staff_role: maker.staff_role,
+    },
+    approval_target_role: StaffRole.FINANCE,
+    finance_reviewer_ids: financeReviewers.map((reviewer) => reviewer.id),
+    correlation_id: correlationId,
+    requested_at: now,
+  };
+
+  await insertApprovalRequest(c.env.DB, {
+    id: requestId,
+    type: ApprovalType.MANUAL_ADJUSTMENT_REQUESTED,
+    payload_json: JSON.stringify(payload),
+    maker_staff_id: maker.id,
+    state: ApprovalState.PENDING,
+    created_at: now,
+  });
+
+  await insertEvent(c.env.DB, {
+    id: generateId(),
+    name: EventName.MANUAL_ADJUSTMENT_REQUESTED,
+    entity_type: 'approval_request',
+    entity_id: requestId,
+    correlation_id: correlationId,
+    actor_type: ActorType.STAFF,
+    actor_id: maker.id,
+    schema_version: 1,
+    payload_json: JSON.stringify(payload),
+    created_at: now,
+  });
+
+  await insertAuditLog(c.env.DB, {
+    id: generateId(),
+    action: 'SUSPENSE_FUNDING_REQUESTED',
+    actor_type: ActorType.STAFF,
+    actor_id: maker.id,
+    target_type: 'approval_request',
+    target_id: requestId,
+    after_json: JSON.stringify(payload),
+    correlation_id: correlationId,
+    created_at: now,
+  });
+
+  return c.json({
+    request_id: requestId,
+    type: ApprovalType.MANUAL_ADJUSTMENT_REQUESTED,
+    state: ApprovalState.PENDING,
+    approval_target_role: StaffRole.FINANCE,
+    finance_reviewers: financeReviewers.map((reviewer) => ({
+      id: reviewer.id,
+      name: reviewer.name,
+      staff_code: reviewer.staff_code,
+      staff_role: reviewer.staff_role,
+    })),
+    details: payload,
+    correlation_id: correlationId,
+  }, 201);
 });
 
 // ---------------------------------------------------------------------------

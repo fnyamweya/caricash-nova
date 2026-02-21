@@ -114,6 +114,14 @@ export async function getActorByStaffCode(db: D1Database, code: string): Promise
   return (await db.prepare('SELECT * FROM actors WHERE staff_code = ?1').bind(code).first()) as Actor | null;
 }
 
+export async function listActiveStaffByRole(db: D1Database, role: string): Promise<Actor[]> {
+  const res = await db
+    .prepare("SELECT * FROM actors WHERE type = 'STAFF' AND staff_role = ?1 AND state = 'ACTIVE' ORDER BY created_at ASC")
+    .bind(role)
+    .all();
+  return (res.results ?? []) as Actor[];
+}
+
 // ---------------------------------------------------------------------------
 // Auth — PINs
 // ---------------------------------------------------------------------------

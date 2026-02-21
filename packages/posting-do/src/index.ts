@@ -21,6 +21,7 @@ import {
   sha256Hex,
   computeScopeHash,
   computePayloadHash,
+  TxnType,
   TxnState,
   EventName,
   ErrorCode,
@@ -171,7 +172,11 @@ export class PostingDO implements DurableObject {
     assertBalanced(command.entries);
 
     // 6. Sufficient-funds check for every DR entry (with overdraft facility support)
-    await this.assertSufficientFunds(db, command.entries);
+    // Manual adjustments are governance-controlled entries and can represent
+    // external treasury settlement movements, so they are exempt.
+    if (command.txn_type !== TxnType.MANUAL_ADJUSTMENT) {
+      await this.assertSufficientFunds(db, command.entries);
+    }
 
     // 7. Build journal + lines + event
     const now = nowISO();

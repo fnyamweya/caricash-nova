@@ -1622,6 +1622,57 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /ops/float/suspense/fund:
+    post:
+      operationId: requestSuspenseFunding
+      tags: [Ops]
+      summary: Request system suspense funding
+      description: |
+        Create a maker-checker approval request to fund the system suspense account for float allocations.
+        - Maker must be `SUPER_ADMIN` or `ADMIN`.
+        - Checker must be a `FINANCE` staff user.
+        - Ledger posting happens only after approval.
+      security:
+        - StaffAuth: []
+      parameters:
+        - $ref: '#/components/parameters/staffIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuspenseFundRequest'
+            example:
+              amount: '5000.00'
+              currency: BBD
+              reason: 'Opening treasury float for branch operations'
+              reference: 'BANK-SETTLEMENT-2026-02-21'
+              idempotency_key: 'suspense-fund-001'
+              correlation_id: '01HZ...'
+      responses:
+        '201':
+          description: Approval request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspenseFundRequestResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/StaffRequired'
+        '403':
+          description: Maker role not authorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: No active finance checker available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   # ============================================================
   #  OVERDRAFT (Staff-Only, Maker-Checker)
   # ============================================================
@@ -2552,6 +2603,55 @@ components:
       allOf:
         - $ref: '#/components/schemas/FloatTopUpRequest'
 
+    SuspenseFundRequest:
+      type: object
+      required: [amount, reason, idempotency_key]
+      properties:
+        amount:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+          default: BBD
+        reason:
+          type: string
+        reference:
+          type: string
+        idempotency_key:
+          type: string
+        correlation_id:
+          type: string
+
+    SuspenseFundRequestResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+        type:
+          $ref: '#/components/schemas/ApprovalType'
+        state:
+          $ref: '#/components/schemas/ApprovalStatus'
+        approval_target_role:
+          type: string
+          enum: [FINANCE]
+        finance_reviewers:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              staff_code:
+                type: string
+              staff_role:
+                type: string
+        details:
+          type: object
+          additionalProperties: true
+        correlation_id:
+          type: string
+
     FloatOperation:
       type: object
       properties:
@@ -2914,6 +3014,8 @@ components:
         state:
           $ref: '#/components/schemas/ApprovalStatus'
         reversal:
+          $ref: '#/components/schemas/TransactionReceipt'
+        manual_adjustment:
           $ref: '#/components/schemas/TransactionReceipt'
         correlation_id:
           type: string
