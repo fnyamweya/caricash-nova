@@ -12,7 +12,8 @@
 # This script ensures the following resources exist:
 #   • D1 database (create if missing, else reuse)
 #   • Queues (create if missing)
-#   • Pages project for frontend (create if missing)
+#   • Pages projects for frontend + portals (create if missing)
+#   • Custom domains for each Pages project
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -34,6 +35,11 @@ if [ "$ENV" = "production" ]; then
   PAGES_MERCHANT="caricash-merchant"
   PAGES_STAFF="caricash-staff"
   API_HOSTNAME="api.${ZONE_NAME}"
+  WEB_HOSTNAME="app.${ZONE_NAME}"
+  CUSTOMER_HOSTNAME="customer.${ZONE_NAME}"
+  AGENT_HOSTNAME="agent.${ZONE_NAME}"
+  MERCHANT_HOSTNAME="merchant.${ZONE_NAME}"
+  STAFF_HOSTNAME="staff.${ZONE_NAME}"
 else
   D1_DB_NAME="caricash-db-staging"
   QUEUE_NAME="caricash-events-staging"
@@ -43,6 +49,11 @@ else
   PAGES_MERCHANT="caricash-merchant-staging"
   PAGES_STAFF="caricash-staff-staging"
   API_HOSTNAME="api-staging.${ZONE_NAME}"
+  WEB_HOSTNAME="app-staging.${ZONE_NAME}"
+  CUSTOMER_HOSTNAME="customer-staging.${ZONE_NAME}"
+  AGENT_HOSTNAME="agent-staging.${ZONE_NAME}"
+  MERCHANT_HOSTNAME="merchant-staging.${ZONE_NAME}"
+  STAFF_HOSTNAME="staff-staging.${ZONE_NAME}"
 fi
 
 cf_api() {
@@ -256,6 +267,50 @@ provision_pages() {
   fi
 }
 
+# ── Helper: attach a custom domain to a Pages project ──────────
+provision_pages_domain() {
+  local project_name="$1"
+  local hostname="$2"
+  echo "→ Checking Pages custom domain: ${hostname} → ${project_name}"
+
+  # List existing custom domains for this project
+  local response
+  response=$(cf_api GET "/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${project_name}/domains")
+
+  local found
+  found=$(echo "$response" | node -e "
+    const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    if (!data.success || !Array.isArray(data.result)) process.exit(1);
+    const d = data.result.find(d => d.name === '${hostname}');
+    if (d) console.log('found');
+  " 2>/dev/null || true)
+
+  if [ "$found" = "found" ]; then
+    echo "  ✔ Custom domain '${hostname}' already attached to '${project_name}'"
+    return
+  fi
+
+  echo "  → Attaching custom domain '${hostname}' to '${project_name}'..."
+  local payload
+  payload=$(node -e "console.log(JSON.stringify({ name: '${hostname}' }));")
+
+  response=$(cf_api POST "/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${project_name}/domains" "$payload")
+  if echo "$response" | node -e "
+    const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    process.exit(data.success ? 0 : 1);
+  " 2>/dev/null; then
+    echo "  ✔ Custom domain '${hostname}' attached to '${project_name}'"
+  else
+    # 8000007 = domain already exists (idempotent)
+    if echo "$response" | grep -qi "already being used\|already exists"; then
+      echo "  ✔ Custom domain '${hostname}' already attached (confirmed via create)"
+    else
+      echo "  ✗ Failed to attach domain '${hostname}' to '${project_name}': ${response}" >&2
+      exit 1
+    fi
+  fi
+}
+
 # ── Provision ──────────────────────────────────────────────────
 provision_d1  "$D1_DB_NAME"
 provision_queue "$QUEUE_NAME"
@@ -265,6 +320,13 @@ provision_pages "$PAGES_AGENT"
 provision_pages "$PAGES_MERCHANT"
 provision_pages "$PAGES_STAFF"
 provision_dns_record "$ZONE_NAME" "$API_HOSTNAME"
+
+# Attach custom domains to Pages projects
+provision_pages_domain "$PAGES_PROJECT"  "$WEB_HOSTNAME"
+provision_pages_domain "$PAGES_CUSTOMER" "$CUSTOMER_HOSTNAME"
+provision_pages_domain "$PAGES_AGENT"    "$AGENT_HOSTNAME"
+provision_pages_domain "$PAGES_MERCHANT" "$MERCHANT_HOSTNAME"
+provision_pages_domain "$PAGES_STAFF"    "$STAFF_HOSTNAME"
 
 echo ""
 echo "══════════════════════════════════════════════════"
