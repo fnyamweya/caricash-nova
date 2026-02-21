@@ -13,7 +13,7 @@
 #   • D1 database (create if missing, else reuse)
 #   • Queues (create if missing)
 #   • Pages projects for frontend + portals (create if missing)
-#   • Custom domains for each Pages project
+#   • Custom domains + DNS CNAME records for each Pages project
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -181,6 +181,91 @@ provision_dns_record() {
   fi
 }
 
+# ── Helper: idempotent proxied CNAME record ────────────────────
+# Used for Pages custom domains: hostname → <project>.pages.dev
+provision_cname_record() {
+  local zone_name="$1"
+  local hostname="$2"
+  local target="$3"
+
+  echo "→ Checking CNAME record: ${hostname} → ${target}"
+
+  local zone_id
+  zone_id=$(get_zone_id "$zone_name")
+
+  local response
+  response=$(cf_api GET "/zones/${zone_id}/dns_records?name=${hostname}")
+
+  local record
+  record=$(echo "$response" | node -e "
+    const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    if (!data.success || !Array.isArray(data.result)) process.exit(1);
+    const r = data.result.find((x) => x.name === '${hostname}');
+    if (r) console.log(JSON.stringify({ id: r.id, type: r.type, content: r.content, proxied: !!r.proxied }));
+  " 2>/dev/null || true)
+
+  if [ -z "$record" ]; then
+    echo "  → Creating proxied CNAME record: ${hostname} → ${target}"
+    local payload
+    payload=$(node -e "
+      console.log(JSON.stringify({
+        type: 'CNAME',
+        name: '${hostname}',
+        content: '${target}',
+        ttl: 1,
+        proxied: true
+      }));
+    ")
+
+    response=$(cf_api POST "/zones/${zone_id}/dns_records" "$payload")
+    if echo "$response" | node -e "
+      const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+      process.exit(data.success ? 0 : 1);
+    " 2>/dev/null; then
+      echo "  ✔ CNAME record '${hostname}' created (proxied)"
+    else
+      echo "  ✗ Failed to create CNAME record '${hostname}': ${response}" >&2
+      exit 1
+    fi
+    return
+  fi
+
+  # Record exists — check if it's already correct
+  local record_id record_type record_content record_proxied
+  record_id=$(echo "$record" | node -e "const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(r.id);")
+  record_type=$(echo "$record" | node -e "const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(r.type);")
+  record_content=$(echo "$record" | node -e "const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(r.content);")
+  record_proxied=$(echo "$record" | node -e "const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(r.proxied ? 'true' : 'false');")
+
+  if [ "$record_type" = "CNAME" ] && [ "$record_content" = "$target" ] && [ "$record_proxied" = "true" ]; then
+    echo "  ✔ CNAME record '${hostname}' already correct (→ ${target}, proxied)"
+    return
+  fi
+
+  echo "  → Updating DNS record '${hostname}' → CNAME ${target} (proxied)..."
+  local update_payload
+  update_payload=$(node -e "
+    console.log(JSON.stringify({
+      type: 'CNAME',
+      name: '${hostname}',
+      content: '${target}',
+      ttl: 1,
+      proxied: true
+    }));
+  ")
+
+  response=$(cf_api PUT "/zones/${zone_id}/dns_records/${record_id}" "$update_payload")
+  if echo "$response" | node -e "
+    const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    process.exit(data.success ? 0 : 1);
+  " 2>/dev/null; then
+    echo "  ✔ CNAME record '${hostname}' updated (→ ${target}, proxied)"
+  else
+    echo "  ✗ Failed to update CNAME record '${hostname}': ${response}" >&2
+    exit 1
+  fi
+}
+
 # ── Helper: check if a D1 database exists ─────────────────────
 provision_d1() {
   local db_name="$1"
@@ -320,6 +405,13 @@ provision_pages "$PAGES_AGENT"
 provision_pages "$PAGES_MERCHANT"
 provision_pages "$PAGES_STAFF"
 provision_dns_record "$ZONE_NAME" "$API_HOSTNAME"
+
+# Create CNAME records for Pages subdomains → <project>.pages.dev
+provision_cname_record "$ZONE_NAME" "$WEB_HOSTNAME"      "${PAGES_PROJECT}.pages.dev"
+provision_cname_record "$ZONE_NAME" "$CUSTOMER_HOSTNAME"  "${PAGES_CUSTOMER}.pages.dev"
+provision_cname_record "$ZONE_NAME" "$AGENT_HOSTNAME"     "${PAGES_AGENT}.pages.dev"
+provision_cname_record "$ZONE_NAME" "$MERCHANT_HOSTNAME"  "${PAGES_MERCHANT}.pages.dev"
+provision_cname_record "$ZONE_NAME" "$STAFF_HOSTNAME"     "${PAGES_STAFF}.pages.dev"
 
 # Attach custom domains to Pages projects
 provision_pages_domain "$PAGES_PROJECT"  "$WEB_HOSTNAME"
