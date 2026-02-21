@@ -14,6 +14,7 @@ import {
     CardHeader,
     CardTitle,
     EmptyState,
+    ActionCard,
 } from '@caricash/ui';
 
 interface BalanceResponse {
@@ -69,35 +70,19 @@ export function DashboardPage() {
 
                 {/* Quick actions */}
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    <Card
-                        className="cursor-pointer transition-colors hover:border-primary"
+                    <ActionCard
+                        title="Send Money"
+                        description="Transfer funds to another CariCash customer"
+                        icon={<SendHorizontal className="h-5 w-5" />}
                         onClick={() => navigate({ to: '/send' })}
-                    >
-                        <CardHeader className="flex flex-row items-center gap-3 pb-2">
-                            <SendHorizontal className="h-5 w-5 text-primary" />
-                            <CardTitle className="text-base">Send Money</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-sm text-muted-foreground">
-                                Transfer funds to another CariCash customer
-                            </p>
-                        </CardContent>
-                    </Card>
+                    />
 
-                    <Card
-                        className="cursor-pointer transition-colors hover:border-primary"
+                    <ActionCard
+                        title="Pay Merchant"
+                        description="Pay at a registered CariCash merchant"
+                        icon={<ShoppingBag className="h-5 w-5" />}
                         onClick={() => navigate({ to: '/pay' })}
-                    >
-                        <CardHeader className="flex flex-row items-center gap-3 pb-2">
-                            <ShoppingBag className="h-5 w-5 text-primary" />
-                            <CardTitle className="text-base">Pay Merchant</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-sm text-muted-foreground">
-                                Pay at a registered CariCash merchant
-                            </p>
-                        </CardContent>
-                    </Card>
+                    />
                 </div>
 
                 {/* Recent transactions placeholder */}

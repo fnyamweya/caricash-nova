@@ -14,10 +14,7 @@ import {
     PageTransition,
     BalanceCard,
     StatCard,
-    Card,
-    CardContent,
-    CardHeader,
-    CardTitle,
+    ActionCard,
 } from '@caricash/ui';
 
 interface BalanceResponse {
@@ -79,50 +76,26 @@ export function DashboardPage() {
 
                 {/* Quick Actions */}
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    <Card
-                        className="cursor-pointer transition-colors hover:border-primary"
+                    <ActionCard
+                        title="Cash-In (Deposit)"
+                        description="Deposit cash into a customer's CariCash wallet"
+                        icon={<ArrowDownToLine className="h-5 w-5" />}
                         onClick={() => navigate({ to: '/deposit' })}
-                    >
-                        <CardHeader className="flex flex-row items-center gap-3 pb-2">
-                            <ArrowDownToLine className="h-5 w-5 text-primary" />
-                            <CardTitle className="text-base">Cash-In (Deposit)</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-sm text-muted-foreground">
-                                Deposit cash into a customer's CariCash wallet
-                            </p>
-                        </CardContent>
-                    </Card>
+                    />
 
-                    <Card
-                        className="cursor-pointer transition-colors hover:border-primary"
+                    <ActionCard
+                        title="Cash-Out (Withdrawal)"
+                        description="Withdraw cash from a customer's CariCash wallet"
+                        icon={<ArrowUpFromLine className="h-5 w-5" />}
                         onClick={() => navigate({ to: '/withdrawal' })}
-                    >
-                        <CardHeader className="flex flex-row items-center gap-3 pb-2">
-                            <ArrowUpFromLine className="h-5 w-5 text-primary" />
-                            <CardTitle className="text-base">Cash-Out (Withdrawal)</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-sm text-muted-foreground">
-                                Withdraw cash from a customer's CariCash wallet
-                            </p>
-                        </CardContent>
-                    </Card>
+                    />
 
-                    <Card
-                        className="cursor-pointer transition-colors hover:border-primary"
+                    <ActionCard
+                        title="Register Customer"
+                        description="Register a new customer for CariCash mobile money"
+                        icon={<UserPlus className="h-5 w-5" />}
                         onClick={() => navigate({ to: '/register' })}
-                    >
-                        <CardHeader className="flex flex-row items-center gap-3 pb-2">
-                            <UserPlus className="h-5 w-5 text-primary" />
-                            <CardTitle className="text-base">Register Customer</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-sm text-muted-foreground">
-                                Register a new customer for CariCash mobile money
-                            </p>
-                        </CardContent>
-                    </Card>
+                    />
                 </div>
             </div>
         </PageTransition>

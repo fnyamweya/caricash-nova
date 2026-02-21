@@ -78,8 +78,17 @@ export function DataTable<T extends object>({
                 {data.map((row, i) => (
                     <TableRow
                         key={i}
-                        className={cn(onRowClick && 'cursor-pointer')}
+                        className={cn(onRowClick && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2')}
+                        role={onRowClick ? 'button' : undefined}
+                        tabIndex={onRowClick ? 0 : undefined}
                         onClick={() => onRowClick?.(row)}
+                        onKeyDown={(e) => {
+                            if (!onRowClick) return;
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                onRowClick(row);
+                            }
+                        }}
                     >
                         {columns.map((col) => (
                             <TableCell key={String(col.key)} className={col.className}>

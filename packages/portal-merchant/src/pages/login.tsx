@@ -25,11 +25,11 @@ export function LoginPage() {
                 pin: data.pin,
             });
         },
-        onSuccess: (res) => {
+        onSuccess: (res, variables) => {
             auth.login(res.token, {
                 id: res.actor_id,
                 type: res.actor_type,
-                name: res.actor_id,
+                name: variables.identifier,
             });
             navigate({ to: '/dashboard' });
         },

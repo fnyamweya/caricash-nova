@@ -111,7 +111,7 @@ function AuthLayout() {
     return (
         <AppShell
             navigation={navigation}
-            appName="CariCash Staff"
+            appName="CariCash Control Center"
             user={actor ? { name: actor.name, role: 'Staff' } : null}
             onLogout={() => {
                 localStorage.removeItem('caricash_staff_id');

@@ -47,6 +47,7 @@ export { TransactionTable } from './components/shared/transaction-table.js';
 export type { Transaction } from './components/shared/transaction-table.js';
 export { LoginForm } from './components/shared/login-form.js';
 export { PageTransition } from './components/shared/page-transition.js';
+export { ActionCard } from './components/shared/action-card.js';
 
 // === Hooks ===
 export { useTheme } from './hooks/use-theme.js';

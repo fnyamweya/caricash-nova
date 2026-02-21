@@ -23,12 +23,12 @@ export function LoginPage() {
                 pin: data.pin,
             });
         },
-        onSuccess: (res) => {
+        onSuccess: (res, variables) => {
             localStorage.setItem('caricash_staff_id', res.actor_id);
             auth.login(res.token, {
                 id: res.actor_id,
                 type: res.actor_type,
-                name: res.actor_id,
+                name: variables.identifier,
             });
             navigate({ to: '/dashboard' });
         },

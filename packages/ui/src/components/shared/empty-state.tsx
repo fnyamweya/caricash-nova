@@ -13,10 +13,10 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3 }}
-            className="flex flex-col items-center justify-center gap-3 py-12 text-center"
+            className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/80 bg-muted/20 px-4 py-12 text-center"
         >
             {icon && (
-                <div className="text-muted-foreground [&_svg]:h-10 [&_svg]:w-10">
+                <div className="rounded-xl bg-background/70 p-2 text-muted-foreground [&_svg]:h-9 [&_svg]:w-9">
                     {icon}
                 </div>
             )}

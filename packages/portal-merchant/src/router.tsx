@@ -13,6 +13,7 @@ import {
     CreditCard,
     ArrowLeftRight,
     Clock,
+    QrCode,
 } from 'lucide-react';
 import { AppShell, useAuth, type NavItem } from '@caricash/ui';
 import { LoginPage } from './pages/login.js';
@@ -20,6 +21,7 @@ import { DashboardPage } from './pages/dashboard.js';
 import { PaymentsPage } from './pages/payments.js';
 import { TransferPage } from './pages/transfer.js';
 import { HistoryPage } from './pages/history.js';
+import { QrCodePage } from './pages/qr-code.js';
 
 // ── Root ──────────────────────────────────────────────
 const rootRoute = createRootRoute({
@@ -57,6 +59,12 @@ function AuthLayout() {
             active: location.pathname === '/dashboard',
         },
         {
+            label: 'My QR Code',
+            href: '/qr-code',
+            icon: <QrCode className="h-4 w-4" />,
+            active: location.pathname === '/qr-code',
+        },
+        {
             label: 'Payments',
             href: '/payments',
             icon: <CreditCard className="h-4 w-4" />,
@@ -79,7 +87,7 @@ function AuthLayout() {
     return (
         <AppShell
             navigation={navigation}
-            appName="CariCash Merchant"
+            appName="CariCash Merchant Console"
             user={actor ? { name: actor.name, role: 'Merchant' } : null}
             onLogout={() => {
                 logout();
@@ -131,6 +139,12 @@ const historyRoute = createRoute({
     component: HistoryPage,
 });
 
+const qrCodeRoute = createRoute({
+    getParentRoute: () => authLayoutRoute,
+    path: '/qr-code',
+    component: QrCodePage,
+});
+
 // ── Router tree ───────────────────────────────────────
 const routeTree = rootRoute.addChildren([
     loginRoute,
@@ -140,6 +154,7 @@ const routeTree = rootRoute.addChildren([
         paymentsRoute,
         transferRoute,
         historyRoute,
+        qrCodeRoute,
     ]),
 ]);
 

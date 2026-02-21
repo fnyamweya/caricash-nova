@@ -23,7 +23,7 @@ export function StatCard({
 }: StatCardProps) {
     if (loading) {
         return (
-            <Card>
+            <Card className="overflow-hidden">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <Skeleton className="h-4 w-20" />
                     <Skeleton className="h-5 w-5 rounded" />
@@ -42,7 +42,8 @@ export function StatCard({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, ease: 'easeOut' }}
         >
-            <Card>
+            <Card className="group relative overflow-hidden">
+                <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(130deg,color-mix(in_oklab,var(--primary)_8%,transparent),transparent_42%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">
                         {title}
@@ -52,13 +53,13 @@ export function StatCard({
                     )}
                 </CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold">{value}</div>
+                    <div className="text-2xl font-bold tracking-tight">{value}</div>
                     {description && (
                         <p
                             className={cn(
                                 'mt-1 text-xs text-muted-foreground',
-                                trend === 'up' && 'text-green-600',
-                                trend === 'down' && 'text-red-600',
+                                trend === 'up' && 'text-green-700 dark:text-green-300',
+                                trend === 'down' && 'text-red-700 dark:text-red-300',
                             )}
                         >
                             {description}

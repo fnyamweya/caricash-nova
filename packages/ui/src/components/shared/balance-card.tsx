@@ -22,7 +22,7 @@ export function BalanceCard({
 }: BalanceCardProps) {
     if (loading) {
         return (
-            <Card>
+            <Card className="overflow-hidden">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <Skeleton className="h-4 w-24" />
                     <Skeleton className="h-5 w-5 rounded-full" />
@@ -41,22 +41,23 @@ export function BalanceCard({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, ease: 'easeOut' }}
         >
-            <Card>
+            <Card className="relative overflow-hidden border-primary/20">
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_0%_0%,color-mix(in_oklab,var(--primary)_18%,transparent),transparent_55%)]" />
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">
                         {label ?? 'Balance'}
                     </CardTitle>
-                    <Wallet className="h-4 w-4 text-muted-foreground" />
+                    <Wallet className="h-4 w-4 text-primary" />
                 </CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold">
+                    <div className="text-2xl font-bold tracking-tight md:text-3xl">
                         {formatCurrency(balance, currency)}
                     </div>
                     {trend && (
                         <div
                             className={cn(
                                 'mt-1 flex items-center gap-1 text-xs',
-                                trend.value >= 0 ? 'text-green-600' : 'text-red-600',
+                                trend.value >= 0 ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300',
                             )}
                         >
                             {trend.value >= 0 ? (

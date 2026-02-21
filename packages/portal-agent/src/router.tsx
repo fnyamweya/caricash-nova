@@ -87,7 +87,7 @@ function AuthLayout() {
     return (
         <AppShell
             navigation={navigation}
-            appName="CariCash"
+            appName="CariCash Agent"
             user={actor ? { name: actor.name, role: 'Agent' } : null}
             onLogout={() => {
                 logout();

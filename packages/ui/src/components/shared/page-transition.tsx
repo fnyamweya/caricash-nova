@@ -2,9 +2,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { ReactNode } from 'react';
 
 const pageVariants = {
-    initial: { opacity: 0, y: 8 },
+    initial: { opacity: 0, y: 10 },
     animate: { opacity: 1, y: 0 },
-    exit: { opacity: 0, y: -8 },
+    exit: { opacity: 0, y: -10 },
 };
 
 export function PageTransition({ children, className }: { children: ReactNode; className?: string }) {
@@ -14,7 +14,7 @@ export function PageTransition({ children, className }: { children: ReactNode; c
             initial="initial"
             animate="animate"
             exit="exit"
-            transition={{ duration: 0.2, ease: 'easeOut' }}
+            transition={{ duration: 0.24, ease: 'easeOut' }}
             className={className}
         >
             {children}
