@@ -9,15 +9,20 @@ import {
   KycState,
   AccountType,
   EventName,
+  AgentType,
+  AgentUserRole,
+  AgentUserState,
 } from '@caricash/shared';
-import type { Actor } from '@caricash/shared';
+import type { Actor, AgentUser } from '@caricash/shared';
 import {
   insertActor,
   insertPin,
   insertLedgerAccount,
   getActorByAgentCode,
+  getActorById,
   getActiveCodeReservation,
   markCodeReservationUsed,
+  insertAgentUser,
   insertEvent,
   initAccountBalance,
   ensureKycProfile,
@@ -38,7 +43,7 @@ agentRoutes.post('/', async (c) => {
     return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
   }
 
-  const { agent_code, name, msisdn, pin, agent_type } = parsed.data;
+  const { agent_code, name, owner_name, msisdn, pin, agent_type, parent_aggregator_id } = parsed.data;
   const correlationId = (body.correlation_id as string) || generateId();
 
   try {
@@ -58,6 +63,23 @@ agentRoutes.post('/', async (c) => {
       }
     }
 
+    let parentAggregator: Actor | null = null;
+    if (parent_aggregator_id) {
+      parentAggregator = await getActorById(c.env.DB, parent_aggregator_id);
+      if (!parentAggregator || parentAggregator.type !== ActorType.AGENT) {
+        return c.json({ error: 'Parent aggregator not found', correlation_id: correlationId }, 404);
+      }
+      if (parentAggregator.agent_type !== AgentType.AGGREGATOR) {
+        return c.json({ error: 'Parent actor is not an aggregator agent', correlation_id: correlationId }, 400);
+      }
+      if (agent_type !== AgentType.STANDARD) {
+        return c.json({ error: 'Child agents must be STANDARD type', correlation_id: correlationId }, 400);
+      }
+    }
+    if (agent_type === AgentType.AGGREGATOR && parent_aggregator_id) {
+      return c.json({ error: 'Aggregator agents cannot be registered as child agents', correlation_id: correlationId }, 400);
+    }
+
     const actorId = generateId();
 
     const actor: Actor = {
@@ -67,6 +89,8 @@ agentRoutes.post('/', async (c) => {
       name,
       msisdn,
       agent_code: resolvedAgentCode,
+      agent_type,
+      parent_actor_id: parentAggregator?.id,
       kyc_state: KycState.NOT_STARTED,
       created_at: now,
       updated_at: now,
@@ -86,6 +110,21 @@ agentRoutes.post('/', async (c) => {
       created_at: now,
       updated_at: now,
     });
+
+    const ownerUserId = generateId();
+    const ownerUser: AgentUser & { pin_hash: string; salt: string } = {
+      id: ownerUserId,
+      actor_id: actorId,
+      msisdn,
+      name: owner_name ?? name,
+      role: AgentUserRole.AGENT_OWNER,
+      state: AgentUserState.ACTIVE,
+      pin_hash: pinHash,
+      salt,
+      created_at: now,
+      updated_at: now,
+    };
+    await insertAgentUser(c.env.DB, ownerUser);
 
     // Create WALLET account (BBD)
     const walletId = generateId();
@@ -135,6 +174,9 @@ agentRoutes.post('/', async (c) => {
         agent_code,
         generated_agent_code: resolvedAgentCode,
         agent_type,
+        parent_aggregator_id: parentAggregator?.id ?? null,
+        owner_user_id: ownerUserId,
+        owner_user_role: AgentUserRole.AGENT_OWNER,
         name,
         msisdn,
         wallet_id: walletId,
@@ -152,6 +194,9 @@ agentRoutes.post('/', async (c) => {
     return c.json({
       actor,
       agent_code: resolvedAgentCode,
+      owner_user_id: ownerUserId,
+      owner_user_role: AgentUserRole.AGENT_OWNER,
+      parent_aggregator_id: parentAggregator?.id,
       wallet_id: walletId,
       cash_float_id: cashFloatId,
       correlation_id: correlationId,

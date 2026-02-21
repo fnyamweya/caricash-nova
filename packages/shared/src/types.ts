@@ -1,4 +1,4 @@
-import type { ActorType, ActorState, KycState, AccountType, TxnType, TxnState, ApprovalType, ApprovalState, MerchantUserRole, MerchantUserState, RegistrationType, RegistrationChannel, FloatOperationType, StaffRole } from './enums.js';
+import type { ActorType, ActorState, KycState, AccountType, TxnType, TxnState, ApprovalType, ApprovalState, MerchantUserRole, MerchantUserState, AgentUserRole, AgentUserState, RegistrationType, RegistrationChannel, FloatOperationType, StaffRole, AgentType } from './enums.js';
 import type { CurrencyCode } from './currency.js';
 import type { EventName } from './events.js';
 
@@ -8,6 +8,7 @@ export interface Actor {
   state: ActorState;
   msisdn?: string;
   agent_code?: string;
+  agent_type?: AgentType;
   store_code?: string;
   staff_code?: string;
   staff_role?: StaffRole;
@@ -42,6 +43,17 @@ export interface MerchantUser {
   name: string;
   role: MerchantUserRole;
   state: MerchantUserState;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentUser {
+  id: string;
+  actor_id: string;
+  msisdn: string;
+  name: string;
+  role: AgentUserRole;
+  state: AgentUserState;
   created_at: string;
   updated_at: string;
 }

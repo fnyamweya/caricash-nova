@@ -326,7 +326,12 @@ paths:
       operationId: createAgent
       tags: [Agents]
       summary: Register a new agent
-      description: Create an agent account. `agent_code` is optional and can be selected from `/codes/generate`. Automatically creates WALLET + CASH_FLOAT accounts.
+      description: |
+        Create an agent actor and register an `agent_owner` user for that agent.
+        - `agent_code` is optional and can be selected from `/codes/generate`.
+        - `agent_type` can be `STANDARD` or `AGGREGATOR`.
+        - `parent_aggregator_id` links a STANDARD child agent to an AGGREGATOR parent.
+        Automatically creates WALLET + CASH_FLOAT accounts.
       requestBody:
         required: true
         content:
@@ -336,9 +341,11 @@ paths:
             example:
               agent_code: '284761'
               name: 'Agent Smith'
+              owner_name: 'Agent Smith'
               msisdn: '+12465558888'
               pin: '5678'
               agent_type: 'STANDARD'
+              parent_aggregator_id: '01HZ...'
               correlation_id: '01HZ...'
       responses:
         '201':
@@ -2214,6 +2221,8 @@ components:
           type: string
         agent_code:
           type: string
+        agent_type:
+          $ref: '#/components/schemas/AgentTypeEnum'
         store_code:
           type: string
         staff_code:
@@ -2320,12 +2329,18 @@ components:
           description: Optional pre-selected code from /codes/generate
         name:
           type: string
+        owner_name:
+          type: string
+          description: Optional owner display name for the created agent_owner user
         msisdn:
           type: string
         pin:
           type: string
         agent_type:
           $ref: '#/components/schemas/AgentTypeEnum'
+        parent_aggregator_id:
+          type: string
+          description: Optional parent AGGREGATOR actor id for child-agent registration
         correlation_id:
           type: string
 
@@ -2335,6 +2350,13 @@ components:
         actor:
           $ref: '#/components/schemas/Actor'
         agent_code:
+          type: string
+        owner_user_id:
+          type: string
+        owner_user_role:
+          type: string
+          enum: [agent_owner]
+        parent_aggregator_id:
           type: string
         wallet_id:
           type: string

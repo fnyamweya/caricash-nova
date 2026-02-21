@@ -64,10 +64,20 @@ export const MerchantUserRole = {
 } as const;
 export type MerchantUserRole = typeof MerchantUserRole[keyof typeof MerchantUserRole];
 
+export const AgentUserRole = {
+  AGENT_OWNER: 'agent_owner', MANAGER: 'manager', CASHIER: 'cashier', VIEWER: 'viewer',
+} as const;
+export type AgentUserRole = typeof AgentUserRole[keyof typeof AgentUserRole];
+
 export const MerchantUserState = {
   ACTIVE: 'ACTIVE', SUSPENDED: 'SUSPENDED', REMOVED: 'REMOVED',
 } as const;
 export type MerchantUserState = typeof MerchantUserState[keyof typeof MerchantUserState];
+
+export const AgentUserState = {
+  ACTIVE: 'ACTIVE', SUSPENDED: 'SUSPENDED', REMOVED: 'REMOVED',
+} as const;
+export type AgentUserState = typeof AgentUserState[keyof typeof AgentUserState];
 
 export const RegistrationType = {
   SELF_REGISTRATION: 'SELF_REGISTRATION',

@@ -7,6 +7,7 @@
 import type {
   Actor,
   ActorLookup,
+  AgentUser,
   MerchantUser,
   LedgerAccount,
   LedgerJournal,
@@ -68,8 +69,8 @@ export interface CodeReservation {
 export async function insertActor(db: D1Database, actor: Actor): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO actors (id, type, state, name, first_name, middle_name, last_name, display_name, email, msisdn, agent_code, store_code, staff_code, staff_role, parent_actor_id, kyc_state, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`,
+      `INSERT INTO actors (id, type, state, name, first_name, middle_name, last_name, display_name, email, msisdn, agent_code, agent_type, store_code, staff_code, staff_role, parent_actor_id, kyc_state, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
     )
     .bind(
       actor.id,
@@ -83,6 +84,7 @@ export async function insertActor(db: D1Database, actor: Actor): Promise<void> {
       actor.email ?? null,
       actor.msisdn ?? null,
       actor.agent_code ?? null,
+      actor.agent_type ?? null,
       actor.store_code ?? null,
       actor.staff_code ?? null,
       actor.staff_role ?? null,
@@ -882,6 +884,29 @@ export async function insertMerchantUser(db: D1Database, user: MerchantUser & { 
       user.pin_hash ?? null,
       user.salt ?? null,
       user.state,
+      user.created_at,
+      user.updated_at,
+    )
+    .run();
+}
+
+export async function insertAgentUser(db: D1Database, user: AgentUser & { pin_hash?: string; salt?: string; failed_attempts?: number; locked_until?: string }): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO agent_users (id, actor_id, msisdn, name, role, pin_hash, salt, state, failed_attempts, locked_until, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+    )
+    .bind(
+      user.id,
+      user.actor_id,
+      user.msisdn,
+      user.name,
+      user.role,
+      user.pin_hash ?? null,
+      user.salt ?? null,
+      user.state,
+      user.failed_attempts ?? 0,
+      user.locked_until ?? null,
       user.created_at,
       user.updated_at,
     )

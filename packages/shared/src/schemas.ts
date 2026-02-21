@@ -62,9 +62,11 @@ export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
 export const createAgentSchema = z.object({
   agent_code: z.string().length(6).regex(/^\d{6}$/).optional(),
   name: z.string().min(1),
+  owner_name: z.string().min(1).optional(),
   msisdn: z.string().min(1),
   pin: z.string().min(1),
   agent_type: z.nativeEnum(AgentType),
+  parent_aggregator_id: z.string().min(1).optional(),
 });
 export type CreateAgentInput = z.infer<typeof createAgentSchema>;
 
