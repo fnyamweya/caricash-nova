@@ -22,6 +22,7 @@ Complete guide to the CariCash Nova approval system — covering the legacy sing
 14. [Scenario Walkthroughs](#scenario-walkthroughs)
 15. [Error Codes](#error-codes)
 16. [Adding a New Approval Type](#adding-a-new-approval-type)
+17. [Dynamic Approval Types](#dynamic-approval-types)
 
 ---
 
@@ -1253,3 +1254,192 @@ Every approval action generates both an **audit log** entry and a **domain event
 | `APPROVAL_DELEGATION_REVOKED` | Delegation revoked |
 
 Each handler can override event names (e.g., `REVERSAL_POSTED` instead of generic `APPROVAL_APPROVED`) via the `eventNames` config on the handler.
+
+---
+
+## Dynamic Approval Types
+
+> **Migration 0015** — Approval types and endpoint bindings can be configured at runtime via API, without code changes.
+
+### Overview
+
+Previously, adding a new approval type required:
+1. Adding a value to the `ApprovalType` enum
+2. Creating a handler implementation
+3. Registering the handler
+4. Deploying new code
+
+Now, approval types can be configured dynamically:
+- **Type definitions** are stored in `approval_type_configs`
+- **Endpoint bindings** map `(route, method) → approval_type`
+- Types without code handlers use a **generic fallback handler** (approve/reject gate with no side-effects)
+- Types with complex side-effects still use code handlers
+
+### Approval Type Config
+
+Each type config defines:
+
+| Field | Description |
+|-------|-------------|
+| `type_key` | Unique key (UPPER_SNAKE_CASE), e.g. `STORE_CLOSURE_REQUESTED` |
+| `label` | Human-readable name for UI display |
+| `description` | Explanation of what this approval type covers |
+| `default_checker_roles` | JSON array of roles allowed to check, e.g. `["FINANCE","SUPER_ADMIN"]` |
+| `require_reason` | Whether the maker must provide a reason |
+| `has_code_handler` | Whether a code-level handler is registered (auto-detected) |
+| `auto_policy_id` | Default policy to attach to new requests of this type |
+| `enabled` | Whether this type is active |
+
+### Type Config CRUD
+
+```http
+# List all type configs
+GET /approvals/types/config
+GET /approvals/types/config?enabled_only=true
+
+# Get a specific type config
+GET /approvals/types/config/:typeKey
+
+# Create a new type config
+POST /approvals/types/config
+{
+  "staff_id": "staff_abc",
+  "type_key": "STORE_CLOSURE_REQUESTED",
+  "label": "Store Closure",
+  "description": "Close a merchant store location",
+  "default_checker_roles": ["OPERATIONS", "SUPER_ADMIN"],
+  "require_reason": true
+}
+
+# Update an existing type config
+PATCH /approvals/types/config/:typeKey
+{
+  "staff_id": "staff_abc",
+  "label": "Store Closure Request",
+  "default_checker_roles": ["OPERATIONS", "ADMIN", "SUPER_ADMIN"],
+  "enabled": true
+}
+
+# Delete a type config (cannot delete built-in types with code handlers)
+DELETE /approvals/types/config/:typeKey?staff_id=staff_abc
+```
+
+### Endpoint Bindings
+
+An endpoint binding maps a route pattern + HTTP method to an approval type. When a bound endpoint is called, the system can intercept the request and create an approval request instead.
+
+| Field | Description |
+|-------|-------------|
+| `route_pattern` | The route path, e.g. `/merchants/:id/close` |
+| `http_method` | HTTP method: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` |
+| `approval_type` | The type_key to use for the approval request |
+| `description` | Human-readable explanation |
+| `extract_payload` | JSON template for extracting payload from request body |
+| `enabled` | Whether this binding is active |
+
+### Endpoint Binding CRUD
+
+```http
+# List all endpoint bindings
+GET /approvals/endpoint-bindings
+GET /approvals/endpoint-bindings?approval_type=STORE_CLOSURE_REQUESTED
+GET /approvals/endpoint-bindings?enabled_only=true
+
+# Lookup a specific route/method binding
+GET /approvals/endpoint-bindings/lookup?route=/merchants/:id/close&method=POST
+
+# Get binding by ID
+GET /approvals/endpoint-bindings/:id
+
+# Create a binding
+POST /approvals/endpoint-bindings
+{
+  "staff_id": "staff_abc",
+  "route_pattern": "/merchants/:id/close",
+  "http_method": "POST",
+  "approval_type": "STORE_CLOSURE_REQUESTED",
+  "description": "Require approval before closing a merchant store"
+}
+
+# Update a binding
+PATCH /approvals/endpoint-bindings/:id
+{
+  "staff_id": "staff_abc",
+  "enabled": false
+}
+
+# Delete a binding
+DELETE /approvals/endpoint-bindings/:id?staff_id=staff_abc
+```
+
+### Generic Fallback Handler
+
+When an approval request has a type that has no code-level handler registered, the system builds a **generic handler** from the type config:
+
+- **Checker roles** come from `default_checker_roles_json`
+- **No `onApprove` side-effects** — the approval is a pure gate
+- **No `onReject` side-effects** — rejection simply marks the request as rejected
+- **Generic event names** (`APPROVAL_APPROVED` / `APPROVAL_REJECTED`)
+
+This means you can create a new approval type entirely via the API, attach a policy with conditions and multi-stage rules, and the system will enforce the workflow without any code changes.
+
+For types that need side-effects (e.g., posting a journal on approval, activating a facility), you still need a code handler.
+
+### Using checkEndpointBinding() in Routes
+
+The `checkEndpointBinding()` helper can be used in any route to check for an active binding:
+
+```typescript
+import { checkEndpointBinding } from '../lib/endpoint-binding-helper.js';
+
+// Inside a route handler:
+const intercepted = await checkEndpointBinding(c, '/merchants/:id/close', 'POST', {
+  staff_id: maker.id,
+  payload: { merchant_id, reason },
+  correlation_id: correlationId,
+});
+if (intercepted) return intercepted.response;
+
+// Normal execution continues if no binding...
+```
+
+The helper:
+1. Checks if a binding exists for the route/method
+2. Evaluates policies to find a matching policy
+3. Creates the approval request
+4. Returns a `202 Accepted` response with the request ID
+
+### Built-in Types (Seeded)
+
+The following 6 types are seeded by migration 0015:
+
+| Type Key | Label | Code Handler |
+|----------|-------|:---:|
+| `REVERSAL_REQUESTED` | Transaction Reversal | ✅ |
+| `MANUAL_ADJUSTMENT_REQUESTED` | Manual Adjustment | ✅ |
+| `FEE_MATRIX_CHANGE_REQUESTED` | Fee Matrix Change | ✅ |
+| `COMMISSION_MATRIX_CHANGE_REQUESTED` | Commission Matrix Change | ✅ |
+| `OVERDRAFT_FACILITY_REQUESTED` | Overdraft Facility | ✅ |
+| `MERCHANT_WITHDRAWAL_REQUESTED` | Merchant Withdrawal | ✅ |
+
+### Adding a Dynamic Approval Type (No Code)
+
+1. **Create the type config:**
+   ```http
+   POST /approvals/types/config
+   { "staff_id": "...", "type_key": "AGENT_SUSPENSION_REQUESTED", "label": "Agent Suspension", "default_checker_roles": ["COMPLIANCE", "SUPER_ADMIN"] }
+   ```
+
+2. **Optionally create a policy:**
+   ```http
+   POST /approvals/policies
+   { "staff_id": "...", "name": "Agent Suspension Policy", "approval_type": "AGENT_SUSPENSION_REQUESTED", ... }
+   ```
+
+3. **Optionally bind to an endpoint:**
+   ```http
+   POST /approvals/endpoint-bindings
+   { "staff_id": "...", "route_pattern": "/agents/:id/suspend", "http_method": "POST", "approval_type": "AGENT_SUSPENSION_REQUESTED" }
+   ```
+
+4. **Done!** The type is live, no deployment needed.

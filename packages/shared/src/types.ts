@@ -1,4 +1,4 @@
-import type { ActorType, ActorState, KycState, AccountType, TxnType, TxnState, ApprovalType, ApprovalState, MerchantUserRole, MerchantUserState, AgentUserRole, AgentUserState, RegistrationType, RegistrationChannel, FloatOperationType, StaffRole, AgentType, AccountClass, NormalBalance, AccountInstanceStatus, AccountingPeriodStatus, PostingBatchStatus, SubledgerRelationshipType, PolicyState, WorkflowState, StageDecision, DelegationState, PolicyConditionOperator, PolicyBindingType } from './enums.js';
+import type { ActorType, ActorState, KycState, AccountType, TxnType, TxnState, ApprovalState, MerchantUserRole, MerchantUserState, AgentUserRole, AgentUserState, RegistrationType, RegistrationChannel, FloatOperationType, StaffRole, AgentType, AccountClass, NormalBalance, AccountInstanceStatus, AccountingPeriodStatus, PostingBatchStatus, SubledgerRelationshipType, PolicyState, WorkflowState, StageDecision, DelegationState, PolicyConditionOperator, PolicyBindingType } from './enums.js';
 import type { CurrencyCode } from './currency.js';
 import type { EventName } from './events.js';
 
@@ -270,7 +270,7 @@ export interface SubledgerRollupRow {
 
 export interface ApprovalRequest {
   id: string;
-  type: ApprovalType;
+  type: string;
   payload_json: string;
   maker_staff_id: string;
   checker_staff_id?: string;
@@ -619,4 +619,35 @@ export interface PolicyEvaluationResult {
     matched: boolean;
     reasons: string[];
   }[];
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Dynamic Approval Type Configs & Endpoint Bindings
+// ─────────────────────────────────────────────────────────────────────
+
+export interface ApprovalTypeConfig {
+  type_key: string;
+  label: string;
+  description?: string;
+  default_checker_roles_json?: string;
+  require_reason: number;
+  has_code_handler: number;
+  auto_policy_id?: string;
+  enabled: number;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApprovalEndpointBinding {
+  id: string;
+  route_pattern: string;
+  http_method: string;
+  approval_type: string;
+  description?: string;
+  extract_payload_json?: string;
+  enabled: number;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
 }

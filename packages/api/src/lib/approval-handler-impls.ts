@@ -19,7 +19,7 @@ import {
     generateId,
     nowISO,
 } from '@caricash/shared';
-import type { PostTransactionCommand } from '@caricash/shared';
+import type { PostTransactionCommand, ApprovalTypeConfig } from '@caricash/shared';
 import {
     getOrCreateLedgerAccount,
     initAccountBalance,
@@ -372,3 +372,37 @@ approvalRegistry.register(ApprovalType.OVERDRAFT_FACILITY_REQUESTED, overdraftHa
 approvalRegistry.register(ApprovalType.MERCHANT_WITHDRAWAL_REQUESTED, merchantWithdrawalHandler);
 approvalRegistry.register(ApprovalType.FEE_MATRIX_CHANGE_REQUESTED, feeMatrixHandler);
 approvalRegistry.register(ApprovalType.COMMISSION_MATRIX_CHANGE_REQUESTED, commissionMatrixHandler);
+
+// ═══════════════════════════════════════════════════════════════════════
+// GENERIC FALLBACK HANDLER
+//
+// Built dynamically from an ApprovalTypeConfig row for approval types
+// that have no code-level handler. Acts as an approve/reject gate with
+// no programmatic side-effects.
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Build a generic ApprovalHandler from a dynamic type config.
+ * This handler:
+ *  - Enforces checker roles from the config's default_checker_roles_json
+ *  - Has no onApprove / onReject side-effects (pure gate)
+ *  - Uses generic event names
+ */
+export function buildGenericHandler(config: ApprovalTypeConfig): ApprovalHandler {
+    let checkerRoles: string[] = [];
+    if (config.default_checker_roles_json) {
+        try {
+            checkerRoles = JSON.parse(config.default_checker_roles_json);
+        } catch {
+            checkerRoles = [];
+        }
+    }
+
+    return {
+        label: config.label,
+        allowedCheckerRoles: checkerRoles,
+        // No onApprove — pure approval gate
+        // No onReject — pure rejection gate
+        // Generic event names
+    };
+}

@@ -41,6 +41,8 @@ import type {
   ApprovalDelegation,
   ApprovalPolicyDecision,
   ApprovalPolicyFull,
+  ApprovalTypeConfig,
+  ApprovalEndpointBinding,
 } from '@caricash/shared';
 
 // D1Database from @cloudflare/workers-types
@@ -2233,5 +2235,147 @@ export async function updateApprovalRequestWorkflow(
   if (sets.length === 0) return;
   values.push(requestId);
   await db.prepare(`UPDATE approval_requests SET ${sets.join(', ')} WHERE id = ?${idx}`).bind(...values).run();
+}
+
+// ===========================================================================
+// Approval Type Configs
+// ===========================================================================
+
+export async function insertApprovalTypeConfig(db: D1Database, config: ApprovalTypeConfig): Promise<void> {
+  await db.prepare(
+    `INSERT INTO approval_type_configs
+       (type_key, label, description, default_checker_roles_json, require_reason, has_code_handler, auto_policy_id, enabled, created_by, created_at, updated_at)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)`,
+  ).bind(
+    config.type_key, config.label, config.description ?? null,
+    config.default_checker_roles_json ?? null, config.require_reason,
+    config.has_code_handler, config.auto_policy_id ?? null,
+    config.enabled, config.created_by ?? null,
+    config.created_at, config.updated_at,
+  ).run();
+}
+
+export async function getApprovalTypeConfig(db: D1Database, typeKey: string): Promise<ApprovalTypeConfig | null> {
+  return (await db.prepare(
+    'SELECT * FROM approval_type_configs WHERE type_key = ?1',
+  ).bind(typeKey).first()) as ApprovalTypeConfig | null;
+}
+
+export async function listApprovalTypeConfigs(
+  db: D1Database,
+  opts?: { enabled_only?: boolean },
+): Promise<ApprovalTypeConfig[]> {
+  const where = opts?.enabled_only ? ' WHERE enabled = 1' : '';
+  const { results } = await db.prepare(
+    `SELECT * FROM approval_type_configs${where} ORDER BY type_key`,
+  ).all();
+  return (results ?? []) as ApprovalTypeConfig[];
+}
+
+export async function updateApprovalTypeConfig(
+  db: D1Database,
+  typeKey: string,
+  updates: Partial<Pick<ApprovalTypeConfig, 'label' | 'description' | 'default_checker_roles_json' | 'require_reason' | 'has_code_handler' | 'auto_policy_id' | 'enabled'>>,
+  updatedAt: string,
+): Promise<void> {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  let idx = 1;
+  for (const [key, value] of Object.entries(updates)) {
+    sets.push(`${key} = ?${idx++}`);
+    values.push(value ?? null);
+  }
+  if (sets.length === 0) return;
+  sets.push(`updated_at = ?${idx++}`);
+  values.push(updatedAt);
+  values.push(typeKey);
+  await db.prepare(
+    `UPDATE approval_type_configs SET ${sets.join(', ')} WHERE type_key = ?${idx}`,
+  ).bind(...values).run();
+}
+
+export async function deleteApprovalTypeConfig(db: D1Database, typeKey: string): Promise<void> {
+  await db.prepare('DELETE FROM approval_type_configs WHERE type_key = ?1').bind(typeKey).run();
+}
+
+// ===========================================================================
+// Approval Endpoint Bindings
+// ===========================================================================
+
+export async function insertEndpointBinding(db: D1Database, binding: ApprovalEndpointBinding): Promise<void> {
+  await db.prepare(
+    `INSERT INTO approval_endpoint_bindings
+       (id, route_pattern, http_method, approval_type, description, extract_payload_json, enabled, created_by, created_at, updated_at)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)`,
+  ).bind(
+    binding.id, binding.route_pattern, binding.http_method.toUpperCase(),
+    binding.approval_type, binding.description ?? null,
+    binding.extract_payload_json ?? null, binding.enabled,
+    binding.created_by ?? null, binding.created_at, binding.updated_at,
+  ).run();
+}
+
+export async function getEndpointBinding(db: D1Database, id: string): Promise<ApprovalEndpointBinding | null> {
+  return (await db.prepare(
+    'SELECT * FROM approval_endpoint_bindings WHERE id = ?1',
+  ).bind(id).first()) as ApprovalEndpointBinding | null;
+}
+
+export async function findEndpointBinding(
+  db: D1Database,
+  routePattern: string,
+  httpMethod: string,
+): Promise<ApprovalEndpointBinding | null> {
+  return (await db.prepare(
+    'SELECT * FROM approval_endpoint_bindings WHERE route_pattern = ?1 AND http_method = ?2 AND enabled = 1',
+  ).bind(routePattern, httpMethod.toUpperCase()).first()) as ApprovalEndpointBinding | null;
+}
+
+export async function listEndpointBindings(
+  db: D1Database,
+  opts?: { approval_type?: string; enabled_only?: boolean },
+): Promise<ApprovalEndpointBinding[]> {
+  const clauses: string[] = [];
+  const values: unknown[] = [];
+  let idx = 1;
+  if (opts?.approval_type) {
+    clauses.push(`approval_type = ?${idx++}`);
+    values.push(opts.approval_type);
+  }
+  if (opts?.enabled_only) {
+    clauses.push('enabled = 1');
+  }
+  const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
+  const { results } = await db.prepare(
+    `SELECT * FROM approval_endpoint_bindings${where} ORDER BY route_pattern, http_method`,
+  ).bind(...values).all();
+  return (results ?? []) as ApprovalEndpointBinding[];
+}
+
+export async function updateEndpointBinding(
+  db: D1Database,
+  id: string,
+  updates: Partial<Pick<ApprovalEndpointBinding, 'route_pattern' | 'http_method' | 'approval_type' | 'description' | 'extract_payload_json' | 'enabled'>>,
+  updatedAt: string,
+): Promise<void> {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  let idx = 1;
+  for (const [key, value] of Object.entries(updates)) {
+    const v = key === 'http_method' && typeof value === 'string' ? value.toUpperCase() : value;
+    sets.push(`${key} = ?${idx++}`);
+    values.push(v ?? null);
+  }
+  if (sets.length === 0) return;
+  sets.push(`updated_at = ?${idx++}`);
+  values.push(updatedAt);
+  values.push(id);
+  await db.prepare(
+    `UPDATE approval_endpoint_bindings SET ${sets.join(', ')} WHERE id = ?${idx}`,
+  ).bind(...values).run();
+}
+
+export async function deleteEndpointBinding(db: D1Database, id: string): Promise<void> {
+  await db.prepare('DELETE FROM approval_endpoint_bindings WHERE id = ?1').bind(id).run();
 }
 

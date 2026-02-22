@@ -23,9 +23,12 @@ import {
   countStageDecisions,
   hasDeciderDecidedStage,
   listStageDecisions,
+  getApprovalTypeConfig,
+  listApprovalTypeConfigs,
 } from '@caricash/db';
 import { approvalRegistry } from '../lib/approval-handlers.js';
-import type { ApprovalContext } from '../lib/approval-handlers.js';
+import type { ApprovalContext, ApprovalHandler } from '../lib/approval-handlers.js';
+import { buildGenericHandler } from '../lib/approval-handler-impls.js';
 import { checkStageAuthorization } from '../lib/policy-engine.js';
 // Side-effect: registers all concrete handlers into the registry
 import '../lib/approval-handler-impls.js';
@@ -60,8 +63,9 @@ approvalRoutes.get('/', async (c) => {
 });
 
 // GET /approvals/types — list all registered approval types and their metadata
-approvalRoutes.get('/types', (c) => {
-  const types = approvalRegistry.types().map((type) => {
+approvalRoutes.get('/types', async (c) => {
+  // Merge code-registered handlers with dynamic type configs
+  const types: { type: string; label: string; allowed_checker_roles: readonly string[]; has_approve_handler: boolean; has_reject_handler: boolean; source: string }[] = approvalRegistry.types().map((type) => {
     const handler = approvalRegistry.get(type)!;
     return {
       type,
@@ -69,9 +73,35 @@ approvalRoutes.get('/types', (c) => {
       allowed_checker_roles: handler.allowedCheckerRoles,
       has_approve_handler: !!handler.onApprove,
       has_reject_handler: !!handler.onReject,
+      source: 'code',
     };
   });
-  return c.json({ types });
+
+  try {
+    const configs = await listApprovalTypeConfigs(c.env.DB, { enabled_only: true });
+    const codeTypeKeys = new Set(types.map((t) => t.type));
+
+    // Add dynamic types that have no code handler
+    for (const config of configs) {
+      if (!codeTypeKeys.has(config.type_key)) {
+        let roles: string[] = [];
+        try { roles = config.default_checker_roles_json ? JSON.parse(config.default_checker_roles_json) : []; } catch { /* */ }
+        types.push({
+          type: config.type_key,
+          label: config.label,
+          allowed_checker_roles: roles,
+          has_approve_handler: false,
+          has_reject_handler: false,
+          source: 'config',
+        });
+      }
+    }
+
+    return c.json({ types });
+  } catch {
+    // DB may not have the table yet; return code-only types
+    return c.json({ types });
+  }
 });
 
 // GET /approvals/:id
@@ -86,11 +116,24 @@ approvalRoutes.get('/:id', async (c) => {
 
     const handler = approvalRegistry.get(request.type);
 
+    // If no code handler, try to get metadata from type config
+    let handlerLabel = handler?.label ?? null;
+    let checkerRoles: readonly string[] = handler?.allowedCheckerRoles ?? [];
+    if (!handler) {
+      try {
+        const typeConfig = await getApprovalTypeConfig(c.env.DB, request.type);
+        if (typeConfig) {
+          handlerLabel = typeConfig.label;
+          try { checkerRoles = typeConfig.default_checker_roles_json ? JSON.parse(typeConfig.default_checker_roles_json) : []; } catch { /* */ }
+        }
+      } catch { /* type config table may not exist */ }
+    }
+
     return c.json({
       ...request,
       payload: safeParsePayload(request.payload_json),
-      handler_label: handler?.label ?? null,
-      allowed_checker_roles: handler?.allowedCheckerRoles ?? [],
+      handler_label: handlerLabel,
+      allowed_checker_roles: checkerRoles,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';
@@ -124,12 +167,18 @@ approvalRoutes.post('/:id/approve', async (c) => {
     }
 
     // ── Resolve handler ──────────────────────────────────────────
-    const handler = approvalRegistry.get(request.type);
+    // Try code-registered handler first, then build a generic one
+    // from dynamic type config if available.
+    let handler: ApprovalHandler | undefined = approvalRegistry.get(request.type);
     if (!handler) {
-      return c.json({
-        error: `No approval handler registered for type: ${request.type}`,
-        correlation_id: correlationId,
-      }, 501);
+      const typeConfig = await getApprovalTypeConfig(c.env.DB, request.type);
+      if (!typeConfig || !typeConfig.enabled) {
+        return c.json({
+          error: `No approval handler or type config found for type: ${request.type}`,
+          correlation_id: correlationId,
+        }, 501);
+      }
+      handler = buildGenericHandler(typeConfig);
     }
 
     // ── Resolve staff actor ──────────────────────────────────────
@@ -439,7 +488,17 @@ approvalRoutes.post('/:id/reject', async (c) => {
     }
 
     // ── Resolve handler ──────────────────────────────────────────
-    const handler = approvalRegistry.get(request.type);
+    // Try code-registered handler first, then build a generic one
+    // from dynamic type config if available.
+    let handler: ApprovalHandler | undefined = approvalRegistry.get(request.type);
+    if (!handler) {
+      try {
+        const typeConfig = await getApprovalTypeConfig(c.env.DB, request.type);
+        if (typeConfig?.enabled) {
+          handler = buildGenericHandler(typeConfig);
+        }
+      } catch { /* type config table may not exist */ }
+    }
 
     const now = nowISO();
     const reqAny = request as any;
