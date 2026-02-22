@@ -45,11 +45,11 @@ app.route('/merchants', merchantRoutes);
 app.route('/actors', actorRoutes);
 app.route('/merchants', merchantUserRoutes);
 app.route('/tx', txRoutes);
-app.route('/approvals', approvalRoutes);
 app.route('/approvals/policies', policyRoutes);
 app.route('/approvals/delegations', delegationRoutes);
 app.route('/approvals/types/config', typeConfigRoutes);
 app.route('/approvals/endpoint-bindings', endpointBindingRoutes);
+app.route('/approvals', approvalRoutes);
 app.route('/wallets', walletRoutes);
 app.route('/float', floatRoutes);
 app.route('/ops', opsRoutes);
@@ -63,8 +63,8 @@ app.route('/merchants', merchantStubRoutes);
 app.route('/stores', storeStubRoutes);
 app.route('/wallets', walletStubRoutes);
 app.route('/tx', txStubRoutes);
-app.route('/approvals', approvalStubRoutes);
 app.route('/ops', opsStubRoutes);
+app.route('/approvals', approvalStubRoutes);
 
 // Documentation routes (Swagger UI + OpenAPI spec)
 app.route('', docsRoutes);
