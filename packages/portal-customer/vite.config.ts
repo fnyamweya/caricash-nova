@@ -14,9 +14,8 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.includes('react-dom')) return 'vendor';
-            if (id.includes('@tanstack')) return 'tanstack';
-            if (id.includes('@radix-ui')) return 'radix';
+            if (id.includes('/react-dom/') || id.includes('/react/')) return 'vendor';
+            if (id.includes('@tanstack') || id.includes('@radix-ui')) return 'ui-libs';
           }
         },
       },
