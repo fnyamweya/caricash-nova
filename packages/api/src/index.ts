@@ -16,6 +16,10 @@ import { opsRoutes } from './routes/ops.js';
 import { docsRoutes } from './routes/docs.js';
 import { codeRoutes } from './routes/codes.js';
 import { staffRoutes } from './routes/staff.js';
+import bank from './routes/bank.js';
+import settlements from './routes/settlements.js';
+import fraud from './routes/fraud.js';
+import opsPhase4 from './routes/ops-phase4.js';
 import {
   customerStubRoutes,
   agentStubRoutes,
@@ -55,6 +59,10 @@ app.route('/float', floatRoutes);
 app.route('/ops', opsRoutes);
 app.route('/codes', codeRoutes);
 app.route('/staff', staffRoutes);
+app.route('/bank', bank);
+app.route('/merchants', settlements);
+app.route('/ops/fraud', fraud);
+app.route('/ops', opsPhase4);
 
 // Stub routes (spec-required endpoints not yet fully implemented)
 app.route('/customers', customerStubRoutes);
