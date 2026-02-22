@@ -94,7 +94,7 @@ app.get('/readiness', async (c) => {
   // Last reconciliation check
   try {
     const lastRecon = await c.env.DB.prepare(
-      'SELECT id, created_at FROM reconciliation_runs ORDER BY created_at DESC LIMIT 1',
+      'SELECT id, created_at FROM reconciliation_cases ORDER BY created_at DESC LIMIT 1',
     ).first();
     checks.last_reconciliation = lastRecon ? lastRecon.created_at : 'never';
   } catch {

@@ -325,11 +325,11 @@ export const WebhookDeliveryStatus = {
 export type WebhookDeliveryStatus = typeof WebhookDeliveryStatus[keyof typeof WebhookDeliveryStatus];
 
 export const BeneficiaryStatus = {
+  ACTIVE: 'ACTIVE',
+  PENDING_APPROVAL: 'PENDING_APPROVAL',
+  REJECTED: 'REJECTED',
   DRAFT: 'DRAFT',
   PENDING_VERIFICATION: 'PENDING_VERIFICATION',
-  PENDING_APPROVAL: 'PENDING_APPROVAL',
-  ACTIVE: 'ACTIVE',
-  REJECTED: 'REJECTED',
   UPDATE_PENDING_VERIFICATION: 'UPDATE_PENDING_VERIFICATION',
   UPDATE_PENDING_APPROVAL: 'UPDATE_PENDING_APPROVAL',
 } as const;

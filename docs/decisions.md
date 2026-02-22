@@ -127,3 +127,57 @@ All API requests include:
 ### Default BBD Fraud Thresholds
 - **Decision**: Default BBD thresholds — 50,000 HOLD, 100,000 BLOCK
 - **Rationale**: Initial thresholds based on Barbados market transaction patterns. Single transactions above 50K BBD are held for manual review; above 100K BBD are blocked outright. These are configurable via the fraud rules engine and can be tuned per merchant segment.
+
+## Phase 4 Addendum Decisions
+
+### Reconciliation State Machine (Section A2)
+- **Decision**: Bank statement entries follow a strict 9-state lifecycle (NEW → CANDIDATE_MATCHED → MATCHED → SETTLED or NEW → UNMATCHED → DISPUTED → RESOLVED, with ESCALATED as a terminal escalation)
+- **Rationale**: Invalid transitions throw InvalidTransitionError and are logged. This prevents reconciliation state corruption, ensures audit trail completeness, and surfaces issues early.
+
+### Matching Modes (Section A3)
+- **Decision**: Support both line-item matching (1:1) and batch matching (1:N)
+- **Rationale**: Citibank may aggregate multiple platform transfers into a single statement entry. Batch matching with ±24h tolerance window handles this case while maintaining reconciliation accuracy.
+
+### Unmatched Escalation SLA (Section A4)
+- **Decision**: Unmatched entries older than 24h are posted to BANK_SUSPENSE and create a reconciliation case
+- **Rationale**: No silent auto-resolution. Every unmatched entry gets explicit case tracking to prevent funds from being lost or misattributed.
+
+### Idempotency TTL (Section B)
+- **Decision**: Money tx = 30 days, Bank transfers = 90 days, Webhook dedupe = 180 days, Ops/config = 365 days
+- **Rationale**: Graduated TTL based on risk profile. Longer-lived idempotency keys for bank interactions (which may have extended settlement cycles) reduce the risk of duplicate external transfers.
+
+### Rounding (Section W)
+- **Decision**: BBD precision 2 decimal places, HALF_UP rounding, remainder to ROUNDING_ADJUSTMENT account
+- **Rationale**: Fractional cent ledger entries are forbidden. All rounding differences are captured in the ROUNDING_ADJUSTMENT system account, ensuring the ledger always balances to the cent.
+
+### Settlement Timezone (Section V)
+- **Decision**: All settlement cutoffs at 17:00 AST (America/Barbados, UTC-4), T+1 = next business day
+- **Rationale**: Barbados jurisdiction requires local business day handling. Weekend days (Saturday/Sunday) are skipped for T+1 calculations.
+
+### Currency Anomaly (Section D)
+- **Decision**: If webhook currency differs from expected, mark ANOMALY_CURRENCY, do NOT settle, create case
+- **Rationale**: Never auto-convert currency. Currency mismatches indicate either bank error or configuration issue and must be investigated manually.
+
+### Beneficiary Verification (Section E)
+- **Decision**: Full beneficiary lifecycle: DRAFT → PENDING_VERIFICATION → PENDING_APPROVAL → ACTIVE with maker-checker and fraud evaluation on all changes
+- **Rationale**: Bank account beneficiary changes are a high-risk operation. Multi-step verification prevents fraudulent beneficiary additions.
+
+### Fraud Rule Coverage (Section F)
+- **Decision**: Minimum 6 TXN + 6 BANK_DEPOSIT + 8 PAYOUT rules; all rules have reason_code and create_case flag
+- **Rationale**: Comprehensive coverage across all contexts ensures no fraud vector is unmonitored. Reason codes enable automated case categorization; create_case flags enable selective case creation.
+
+### ML/Scoring Placeholder (Section H)
+- **Decision**: FraudScoringProvider interface with stub returning score=0.0
+- **Rationale**: Architecture supports future ML integration. The stub provider allows the system to run deterministically with rules only, while the interface is ready for model-based scoring.
+
+### Holdback Reserve (Section J)
+- **Decision**: MERCHANT_HOLDBACK_RESERVE ledger account with holdback_percentage on settlement profiles
+- **Rationale**: Holdback protects against chargebacks and refunds. The holdback amount is reserved from each payment and released after a configurable period.
+
+### Settlement Netting (Section K)
+- **Decision**: Support both GROSS and NET netting modes per merchant profile
+- **Rationale**: GROSS mode settles sales independently of refunds; NET mode subtracts refunds/chargebacks before payout. This accommodates different merchant risk profiles and regulatory requirements.
+
+### Data Retention (Section O)
+- **Decision**: Ledger/audit 7 years, webhooks 90 days hot, fraud 2 years hot, reconciliation 2 years
+- **Rationale**: Barbados regulatory requirements and operational best practices. Hot retention keeps data readily queryable; archival moves to cold storage after the hot period.
