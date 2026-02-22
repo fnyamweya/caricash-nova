@@ -8,6 +8,7 @@ import type { DataTableColumn } from './data-table.js';
 export interface Transaction {
     id: string;
     type: string;
+    entry_type?: 'DR' | 'CR';
     amount: string;
     currency: string;
     description: string;
@@ -23,7 +24,10 @@ const CREDIT_TYPES = new Set([
     'REFUND',
 ]);
 
-function isCredit(type: string): boolean {
+function isCredit(type: string, entryType?: 'DR' | 'CR'): boolean {
+    if (entryType) {
+        return entryType === 'CR';
+    }
     return CREDIT_TYPES.has(type.toUpperCase());
 }
 
@@ -43,7 +47,7 @@ export function TransactionTable({
             key: 'type',
             header: 'Type',
             render: (_, row) => {
-                const credit = isCredit(row.type);
+                const credit = isCredit(row.type, row.entry_type);
                 return (
                     <div className="flex items-center gap-2">
                         {credit ? (
@@ -65,7 +69,7 @@ export function TransactionTable({
             header: 'Amount',
             className: 'text-right',
             render: (_, row) => {
-                const credit = isCredit(row.type);
+                const credit = isCredit(row.type, row.entry_type);
                 return (
                     <span
                         className={cn(

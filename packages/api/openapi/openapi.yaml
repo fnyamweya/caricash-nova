@@ -1541,7 +1541,7 @@ paths:
       operationId: getTransaction
       tags: [Transactions]
       summary: Get transaction details
-      description: Retrieve journal details by ID. Returns 501 (stub).
+      description: Retrieve journal details by ID.
       parameters:
         - name: journalId
           in: path
@@ -1555,33 +1555,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JournalResponse'
-        '501':
-          description: Not yet implemented
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /tx:
     get:
       operationId: listTransactions
       tags: [Transactions]
       summary: List transactions
-      description: List transactions with optional filters. Returns 501 (stub).
+      description: List transactions for a specific owner.
       parameters:
         - name: ownerType
           in: query
+          required: true
           schema:
             $ref: '#/components/schemas/OwnerType'
         - name: ownerId
           in: query
+          required: true
           schema:
             type: string
         - name: currency
           in: query
           schema:
             $ref: '#/components/schemas/CurrencyCode'
-        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/pageSize'
       responses:
         '200':
@@ -1594,16 +1591,14 @@ paths:
                   items:
                     type: array
                     items:
-                      $ref: '#/components/schemas/JournalResponse'
+                      $ref: '#/components/schemas/TransactionListItem'
+                  count:
+                    type: integer
                   nextCursor:
                     type: string
                     nullable: true
-        '501':
-          description: Not yet implemented
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
 
   # ============================================================
   #  APPROVALS
@@ -3928,6 +3923,34 @@ components:
           type: string
         description:
           type: string
+        created_at:
+          type: string
+          format: date-time
+
+    TransactionListItem:
+      type: object
+      properties:
+        id:
+          type: string
+        journal_id:
+          type: string
+        correlation_id:
+          type: string
+        type:
+          $ref: '#/components/schemas/TxnType'
+        txn_type:
+          $ref: '#/components/schemas/TxnType'
+        entry_type:
+          type: string
+          enum: [DR, CR]
+        amount:
+          type: string
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        description:
+          type: string
+        state:
+          $ref: '#/components/schemas/TxnState'
         created_at:
           type: string
           format: date-time

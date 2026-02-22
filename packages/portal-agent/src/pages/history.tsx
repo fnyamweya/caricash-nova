@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Clock } from 'lucide-react';
 import {
     useApi,
+    useAuth,
     PageHeader,
     PageTransition,
     TransactionTable,
@@ -14,23 +15,27 @@ import {
 
 export function HistoryPage() {
     const api = useApi();
+    const { actor } = useAuth();
 
-    const txQuery = useQuery<Transaction[]>({
-        queryKey: ['transactions'],
+    const txQuery = useQuery<{ items: Transaction[] }>({
+        queryKey: ['transactions', actor?.id],
         queryFn: async () => {
             try {
-                return await api.get<Transaction[]>('/tx');
+                return await api.get<{ items: Transaction[] }>(
+                    `/tx?ownerType=AGENT&ownerId=${encodeURIComponent(actor!.id)}&currency=BBD&pageSize=200`,
+                );
             } catch (err) {
                 // Gracefully handle 501 Not Implemented
                 if (err instanceof ApiError && err.status === 501) {
-                    return [];
+                    return { items: [] };
                 }
                 throw err;
             }
         },
+        enabled: !!actor?.id,
     });
 
-    const transactions = txQuery.data ?? [];
+    const transactions = txQuery.data?.items ?? [];
 
     return (
         <PageTransition>

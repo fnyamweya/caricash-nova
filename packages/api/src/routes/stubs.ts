@@ -51,16 +51,6 @@ export const walletStubRoutes = new Hono<{ Bindings: Env }>();
 // ---- Transaction stubs ----
 export const txStubRoutes = new Hono<{ Bindings: Env }>();
 
-// GET /tx/:journalId — TODO: implement transaction details retrieval
-txStubRoutes.get('/:journalId', async (c) => {
-  return c.json({ error: 'Not yet implemented', code: 'NOT_IMPLEMENTED' }, 501);
-});
-
-// GET /tx — TODO: implement transaction listing
-txStubRoutes.get('/', async (c) => {
-  return c.json({ error: 'Not yet implemented', code: 'NOT_IMPLEMENTED' }, 501);
-});
-
 // ---- Approval stubs ----
 export const approvalStubRoutes = new Hono<{ Bindings: Env }>();
 

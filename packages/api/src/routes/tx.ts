@@ -17,6 +17,8 @@ import {
   getActorByMsisdn,
   getActorByAgentCode,
   getActorByStoreCode,
+  getJournalById,
+  getJournalLines,
   getLedgerAccount,
   getActiveFeeRules,
   getActiveCommissionRules,
@@ -41,6 +43,17 @@ import { postTransaction } from '../lib/posting-client.js';
 import { getBalance } from '../lib/posting-client.js';
 
 export const txRoutes = new Hono<{ Bindings: Env }>();
+
+interface TxListRow {
+  journal_id: string;
+  txn_type: string;
+  posted_at: string;
+  correlation_id: string;
+  entry_type: 'DR' | 'CR';
+  amount: string;
+  currency: string;
+  line_description?: string;
+}
 
 // ---------------------------------------------------------------------------
 // GET /tx/agent/:agent_id/summary
@@ -145,6 +158,118 @@ txRoutes.get('/agent/:agent_id/summary', async (c) => {
       today_txn_count: Number(todayTxnCountRow?.count ?? 0),
       cash_float_balance: cashFloatBalance,
       cash_float_available_balance: cashFloatAvailableBalance,
+      correlation_id: correlationId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, code: ErrorCode.INTERNAL_ERROR, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /tx/:journalId
+// ---------------------------------------------------------------------------
+txRoutes.get('/:journalId', async (c) => {
+  const journalId = c.req.param('journalId');
+  const correlationId = generateId();
+
+  try {
+    const journal = await getJournalById(c.env.DB, journalId);
+    if (!journal) {
+      return c.json({ error: 'Journal not found', code: ErrorCode.NOT_FOUND, correlation_id: correlationId }, 404);
+    }
+
+    const lines = await getJournalLines(c.env.DB, journalId);
+    return c.json({ journal, lines, correlation_id: correlationId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, code: ErrorCode.INTERNAL_ERROR, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /tx
+// ---------------------------------------------------------------------------
+txRoutes.get('/', async (c) => {
+  const correlationId = generateId();
+  const ownerTypeRaw = c.req.query('ownerType');
+  const ownerId = c.req.query('ownerId');
+  const currencyRaw = c.req.query('currency');
+  const pageSizeRaw = c.req.query('pageSize') ?? '50';
+  const pageSize = Number(pageSizeRaw);
+
+  if (!ownerTypeRaw || !ownerId) {
+    return c.json({
+      error: 'ownerType and ownerId are required',
+      code: ErrorCode.MISSING_REQUIRED_FIELD,
+      correlation_id: correlationId,
+    }, 400);
+  }
+
+  const validOwnerTypes = new Set<string>(Object.values(ActorType));
+  if (!validOwnerTypes.has(ownerTypeRaw)) {
+    return c.json({
+      error: `Invalid ownerType: ${ownerTypeRaw}`,
+      code: ErrorCode.VALIDATION_ERROR,
+      correlation_id: correlationId,
+    }, 400);
+  }
+
+  if (currencyRaw && currencyRaw !== 'BBD' && currencyRaw !== 'USD') {
+    return c.json({
+      error: 'Invalid currency. Must be BBD or USD',
+      code: ErrorCode.VALIDATION_ERROR,
+      correlation_id: correlationId,
+    }, 400);
+  }
+
+  if (!Number.isFinite(pageSize) || pageSize < 1 || pageSize > 200) {
+    return c.json({
+      error: 'pageSize must be between 1 and 200',
+      code: ErrorCode.VALIDATION_ERROR,
+      correlation_id: correlationId,
+    }, 400);
+  }
+
+  try {
+    const params: unknown[] = [ownerTypeRaw, ownerId];
+    let sql = `
+      SELECT journal_id, txn_type, posted_at, correlation_id, entry_type, amount, currency, line_description
+      FROM v_account_statement
+      WHERE owner_type = ?1 AND owner_id = ?2
+    `;
+
+    if (currencyRaw) {
+      sql += ' AND currency = ?3';
+      params.push(currencyRaw);
+      sql += ' ORDER BY posted_at DESC, line_number ASC LIMIT ?4';
+      params.push(pageSize);
+    } else {
+      sql += ' ORDER BY posted_at DESC, line_number ASC LIMIT ?3';
+      params.push(pageSize);
+    }
+
+    const res = await c.env.DB.prepare(sql).bind(...params).all();
+    const rows = (res.results ?? []) as unknown as TxListRow[];
+
+    const items = rows.map((row) => ({
+      id: row.journal_id,
+      journal_id: row.journal_id,
+      correlation_id: row.correlation_id,
+      type: row.txn_type,
+      txn_type: row.txn_type,
+      entry_type: row.entry_type,
+      amount: row.amount,
+      currency: row.currency,
+      description: row.line_description ?? `${row.txn_type} transaction`,
+      state: 'POSTED',
+      created_at: row.posted_at,
+    }));
+
+    return c.json({
+      items,
+      count: items.length,
+      nextCursor: null,
       correlation_id: correlationId,
     });
   } catch (err) {

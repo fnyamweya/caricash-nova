@@ -1,6 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { CreditCard, ArrowLeftRight, TrendingUp, QrCode, Users, Banknote } from 'lucide-react';
+import {
+    CreditCard,
+    ArrowLeftRight,
+    TrendingUp,
+    QrCode,
+    Users,
+    Clock,
+    ArrowDownLeft,
+    ArrowUpRight,
+} from 'lucide-react';
 import {
     useAuth,
     useApi,
@@ -9,7 +18,15 @@ import {
     BalanceCard,
     StatCard,
     ActionCard,
+    Card,
+    CardHeader,
+    CardTitle,
+    CardContent,
+    Button,
+    EmptyState,
+    LoadingSpinner,
     formatCurrency,
+    formatDate,
 } from '@caricash/ui';
 
 interface BalanceResponse {
@@ -19,11 +36,15 @@ interface BalanceResponse {
 }
 
 interface StatementEntry {
+    journal_id: string;
     entry_type: 'DR' | 'CR';
     amount: string;
     posted_at: string;
     credit_amount_minor?: number;
+    debit_amount_minor?: number;
     txn_type: string;
+    line_description?: string;
+    currency?: string;
 }
 
 interface StatementResponse {
@@ -68,6 +89,7 @@ export function DashboardPage() {
     const entries = statementQuery.data?.entries ?? [];
     const credits = entries.filter((e) => e.entry_type === 'CR');
     const todayCredits = credits.filter((e) => isToday(e.posted_at));
+    const recentEntries = entries.slice(0, 5);
 
     const todayTotal = todayCredits.reduce((sum, e) => {
         const amt = parseFloat(e.amount) || (e.credit_amount_minor ? e.credit_amount_minor / 100 : 0);
@@ -143,6 +165,76 @@ export function DashboardPage() {
                         onClick={() => navigate({ to: '/team' })}
                     />
                 </div>
+
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between gap-3">
+                        <CardTitle className="text-base">Recent Transactions</CardTitle>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate({ to: '/history' })}
+                        >
+                            View History
+                        </Button>
+                    </CardHeader>
+                    <CardContent>
+                        {statementQuery.isLoading ? (
+                            <div className="flex justify-center py-8">
+                                <LoadingSpinner />
+                            </div>
+                        ) : recentEntries.length > 0 ? (
+                            <div className="space-y-2">
+                                {recentEntries.map((entry) => {
+                                    const isCredit = entry.entry_type === 'CR';
+                                    const amount = entry.amount
+                                        || (
+                                            ((isCredit ? entry.credit_amount_minor : entry.debit_amount_minor) ?? 0) / 100
+                                        ).toFixed(2);
+
+                                    return (
+                                        <div
+                                            key={`${entry.journal_id}-${entry.entry_type}-${entry.posted_at}`}
+                                            className="flex items-center justify-between gap-3 rounded-xl border border-border/70 p-3"
+                                        >
+                                            <div className="min-w-0 flex items-center gap-3">
+                                                <div className="rounded-full bg-muted p-2">
+                                                    {isCredit ? (
+                                                        <ArrowDownLeft className="h-4 w-4 text-green-600" />
+                                                    ) : (
+                                                        <ArrowUpRight className="h-4 w-4 text-red-600" />
+                                                    )}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="truncate text-sm font-medium">
+                                                        {entry.txn_type}
+                                                    </p>
+                                                    <p className="truncate text-xs text-muted-foreground">
+                                                        {entry.line_description ?? `Ref ${entry.journal_id.slice(0, 12)}…`}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="shrink-0 text-right">
+                                                <p className={`text-sm font-semibold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {isCredit ? '+' : '-'}
+                                                    {formatCurrency(amount, entry.currency || 'BBD')}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {formatDate(entry.posted_at)}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <EmptyState
+                                icon={<Clock />}
+                                title="No transactions yet"
+                                description="Recent merchant transactions will appear here."
+                            />
+                        )}
+                    </CardContent>
+                </Card>
             </div>
         </PageTransition>
     );

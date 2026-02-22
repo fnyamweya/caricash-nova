@@ -3,9 +3,12 @@ import { useNavigate } from '@tanstack/react-router';
 import {
     ArrowDownToLine,
     ArrowUpFromLine,
+    ArrowDownLeft,
+    ArrowUpRight,
     UserPlus,
     Activity,
     Wallet,
+    Clock,
 } from 'lucide-react';
 import {
     useAuth,
@@ -15,7 +18,16 @@ import {
     BalanceCard,
     StatCard,
     ActionCard,
+    Card,
+    CardHeader,
+    CardTitle,
+    CardContent,
+    Button,
+    Badge,
+    EmptyState,
+    LoadingSpinner,
     formatCurrency,
+    formatDate,
 } from '@caricash/ui';
 
 interface FloatBalanceResponse {
@@ -38,6 +50,36 @@ interface AgentTxSummaryResponse {
     total_transacted: string;
     today_cash: string;
     correlation_id: string;
+}
+
+interface FloatHistoryOperation {
+    id: string;
+    operation_type: string;
+    amount: string;
+    currency: string;
+    journal_id?: string;
+    balance_before: string;
+    balance_after: string;
+    requires_approval?: boolean | number;
+    reason?: string;
+    reference?: string;
+    created_at: string;
+}
+
+interface FloatHistoryResponse {
+    operations: FloatHistoryOperation[];
+    count: number;
+}
+
+function inferFloatDirection(op: FloatHistoryOperation): 'CR' | 'DR' {
+    const before = Number(op.balance_before ?? 0);
+    const after = Number(op.balance_after ?? 0);
+
+    if (Number.isFinite(before) && Number.isFinite(after) && after !== before) {
+        return after > before ? 'CR' : 'DR';
+    }
+
+    return op.operation_type === 'TOP_UP' ? 'CR' : 'DR';
 }
 
 export function DashboardPage() {
@@ -69,9 +111,20 @@ export function DashboardPage() {
         refetchInterval: 30_000,
     });
 
+    const floatHistoryQuery = useQuery<FloatHistoryResponse>({
+        queryKey: ['agent-float-history-dashboard', actor?.id, agentCode],
+        queryFn: () =>
+            api.get<FloatHistoryResponse>(
+                `/float/${encodeURIComponent(agentCode)}/history?limit=5`,
+            ),
+        enabled: !!agentCode,
+        refetchInterval: 60_000,
+    });
+
     const summaryError =
         (floatBalanceQuery.error as Error | null)?.message ??
         (txSummaryQuery.error as Error | null)?.message;
+    const recentOperations = floatHistoryQuery.data?.operations ?? [];
 
     return (
         <PageTransition>
@@ -139,6 +192,88 @@ export function DashboardPage() {
                         onClick={() => navigate({ to: '/register' })}
                     />
                 </div>
+
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between gap-3">
+                        <CardTitle className="text-base">Recent Transactions</CardTitle>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate({ to: '/history' })}
+                        >
+                            View History
+                        </Button>
+                    </CardHeader>
+                    <CardContent>
+                        {!agentCode ? (
+                            <EmptyState
+                                icon={<Clock />}
+                                title="Agent code required"
+                                description="Recent transactions will appear after an agent profile is loaded."
+                            />
+                        ) : floatHistoryQuery.isLoading ? (
+                            <div className="flex justify-center py-8">
+                                <LoadingSpinner />
+                            </div>
+                        ) : recentOperations.length > 0 ? (
+                            <div className="space-y-2">
+                                {recentOperations.map((op) => {
+                                    const direction = inferFloatDirection(op);
+                                    const isCredit = direction === 'CR';
+                                    const detail = op.reference
+                                        || op.reason
+                                        || (op.journal_id ? `Journal ${op.journal_id.slice(0, 12)}…` : 'Float operation');
+                                    const requiresApproval = Boolean(op.requires_approval);
+
+                                    return (
+                                        <div
+                                            key={op.id}
+                                            className="flex items-center justify-between gap-3 rounded-xl border border-border/70 p-3"
+                                        >
+                                            <div className="min-w-0 flex items-center gap-3">
+                                                <div className="rounded-full bg-muted p-2">
+                                                    {isCredit ? (
+                                                        <ArrowDownLeft className="h-4 w-4 text-green-600" />
+                                                    ) : (
+                                                        <ArrowUpRight className="h-4 w-4 text-red-600" />
+                                                    )}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <p className="truncate text-sm font-medium">
+                                                            {op.operation_type}
+                                                        </p>
+                                                        {requiresApproval && (
+                                                            <Badge variant="outline">Approval</Badge>
+                                                        )}
+                                                    </div>
+                                                    <p className="truncate text-xs text-muted-foreground">
+                                                        {detail}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="shrink-0 text-right">
+                                                <p className={`text-sm font-semibold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {isCredit ? '+' : '-'}
+                                                    {formatCurrency(op.amount, op.currency || 'BBD')}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {formatDate(op.created_at)}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <EmptyState
+                                icon={<Clock />}
+                                title="No transactions yet"
+                                description="Recent agent float operations will appear here."
+                            />
+                        )}
+                    </CardContent>
+                </Card>
             </div>
         </PageTransition>
     );
