@@ -124,6 +124,36 @@ export interface MerchantStoreClosure {
   created_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Merchant Store (new first-class table)
+// ---------------------------------------------------------------------------
+
+export interface MerchantStore {
+  id: string;
+  merchant_id: string;
+  name: string;
+  legal_name?: string;
+  store_code: string;
+  is_primary: boolean;
+  location?: Record<string, unknown> | null;
+  status: 'active' | 'suspended' | 'closed';
+  kyc_profile?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StorePaymentNode {
+  id: string;
+  store_id: string;
+  store_node_name: string;
+  store_node_code: string;
+  description?: string;
+  status: 'active' | 'suspended' | 'closed';
+  is_primary: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface LedgerAccount {
   id: string;
   owner_type: ActorType;
@@ -706,6 +736,370 @@ export interface ApprovalEndpointBinding {
   extract_payload_json?: string;
   enabled: number;
   created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: External Rails, Settlement, Fraud Types
+// ---------------------------------------------------------------------------
+
+export interface BankAccount {
+  id: string;
+  provider: string;
+  provider_account_id: string;
+  purpose: import('./enums.js').BankAccountPurpose;
+  currency: CurrencyCode;
+  status: string;
+  owner_type?: string;
+  owner_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExternalTransfer {
+  id: string;
+  provider: string;
+  provider_transfer_id?: string;
+  client_reference: string;
+  direction: import('./enums.js').ExternalTransferDirection;
+  transfer_type: import('./enums.js').ExternalTransferType;
+  currency: CurrencyCode;
+  amount: string;
+  from_bank_account_id?: string;
+  to_bank_account_id?: string;
+  related_owner_type?: string;
+  related_owner_id?: string;
+  status: import('./enums.js').ExternalTransferStatus;
+  idempotency_scope_hash?: string;
+  payload_hash?: string;
+  correlation_id: string;
+  initiated_by_actor_type?: string;
+  initiated_by_actor_id?: string;
+  initiated_at: string;
+  settled_at?: string;
+  failure_reason?: string;
+  journal_id?: string;
+  metadata_json?: string;
+}
+
+export interface MerchantSettlementProfile {
+  id: string;
+  merchant_id: string;
+  currency: CurrencyCode;
+  bank_account_id: string;
+  schedule: import('./enums.js').SettlementSchedule;
+  mode: import('./enums.js').SettlementMode;
+  min_payout_amount: string;
+  max_payout_amount: string;
+  daily_cap: string;
+  require_maker_checker: boolean;
+  require_two_approvals_above: string;
+  status: string;
+  effective_from: string;
+  effective_to?: string;
+  created_by_staff_id?: string;
+  approved_by_staff_id?: string;
+  created_at: string;
+  approved_at?: string;
+  netting_mode?: import('./enums.js').SettlementNettingMode;
+  fee_mode?: import('./enums.js').SettlementFeeMode;
+  holdback_percentage?: string;
+}
+
+export interface SettlementBatch {
+  id: string;
+  merchant_id: string;
+  currency: CurrencyCode;
+  period_start: string;
+  period_end: string;
+  schedule: import('./enums.js').SettlementSchedule;
+  mode: import('./enums.js').SettlementMode;
+  status: import('./enums.js').SettlementBatchStatus;
+  total_amount: string;
+  total_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SettlementItem {
+  id: string;
+  batch_id: string;
+  journal_id: string;
+  amount: string;
+  created_at: string;
+}
+
+export interface MerchantPayout {
+  id: string;
+  batch_id?: string;
+  merchant_id: string;
+  currency: CurrencyCode;
+  amount: string;
+  bank_account_id: string;
+  status: import('./enums.js').PayoutStatus;
+  external_transfer_id?: string;
+  approvals_required: number;
+  created_by_staff_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MerchantBeneficiary {
+  id: string;
+  merchant_id: string;
+  bank_account_id: string;
+  nickname?: string;
+  status: import('./enums.js').BeneficiaryStatus;
+  created_by_staff_id?: string;
+  approved_by_staff_id?: string;
+  created_at: string;
+  approved_at?: string;
+}
+
+export interface FraudSignal {
+  id: string;
+  actor_type: string;
+  actor_id: string;
+  signal_type: import('./enums.js').FraudSignalType;
+  severity: import('./enums.js').FraudSeverity;
+  evidence_ref?: string;
+  payload_json?: string;
+  created_at: string;
+}
+
+export interface FraudDecisionRecord {
+  id: string;
+  context_type: import('./enums.js').FraudContextType;
+  context_id: string;
+  decision: import('./enums.js').FraudDecision;
+  reasons_json?: string;
+  rules_version_id?: string;
+  score?: number;
+  model_version?: string;
+  explanation_json?: string;
+  created_at: string;
+}
+
+export interface FraudRulesVersion {
+  id: string;
+  status: import('./enums.js').FraudRuleVersionStatus;
+  effective_from: string;
+  created_by_staff_id?: string;
+  approved_by_staff_id?: string;
+  created_at: string;
+  approved_at?: string;
+}
+
+export interface FraudRule {
+  id: string;
+  version_id: string;
+  name: string;
+  applies_to_context: string;
+  severity: import('./enums.js').FraudSeverity;
+  action: import('./enums.js').FraudDecision;
+  conditions_json: string;
+  priority: number;
+  enabled: boolean;
+  reason_code?: string;
+  create_case?: boolean;
+}
+
+export interface BankWebhookDelivery {
+  id: string;
+  provider: string;
+  event_id: string;
+  transfer_id?: string;
+  received_at: string;
+  status: import('./enums.js').WebhookDeliveryStatus;
+  payload_hash?: string;
+  error_message?: string;
+}
+
+export interface CitibankTransferRequest {
+  client_reference: string;
+  amount: string;
+  currency: string;
+  from_account_id: string;
+  to_account_id: string;
+  description?: string;
+  metadata?: Record<string, string>;
+}
+
+export interface CitibankTransferResponse {
+  bank_transfer_id: string;
+  client_reference: string;
+  status: string;
+  amount: string;
+  currency: string;
+  from_account_id: string;
+  to_account_id: string;
+  created_at: string;
+}
+
+export interface CitibankWebhookPayload {
+  bank_transfer_id: string;
+  client_reference: string;
+  status: string;
+  amount: string;
+  currency: string;
+  from_account_id: string;
+  to_account_id: string;
+  occurred_at: string;
+}
+
+export interface CircuitBreakerConfig {
+  failure_threshold: number;
+  window_ms: number;
+  reset_timeout_ms: number;
+  half_open_max_attempts: number;
+}
+
+export interface RetryConfig {
+  max_attempts: number;
+  base_delay_ms: number;
+  max_delay_ms: number;
+  backoff_multiplier: number;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 Addendum: Reconciliation, Fraud Feedback, Hardening Types
+// ---------------------------------------------------------------------------
+
+export interface BankStatement {
+  id: string;
+  provider: string;
+  bank_account_id: string;
+  statement_date: string;
+  currency: CurrencyCode;
+  opening_balance?: string;
+  closing_balance?: string;
+  entry_count: number;
+  raw_payload_json?: string;
+  fetched_at: string;
+  created_at: string;
+}
+
+export interface BankStatementEntry {
+  id: string;
+  statement_id: string;
+  provider: string;
+  bank_account_id: string;
+  entry_reference?: string;
+  direction: import('./enums.js').ExternalTransferDirection;
+  amount: string;
+  currency: CurrencyCode;
+  value_date: string;
+  booking_date?: string;
+  description?: string;
+  counterparty_account?: string;
+  counterparty_name?: string;
+  raw_payload_json?: string;
+  status: import('./enums.js').StatementEntryStatus;
+  matched_transfer_id?: string;
+  matched_batch_id?: string;
+  match_confidence?: string;
+  match_method?: string;
+  suspense_journal_id?: string;
+  case_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReconciliationMatch {
+  id: string;
+  statement_entry_id: string;
+  external_transfer_id?: string;
+  batch_id?: string;
+  match_method: import('./enums.js').ReconciliationMatchMethod;
+  confidence: import('./enums.js').ReconciliationMatchConfidence;
+  amount_difference: string;
+  currency: CurrencyCode;
+  status: string;
+  reviewed_by_staff_id?: string;
+  reviewed_at?: string;
+  created_at: string;
+}
+
+export interface ReconciliationCase {
+  id: string;
+  statement_entry_id?: string;
+  external_transfer_id?: string;
+  case_type: import('./enums.js').ReconciliationCaseType;
+  severity: import('./enums.js').FraudSeverity;
+  status: import('./enums.js').ReconciliationCaseStatus;
+  description?: string;
+  resolution_notes?: string;
+  assigned_to_staff_id?: string;
+  resolved_by_staff_id?: string;
+  resolved_at?: string;
+  correlation_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FraudCaseOutcomeRecord {
+  id: string;
+  fraud_decision_id: string;
+  case_id?: string;
+  outcome: import('./enums.js').FraudCaseOutcome;
+  resolution_notes?: string;
+  resolved_by_staff_id?: string;
+  resolved_at: string;
+  created_at: string;
+}
+
+export interface FraudSignalMetric {
+  id: string;
+  signal_type: string;
+  period_start: string;
+  period_end: string;
+  total_count: number;
+  true_positive_count: number;
+  false_positive_count: number;
+  inconclusive_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** ML/Scoring provider interface (Section H placeholder) */
+export interface FraudScoringProvider {
+  score(context: {
+    context_type: string;
+    context_id: string;
+    actor_type: string;
+    actor_id: string;
+    amount: string;
+    currency: string;
+    signals: { signal_type: string; severity: string }[];
+  }): Promise<{ score: number; model_version: string; explanation_json: string }>;
+}
+
+/** Default stub scoring provider returning score=0.0 */
+export const STUB_FRAUD_SCORING_PROVIDER: FraudScoringProvider = {
+  async score() {
+    return { score: 0.0, model_version: 'stub-v0', explanation_json: '{}' };
+  },
+};
+
+/** Standardized error response envelope (Section S) */
+export interface ErrorResponseEnvelope {
+  error: {
+    code: string;
+    message: string;
+    correlationId: string;
+    details?: Record<string, unknown>;
+    retryable: boolean;
+  };
+}
+
+/** Data retention policy record */
+export interface DataRetentionPolicy {
+  id: string;
+  data_category: import('./enums.js').DataRetentionCategory;
+  hot_retention_days: number;
+  archive_retention_days: number;
+  last_purge_at?: string;
   created_at: string;
   updated_at: string;
 }

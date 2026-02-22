@@ -9,6 +9,8 @@ import type {
   ActorLookup,
   AgentUser,
   MerchantUser,
+  MerchantStore,
+  StorePaymentNode,
   CustomerProfile,
   MerchantProfile,
   AgentProfile,
@@ -1605,6 +1607,212 @@ export async function getMerchantAncestors(db: D1Database, actorId: string): Pro
     .bind(actorId)
     .all();
   return enrichActorsWithProfiles(db, (res.results ?? []) as Actor[]);
+}
+
+// ---------------------------------------------------------------------------
+// Merchant Stores (new first-class table)
+// ---------------------------------------------------------------------------
+
+function parseMerchantStoreRow(row: Record<string, unknown>): MerchantStore {
+  return {
+    id: row.id as string,
+    merchant_id: row.merchant_id as string,
+    name: row.name as string,
+    legal_name: (row.legal_name as string) || undefined,
+    store_code: row.store_code as string,
+    is_primary: row.is_primary === 1 || row.is_primary === true,
+    location: row.location ? (typeof row.location === 'string' ? JSON.parse(row.location) : row.location as Record<string, unknown>) : null,
+    status: (row.status as MerchantStore['status']) || 'active',
+    kyc_profile: (row.kyc_profile as string) || null,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+  };
+}
+
+export async function insertMerchantStore(db: D1Database, store: MerchantStore): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO merchant_stores (id, merchant_id, name, legal_name, store_code, is_primary, location, status, kyc_profile, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+    )
+    .bind(
+      store.id,
+      store.merchant_id,
+      store.name,
+      store.legal_name ?? null,
+      store.store_code,
+      store.is_primary ? 1 : 0,
+      store.location ? JSON.stringify(store.location) : null,
+      store.status,
+      store.kyc_profile ?? null,
+      store.created_at,
+      store.updated_at,
+    )
+    .run();
+}
+
+export async function getMerchantStoreById(db: D1Database, storeId: string): Promise<MerchantStore | null> {
+  const row = await db
+    .prepare(`SELECT * FROM merchant_stores WHERE id = ?1`)
+    .bind(storeId)
+    .first();
+  return row ? parseMerchantStoreRow(row as Record<string, unknown>) : null;
+}
+
+export async function getMerchantStoreByCode(db: D1Database, storeCode: string): Promise<MerchantStore | null> {
+  const row = await db
+    .prepare(`SELECT * FROM merchant_stores WHERE store_code = ?1`)
+    .bind(storeCode)
+    .first();
+  return row ? parseMerchantStoreRow(row as Record<string, unknown>) : null;
+}
+
+export async function listMerchantStores(
+  db: D1Database,
+  merchantId: string,
+  filters?: { status?: string; limit?: number; offset?: number },
+): Promise<MerchantStore[]> {
+  let query = `SELECT * FROM merchant_stores WHERE merchant_id = ?1`;
+  const binds: unknown[] = [merchantId];
+  let idx = 2;
+  if (filters?.status) {
+    query += ` AND status = ?${idx}`;
+    binds.push(filters.status);
+    idx++;
+  }
+  query += ` ORDER BY is_primary DESC, created_at ASC`;
+  if (filters?.limit) {
+    query += ` LIMIT ?${idx}`;
+    binds.push(filters.limit);
+    idx++;
+  }
+  if (filters?.offset) {
+    query += ` OFFSET ?${idx}`;
+    binds.push(filters.offset);
+  }
+  const res = await db.prepare(query).bind(...binds).all();
+  return ((res.results ?? []) as Record<string, unknown>[]).map(parseMerchantStoreRow);
+}
+
+export async function updateMerchantStore(
+  db: D1Database,
+  storeId: string,
+  fields: Partial<Pick<MerchantStore, 'name' | 'legal_name' | 'is_primary' | 'location' | 'status' | 'kyc_profile'>>,
+): Promise<void> {
+  const sets: string[] = [];
+  const binds: unknown[] = [];
+  let idx = 1;
+
+  if (fields.name !== undefined) { sets.push(`name = ?${idx}`); binds.push(fields.name); idx++; }
+  if (fields.legal_name !== undefined) { sets.push(`legal_name = ?${idx}`); binds.push(fields.legal_name); idx++; }
+  if (fields.is_primary !== undefined) { sets.push(`is_primary = ?${idx}`); binds.push(fields.is_primary ? 1 : 0); idx++; }
+  if (fields.location !== undefined) { sets.push(`location = ?${idx}`); binds.push(JSON.stringify(fields.location)); idx++; }
+  if (fields.status !== undefined) { sets.push(`status = ?${idx}`); binds.push(fields.status); idx++; }
+  if (fields.kyc_profile !== undefined) { sets.push(`kyc_profile = ?${idx}`); binds.push(fields.kyc_profile); idx++; }
+
+  if (sets.length === 0) return;
+  sets.push(`updated_at = ?${idx}`);
+  binds.push(new Date().toISOString());
+  idx++;
+  binds.push(storeId);
+
+  await db
+    .prepare(`UPDATE merchant_stores SET ${sets.join(', ')} WHERE id = ?${idx}`)
+    .bind(...binds)
+    .run();
+}
+
+// ---------------------------------------------------------------------------
+// Store Payment Nodes
+// ---------------------------------------------------------------------------
+
+function parsePaymentNodeRow(row: Record<string, unknown>): StorePaymentNode {
+  return {
+    id: row.id as string,
+    store_id: row.store_id as string,
+    store_node_name: row.store_node_name as string,
+    store_node_code: row.store_node_code as string,
+    description: (row.description as string) || undefined,
+    status: (row.status as StorePaymentNode['status']) || 'active',
+    is_primary: row.is_primary === 1 || row.is_primary === true,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+  };
+}
+
+export async function insertStorePaymentNode(db: D1Database, node: StorePaymentNode): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO store_payment_nodes (id, store_id, store_node_name, store_node_code, description, status, is_primary, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    )
+    .bind(
+      node.id,
+      node.store_id,
+      node.store_node_name,
+      node.store_node_code,
+      node.description ?? null,
+      node.status,
+      node.is_primary ? 1 : 0,
+      node.created_at,
+      node.updated_at,
+    )
+    .run();
+}
+
+export async function getStorePaymentNodeById(db: D1Database, nodeId: string): Promise<StorePaymentNode | null> {
+  const row = await db
+    .prepare(`SELECT * FROM store_payment_nodes WHERE id = ?1`)
+    .bind(nodeId)
+    .first();
+  return row ? parsePaymentNodeRow(row as Record<string, unknown>) : null;
+}
+
+export async function listStorePaymentNodes(
+  db: D1Database,
+  storeId: string,
+  filters?: { status?: string },
+): Promise<StorePaymentNode[]> {
+  let query = `SELECT * FROM store_payment_nodes WHERE store_id = ?1`;
+  const binds: unknown[] = [storeId];
+  if (filters?.status) {
+    query += ` AND status = ?2`;
+    binds.push(filters.status);
+  }
+  query += ` ORDER BY is_primary DESC, created_at ASC`;
+  const res = await db.prepare(query).bind(...binds).all();
+  return ((res.results ?? []) as Record<string, unknown>[]).map(parsePaymentNodeRow);
+}
+
+export async function updateStorePaymentNode(
+  db: D1Database,
+  nodeId: string,
+  fields: Partial<Pick<StorePaymentNode, 'store_node_name' | 'store_node_code' | 'description' | 'status' | 'is_primary'>>,
+): Promise<void> {
+  const sets: string[] = [];
+  const binds: unknown[] = [];
+  let idx = 1;
+
+  if (fields.store_node_name !== undefined) { sets.push(`store_node_name = ?${idx}`); binds.push(fields.store_node_name); idx++; }
+  if (fields.store_node_code !== undefined) { sets.push(`store_node_code = ?${idx}`); binds.push(fields.store_node_code); idx++; }
+  if (fields.description !== undefined) { sets.push(`description = ?${idx}`); binds.push(fields.description); idx++; }
+  if (fields.status !== undefined) { sets.push(`status = ?${idx}`); binds.push(fields.status); idx++; }
+  if (fields.is_primary !== undefined) { sets.push(`is_primary = ?${idx}`); binds.push(fields.is_primary ? 1 : 0); idx++; }
+
+  if (sets.length === 0) return;
+  sets.push(`updated_at = ?${idx}`);
+  binds.push(new Date().toISOString());
+  idx++;
+  binds.push(nodeId);
+
+  await db
+    .prepare(`UPDATE store_payment_nodes SET ${sets.join(', ')} WHERE id = ?${idx}`)
+    .bind(...binds)
+    .run();
+}
+
+export async function deleteStorePaymentNode(db: D1Database, nodeId: string): Promise<void> {
+  await db.prepare(`DELETE FROM store_payment_nodes WHERE id = ?1`).bind(nodeId).run();
 }
 
 // ---------------------------------------------------------------------------

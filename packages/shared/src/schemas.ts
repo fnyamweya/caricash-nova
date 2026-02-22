@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ActorType, TxnType, AgentType, MerchantUserRole, RegistrationType, RegistrationChannel, FloatOperationType, StaffRole, ActorState } from './enums.js';
+import { ActorType, TxnType, AgentType, MerchantUserRole, MerchantStoreStatus, StorePaymentNodeStatus, RegistrationType, RegistrationChannel, FloatOperationType, StaffRole, ActorState } from './enums.js';
 import { SUPPORTED_CURRENCIES } from './currency.js';
 
 export const loginSchema = z.object({
@@ -90,16 +90,41 @@ export type CreateMerchantInput = z.infer<typeof createMerchantSchema>;
 export const createStoreSchema = z.object({
   store_code: z.string().length(6).regex(/^\d{6}$/).optional(),
   name: z.string().min(1),
-  msisdn: z.string().min(1),
-  owner_name: z.string().min(1),
-  email: z.string().email().optional(),
-  pin: z.string().min(4),
-  pin_confirm: z.string().min(4).optional(),
-}).refine((data) => !data.pin_confirm || data.pin === data.pin_confirm, {
-  message: 'PINs do not match',
-  path: ['pin_confirm'],
+  legal_name: z.string().min(1).optional(),
+  is_primary: z.boolean().optional().default(false),
+  location: z.record(z.unknown()).optional(),
+  status: z.nativeEnum(MerchantStoreStatus).optional().default(MerchantStoreStatus.ACTIVE),
+  kyc_profile: z.string().optional(),
 });
 export type CreateStoreInput = z.infer<typeof createStoreSchema>;
+
+export const updateStoreSchema = z.object({
+  name: z.string().min(1).optional(),
+  legal_name: z.string().min(1).optional(),
+  is_primary: z.boolean().optional(),
+  location: z.record(z.unknown()).optional(),
+  status: z.nativeEnum(MerchantStoreStatus).optional(),
+  kyc_profile: z.string().optional(),
+});
+export type UpdateStoreInput = z.infer<typeof updateStoreSchema>;
+
+export const createPaymentNodeSchema = z.object({
+  store_node_name: z.string().min(1),
+  store_node_code: z.string().min(1),
+  description: z.string().optional(),
+  status: z.nativeEnum(StorePaymentNodeStatus).optional().default(StorePaymentNodeStatus.ACTIVE),
+  is_primary: z.boolean().optional().default(false),
+});
+export type CreatePaymentNodeInput = z.infer<typeof createPaymentNodeSchema>;
+
+export const updatePaymentNodeSchema = z.object({
+  store_node_name: z.string().min(1).optional(),
+  store_node_code: z.string().min(1).optional(),
+  description: z.string().optional(),
+  status: z.nativeEnum(StorePaymentNodeStatus).optional(),
+  is_primary: z.boolean().optional(),
+});
+export type UpdatePaymentNodeInput = z.infer<typeof updatePaymentNodeSchema>;
 
 export const createMerchantUserSchema = z.object({
   msisdn: z.string().min(1),

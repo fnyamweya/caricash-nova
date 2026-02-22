@@ -51,6 +51,12 @@ tags:
     description: Staff-only reconciliation and integrity verification
   - name: Overdraft
     description: Staff-only overdraft facility management (maker-checker)
+  - name: Bank
+    description: Bank deposit and webhook endpoints for external money rails
+  - name: Settlement
+    description: Merchant settlement profiles, batches, and payouts
+  - name: Fraud
+    description: Staff-only fraud engine management (signals, decisions, rules)
 
 security: []
 
@@ -2875,6 +2881,67 @@ paths:
                     type: string
                     example: 0.2.0
 
+  /health:
+    get:
+      operationId: getHealth
+      tags: [Ops]
+      summary: Health check
+      description: Returns service health status.
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                  version:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /readiness:
+    get:
+      operationId: getReadiness
+      tags: [Ops]
+      summary: Readiness check (Section N)
+      description: Returns detailed readiness status including DB connectivity, circuit breaker states, queue depth, last reconciliation.
+      responses:
+        '200':
+          description: Service ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ready, degraded]
+                  service:
+                    type: string
+                  version:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+                  checks:
+                    type: object
+                    properties:
+                      db:
+                        type: string
+                      last_reconciliation:
+                        type: string
+                      pending_webhooks:
+                        type: integer
+        '503':
+          description: Service not ready
+
   /docs:
     get:
       operationId: getSwaggerUI
@@ -2913,9 +2980,620 @@ paths:
               schema:
                 type: object
 
-# ==============================================================
-#  COMPONENTS
-# ==============================================================
+  # ============================================================
+  #  BANK — External Money Rails (Phase 4)
+  # ============================================================
+  /bank/deposits/initiate:
+    post:
+      operationId: initiateBankDeposit
+      tags: [Bank]
+      summary: Initiate a customer bank deposit
+      description: Creates a deposit intent for a customer funding their wallet from a bank account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id, amount, currency, idempotency_key]
+              properties:
+                customer_id:
+                  type: string
+                amount:
+                  type: string
+                currency:
+                  type: string
+                idempotency_key:
+                  type: string
+      responses:
+        '201':
+          description: Deposit intent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalTransferResponse'
+        '400':
+          description: Validation error
+
+  /bank/deposits/{depositId}:
+    get:
+      operationId: getBankDeposit
+      tags: [Bank]
+      summary: Get bank deposit status
+      parameters:
+        - name: depositId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deposit details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalTransfer'
+        '404':
+          description: Deposit not found
+
+  /bank/webhooks/citibank:
+    post:
+      operationId: receiveCitibankWebhook
+      tags: [Bank]
+      summary: Citibank webhook receiver
+      description: Receives webhook callbacks from Citibank for transfer status updates. Requires signature verification.
+      parameters:
+        - name: X-Webhook-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: X-Webhook-Timestamp
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CitibankWebhookPayload'
+      responses:
+        '200':
+          description: Webhook processed or duplicate
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [processed, duplicate, unmatched]
+                  delivery_id:
+                    type: string
+
+  # ============================================================
+  #  SETTLEMENT — Merchant Settlements (Phase 4)
+  # ============================================================
+  /merchants/{merchantId}/settlement/profile:
+    get:
+      operationId: getMerchantSettlementProfile
+      tags: [Settlement]
+      summary: Get merchant settlement profile
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Settlement profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantSettlementProfile'
+        '404':
+          description: No active settlement profile
+
+  /merchants/{merchantId}/settlement/profile/request:
+    post:
+      operationId: requestMerchantSettlementProfile
+      tags: [Settlement]
+      summary: Request settlement profile creation (maker)
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bank_account_id, staff_id]
+              properties:
+                bank_account_id:
+                  type: string
+                schedule:
+                  type: string
+                  enum: [T0, T1, T2]
+                mode:
+                  type: string
+                  enum: [AUTO, MANUAL]
+                min_payout_amount:
+                  type: string
+                max_payout_amount:
+                  type: string
+                daily_cap:
+                  type: string
+                require_two_approvals_above:
+                  type: string
+                staff_id:
+                  type: string
+      responses:
+        '201':
+          description: Profile request created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+
+  /merchants/{merchantId}/settlement/profile/{profileId}/approve:
+    post:
+      operationId: approveSettlementProfile
+      tags: [Settlement]
+      summary: Approve settlement profile (checker)
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id]
+              properties:
+                staff_id:
+                  type: string
+      responses:
+        '200':
+          description: Profile approved
+
+  /merchants/{merchantId}/settlement/profile/{profileId}/reject:
+    post:
+      operationId: rejectSettlementProfile
+      tags: [Settlement]
+      summary: Reject settlement profile (checker)
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id]
+              properties:
+                staff_id:
+                  type: string
+      responses:
+        '200':
+          description: Profile rejected
+
+  /merchants/{merchantId}/settlements:
+    get:
+      operationId: getMerchantSettlements
+      tags: [Settlement]
+      summary: Get merchant settlement history
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Settlement batches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batches:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SettlementBatch'
+
+  /merchants/{merchantId}/settlements/request-payout:
+    post:
+      operationId: requestMerchantPayout
+      tags: [Settlement]
+      summary: Request manual merchant payout
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, bank_account_id, staff_id]
+              properties:
+                amount:
+                  type: string
+                currency:
+                  type: string
+                bank_account_id:
+                  type: string
+                staff_id:
+                  type: string
+      responses:
+        '201':
+          description: Payout requested
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantPayoutResponse'
+
+  /merchants/{merchantId}/payouts/{payoutId}:
+    get:
+      operationId: getMerchantPayout
+      tags: [Settlement]
+      summary: Get merchant payout details
+      parameters:
+        - name: merchantId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: payoutId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payout details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantPayout'
+        '404':
+          description: Payout not found
+
+  # ============================================================
+  #  OPS — Phase 4 Staff Operations
+  # ============================================================
+  /ops/external-transfers:
+    get:
+      operationId: listExternalTransfers
+      tags: [Ops]
+      summary: List external transfers
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: External transfers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transfers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExternalTransfer'
+
+  /ops/external-transfers/{transferId}:
+    get:
+      operationId: getExternalTransfer
+      tags: [Ops]
+      summary: Get external transfer details
+      parameters:
+        - name: transferId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transfer details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalTransfer'
+        '404':
+          description: Transfer not found
+
+  /ops/external-transfers/{transferId}/retry:
+    post:
+      operationId: retryExternalTransfer
+      tags: [Ops]
+      summary: Retry a failed external transfer
+      parameters:
+        - name: transferId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transfer queued for retry
+        '404':
+          description: Transfer not found or not failed
+
+  /ops/settlement/batches:
+    get:
+      operationId: listSettlementBatches
+      tags: [Ops]
+      summary: List settlement batches
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Settlement batches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batches:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SettlementBatch'
+
+  /ops/settlement/batches/run:
+    post:
+      operationId: runSettlementBatches
+      tags: [Ops]
+      summary: Trigger settlement batch creation for eligible merchants
+      responses:
+        '200':
+          description: Batch run results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batches_created:
+                    type: array
+                    items:
+                      type: string
+                  count:
+                    type: integer
+
+  /ops/settlement/payouts/{payoutId}/approve:
+    post:
+      operationId: approveSettlementPayout
+      tags: [Ops]
+      summary: Approve a settlement payout (checker)
+      parameters:
+        - name: payoutId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id]
+              properties:
+                staff_id:
+                  type: string
+      responses:
+        '200':
+          description: Payout approved
+
+  /ops/settlement/payouts/{payoutId}/reject:
+    post:
+      operationId: rejectSettlementPayout
+      tags: [Ops]
+      summary: Reject a settlement payout
+      parameters:
+        - name: payoutId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payout rejected
+
+  /ops/webhooks/replay/{deliveryId}:
+    post:
+      operationId: replayWebhookDelivery
+      tags: [Ops]
+      summary: Replay a webhook delivery
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delivery queued for reprocessing
+        '404':
+          description: Delivery not found
+
+  # ============================================================
+  #  FRAUD — Staff-only Fraud Engine (Phase 4)
+  # ============================================================
+  /ops/fraud/decisions:
+    get:
+      operationId: listFraudDecisions
+      tags: [Fraud]
+      summary: Query fraud decisions
+      parameters:
+        - name: contextType
+          in: query
+          schema:
+            type: string
+        - name: contextId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Fraud decisions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  decisions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FraudDecision'
+
+  /ops/fraud/signals:
+    get:
+      operationId: listFraudSignals
+      tags: [Fraud]
+      summary: Query fraud signals
+      parameters:
+        - name: actorType
+          in: query
+          schema:
+            type: string
+        - name: actorId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Fraud signals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FraudSignal'
+
+  /ops/fraud/rules/version/request:
+    post:
+      operationId: requestFraudRulesVersion
+      tags: [Fraud]
+      summary: Create new fraud rules version (maker)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id, rules]
+              properties:
+                staff_id:
+                  type: string
+                rules:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      applies_to_context:
+                        type: string
+                      severity:
+                        type: string
+                      action:
+                        type: string
+                      conditions_json:
+                        type: string
+                      priority:
+                        type: integer
+      responses:
+        '201':
+          description: Rules version created
+
+  /ops/fraud/rules/version/{versionId}/approve:
+    post:
+      operationId: approveFraudRulesVersion
+      tags: [Fraud]
+      summary: Approve and activate fraud rules version (checker)
+      parameters:
+        - name: versionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id]
+              properties:
+                staff_id:
+                  type: string
+      responses:
+        '200':
+          description: Version activated
+
+  /ops/fraud/rules/version/{versionId}:
+    get:
+      operationId: getFraudRulesVersion
+      tags: [Fraud]
+      summary: Get fraud rules version with rules
+      parameters:
+        - name: versionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Rules version with rules
+        '404':
+          description: Version not found
 components:
   securitySchemes:
     CustomerAuth:
@@ -4792,6 +5470,218 @@ components:
         maker_staff_id:
           type: string
         checker_staff_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    # ---- Phase 4: External Rails Schemas ----
+    ExternalTransfer:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        provider_transfer_id:
+          type: string
+        client_reference:
+          type: string
+        direction:
+          type: string
+          enum: [INBOUND, OUTBOUND]
+        transfer_type:
+          type: string
+          enum: [CUSTOMER_BANK_DEPOSIT, MERCHANT_PAYOUT, AGENT_FLOAT_FUND, SWEEP, MANUAL_DISBURSEMENT]
+        currency:
+          type: string
+        amount:
+          type: string
+        status:
+          type: string
+          enum: [CREATED, PENDING, SETTLED, FAILED, CANCELLED, REVERSED]
+        correlation_id:
+          type: string
+        initiated_at:
+          type: string
+          format: date-time
+        settled_at:
+          type: string
+          format: date-time
+          nullable: true
+        failure_reason:
+          type: string
+          nullable: true
+        journal_id:
+          type: string
+          nullable: true
+
+    ExternalTransferResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        client_reference:
+          type: string
+        status:
+          type: string
+        correlation_id:
+          type: string
+
+    CitibankWebhookPayload:
+      type: object
+      required: [bank_transfer_id, client_reference, status, amount, currency, occurred_at]
+      properties:
+        bank_transfer_id:
+          type: string
+        client_reference:
+          type: string
+        status:
+          type: string
+          enum: [CREATED, PENDING, SETTLED, FAILED, REVERSED]
+        amount:
+          type: string
+        currency:
+          type: string
+        from_account_id:
+          type: string
+        to_account_id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+
+    MerchantSettlementProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        merchant_id:
+          type: string
+        currency:
+          type: string
+        bank_account_id:
+          type: string
+        schedule:
+          type: string
+          enum: [T0, T1, T2]
+        mode:
+          type: string
+          enum: [AUTO, MANUAL]
+        min_payout_amount:
+          type: string
+        max_payout_amount:
+          type: string
+        daily_cap:
+          type: string
+        require_maker_checker:
+          type: boolean
+        require_two_approvals_above:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, PENDING_APPROVAL]
+        effective_from:
+          type: string
+          format: date-time
+
+    SettlementBatch:
+      type: object
+      properties:
+        id:
+          type: string
+        merchant_id:
+          type: string
+        currency:
+          type: string
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        schedule:
+          type: string
+        mode:
+          type: string
+        status:
+          type: string
+          enum: [CREATED, READY, REQUESTED, PROCESSING, COMPLETED, FAILED]
+        total_amount:
+          type: string
+        total_count:
+          type: integer
+
+    MerchantPayout:
+      type: object
+      properties:
+        id:
+          type: string
+        merchant_id:
+          type: string
+        currency:
+          type: string
+        amount:
+          type: string
+        bank_account_id:
+          type: string
+        status:
+          type: string
+          enum: [REQUESTED, APPROVED, PENDING, SETTLED, FAILED, CANCELLED]
+        external_transfer_id:
+          type: string
+          nullable: true
+        approvals_required:
+          type: integer
+
+    MerchantPayoutResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        approvals_required:
+          type: integer
+
+    FraudDecision:
+      type: object
+      properties:
+        id:
+          type: string
+        context_type:
+          type: string
+          enum: [TXN, PAYOUT, BANK_DEPOSIT]
+        context_id:
+          type: string
+        decision:
+          type: string
+          enum: [ALLOW, BLOCK, STEP_UP, HOLD, FREEZE]
+        reasons_json:
+          type: string
+        rules_version_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    FraudSignal:
+      type: object
+      properties:
+        id:
+          type: string
+        actor_type:
+          type: string
+        actor_id:
+          type: string
+        signal_type:
+          type: string
+        severity:
+          type: string
+          enum: [INFO, WARN, CRITICAL]
+        evidence_ref:
+          type: string
+        payload_json:
           type: string
         created_at:
           type: string

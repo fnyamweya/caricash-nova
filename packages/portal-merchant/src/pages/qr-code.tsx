@@ -70,7 +70,7 @@ export function QrCodePage() {
                 const dataUrl = await QRCode.toDataURL(payloadJson, {
                     width: 320,
                     margin: 2,
-                    color: { dark: '#06291f', light: '#ffffff' },
+                    color: { dark: '#111827', light: '#ffffff' },
                     errorCorrectionLevel: 'M',
                 });
                 if (!cancelled) setQrDataUrl(dataUrl);
@@ -79,7 +79,7 @@ export function QrCodePage() {
                     type: 'svg',
                     width: 320,
                     margin: 2,
-                    color: { dark: '#06291f', light: '#ffffff' },
+                    color: { dark: '#111827', light: '#ffffff' },
                     errorCorrectionLevel: 'M',
                 });
                 if (!cancelled) setSvgMarkup(svg);
@@ -88,7 +88,7 @@ export function QrCodePage() {
                     await QRCode.toCanvas(canvasRef.current, payloadJson, {
                         width: 640,
                         margin: 2,
-                        color: { dark: '#06291f', light: '#ffffff' },
+                        color: { dark: '#111827', light: '#ffffff' },
                         errorCorrectionLevel: 'M',
                     });
                 }
@@ -162,13 +162,13 @@ export function QrCodePage() {
                 <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
                     <MerchantSection title="QR Preview" description="Optimized display for screen sharing, print, or countertop use.">
                         <div className="space-y-4">
-                            <motion.div layout className="rounded-[28px] border border-white/50 bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(244,255,250,0.9))] p-4 shadow-[0_20px_45px_-35px_rgba(3,18,14,0.6)]">
+                            <motion.div layout className="rounded-[28px] border border-border/70 bg-card p-4 shadow-[0_20px_45px_-35px_rgba(15,23,42,0.24)]">
                                 <div className="mb-3 flex items-center justify-between gap-2">
                                     <div>
                                         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Collect QR</p>
                                         <p className="text-sm font-semibold">{storeCode || 'No store selected'}</p>
                                     </div>
-                                    <Badge className="rounded-full bg-emerald-500/12 text-emerald-700 hover:bg-emerald-500/12">
+                                    <Badge className="rounded-full border border-primary/20 bg-primary/10 text-primary hover:bg-primary/10">
                                         {format === 'amount' ? 'Fixed' : 'Open Amount'}
                                     </Badge>
                                 </div>
@@ -213,7 +213,7 @@ export function QrCodePage() {
                                     <Printer className="h-4 w-4" /> Print
                                 </Button>
                                 <Button variant="outline" className="rounded-xl" onClick={handleCopy} disabled={!canRenderQr}>
-                                    {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                                    {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4" />}
                                     {copied ? 'Copied' : 'Copy'}
                                 </Button>
                             </div>
@@ -265,7 +265,7 @@ export function QrCodePage() {
                     title={storeCode ? `QR ready for ${storeCode}` : 'Select a store to generate QR'}
                     subtitle={format === 'amount' && amount ? `Fixed amount: BBD ${Number(amount || 0).toFixed(2)}` : 'Static collect QR recommended for countertop usage.'}
                     secondary={<Button variant="outline" className="w-full rounded-xl sm:w-auto" onClick={() => { setFormat('static'); setAmount(''); }}>Reset to Static</Button>}
-                    primary={<Button className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-600/90 sm:w-auto" onClick={handlePrint} disabled={!canRenderQr}><Printer className="h-4 w-4" />Print Counter QR</Button>}
+                    primary={<Button className="w-full rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto" onClick={handlePrint} disabled={!canRenderQr}><Printer className="h-4 w-4" />Print Counter QR</Button>}
                 />
             </div>
         </PageTransition>
