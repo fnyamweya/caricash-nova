@@ -16,6 +16,7 @@ import {
     ChevronRight,
 } from 'lucide-react';
 import {
+    ApiError,
     useAuth,
     useApi,
     PageTransition,
@@ -79,6 +80,8 @@ interface ContactNavigator extends Navigator {
 
 const QUICK_AMOUNTS = ['20.00', '50.00', '100.00', '200.00'] as const;
 const RECENT_RECIPIENTS_KEY = 'caricash_recent_recipients';
+const RECIPIENT_LOOKUP_COUNT_KEY = 'caricash_recipient_lookup_count';
+const RECIPIENT_LOOKUP_LIMIT = 3;
 
 function loadRecentRecipients(): string[] {
     if (typeof window === 'undefined') return [];
@@ -100,6 +103,40 @@ function persistRecentRecipient(msisdn: string): string[] {
     return next;
 }
 
+function loadRecipientLookupCount(): number {
+    if (typeof window === 'undefined') return 0;
+    const raw = sessionStorage.getItem(RECIPIENT_LOOKUP_COUNT_KEY);
+    if (!raw) return 0;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) return 0;
+    return Math.floor(parsed);
+}
+
+function isInsufficientFundsError(err: unknown): boolean {
+    if (!(err instanceof ApiError)) {
+        return err instanceof Error && /insufficient|balance too low/i.test(err.message);
+    }
+
+    const body = err.body;
+    if (body && typeof body === 'object') {
+        const code = 'code' in body ? String((body as { code?: unknown }).code ?? '') : '';
+        const name = 'name' in body ? String((body as { name?: unknown }).name ?? '') : '';
+        if (code === 'INSUFFICIENT_FUNDS' || name === 'InsufficientFundsError') return true;
+    }
+
+    return /insufficient|balance too low/i.test(err.message);
+}
+
+function getTransferErrorMessage(err: unknown): string {
+    if (isInsufficientFundsError(err)) {
+        return 'Insufficient balance. Reduce the amount and try again.';
+    }
+    if (err instanceof Error && err.message.trim()) {
+        return err.message;
+    }
+    return 'Transfer failed. Please try again.';
+}
+
 export function SendMoneyPage() {
     const { actor } = useAuth();
     const api = useApi();
@@ -111,6 +148,7 @@ export function SendMoneyPage() {
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [receipt, setReceipt] = useState<PostingReceipt | null>(null);
     const [recentRecipients, setRecentRecipients] = useState<string[]>(() => loadRecentRecipients());
+    const [recipientLookupCount, setRecipientLookupCount] = useState<number>(() => loadRecipientLookupCount());
     const [selectedContactName, setSelectedContactName] = useState<string | null>(null);
     const [contactPickerError, setContactPickerError] = useState<string | null>(null);
 
@@ -130,6 +168,7 @@ export function SendMoneyPage() {
     const numericAmount = useMemo(() => Number(amount), [amount]);
     const normalizedAmount = Number.isFinite(numericAmount) && numericAmount > 0 ? numericAmount.toFixed(2) : '0.00';
     const canReview = receiverMsisdn.trim().length >= 7 && Number.isFinite(numericAmount) && numericAmount > 0;
+    const remainingRecipientLookups = Math.max(RECIPIENT_LOOKUP_LIMIT - recipientLookupCount, 0);
 
     const mutation = useMutation({
         mutationFn: async () => {
@@ -151,9 +190,27 @@ export function SendMoneyPage() {
             setVerifiedRecipient(null);
         },
     });
+    const mutationErrorMessage = mutation.isError ? getTransferErrorMessage(mutation.error) : null;
+
+    function consumeRecipientLookupAttempt(): boolean {
+        if (recipientLookupCount >= RECIPIENT_LOOKUP_LIMIT) {
+            return false;
+        }
+        const next = recipientLookupCount + 1;
+        setRecipientLookupCount(next);
+        sessionStorage.setItem(RECIPIENT_LOOKUP_COUNT_KEY, String(next));
+        return true;
+    }
 
     async function beginReview() {
         if (!canReview) return;
+        mutation.reset();
+
+        if (!consumeRecipientLookupAttempt()) {
+            setVerifyError('Recipient verification limit reached for this session. Start a new session to verify more recipients.');
+            setVerifiedRecipient(null);
+            return;
+        }
 
         // Look up recipient before showing PIN modal
         setVerifyLoading(true);
@@ -339,7 +396,12 @@ export function SendMoneyPage() {
                                                         type="tel"
                                                         placeholder="e.g. +12465551234"
                                                         value={receiverMsisdn}
-                                                        onChange={(e) => setReceiverMsisdn(e.target.value)}
+                                                        onChange={(e) => {
+                                                            setReceiverMsisdn(e.target.value);
+                                                            setVerifyError(null);
+                                                            setVerifiedRecipient(null);
+                                                            mutation.reset();
+                                                        }}
                                                         className="h-11 rounded-xl border-border/70 pr-12"
                                                         required
                                                     />
@@ -433,16 +495,28 @@ export function SendMoneyPage() {
                                                     step="0.01"
                                                     placeholder="0.00"
                                                     value={amount}
-                                                    onChange={(e) => setAmount(e.target.value)}
+                                                    onChange={(e) => {
+                                                        setAmount(e.target.value);
+                                                        mutation.reset();
+                                                    }}
                                                     className="h-11 rounded-xl border-border/70 text-base"
                                                     required
                                                 />
                                                 <p className="text-xs text-muted-foreground">
                                                     Recipient receives the full amount. No transfer fee.
                                                 </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    Recipient name checks left this session: {remainingRecipientLookups}
+                                                </p>
                                             </div>
 
-                                            <QuickAmountGrid amounts={QUICK_AMOUNTS} onSelect={setAmount} />
+                                            <QuickAmountGrid
+                                                amounts={QUICK_AMOUNTS}
+                                                onSelect={(value) => {
+                                                    setAmount(value);
+                                                    mutation.reset();
+                                                }}
+                                            />
 
                                             <div className="rounded-2xl border border-border/70 bg-background/80 p-3">
                                                 <div className="mb-2 flex items-center justify-between">
@@ -502,7 +576,7 @@ export function SendMoneyPage() {
                                                 exit={{ opacity: 0, y: 6 }}
                                                 className="text-sm text-destructive"
                                             >
-                                                {mutation.error?.message ?? 'Transfer failed. Please try again.'}
+                                                {mutationErrorMessage}
                                             </motion.p>
                                         ) : null}
                                     </AnimatePresence>
@@ -630,11 +704,17 @@ export function SendMoneyPage() {
                     { label: 'Recipient gets', value: `BBD ${normalizedAmount}` },
                 ]}
                 pin={confirmPin}
-                onPinChange={setConfirmPin}
-                onConfirm={() => mutation.mutate()}
+                onPinChange={(value) => {
+                    setConfirmPin(value);
+                    if (mutation.isError) mutation.reset();
+                }}
+                onConfirm={() => {
+                    mutation.reset();
+                    mutation.mutate();
+                }}
                 confirmLabel="Confirm Transfer"
                 loading={mutation.isPending}
-                error={mutation.isError ? mutation.error?.message ?? 'Transfer failed.' : null}
+                error={mutationErrorMessage}
             />
 
             <CustomerSuccessDialog
@@ -642,17 +722,18 @@ export function SendMoneyPage() {
                 onOpenChange={(open) => {
                     if (!open) setReceipt(null);
                 }}
-                title="Transfer Successful"
-                description="Your transfer has been processed."
+                title="Money sent"
+                description={`BBD ${normalizedAmount} was sent to ${getRecipientDisplayName()}.`}
             >
                 {receipt ? (
                     <div className="rounded-md bg-muted p-4 text-sm">
                         <p>
-                            <span className="font-medium">Posting ID:</span> {receipt.posting_id}
+                            <span className="font-medium">Reference:</span> {receipt.posting_id}
                         </p>
                         <p>
-                            <span className="font-medium">State:</span> {receipt.state}
+                            <span className="font-medium">Status:</span> {receipt.state}
                         </p>
+                        <p className="mt-1 text-muted-foreground">You can find this transfer in Activity.</p>
                     </div>
                 ) : null}
             </CustomerSuccessDialog>

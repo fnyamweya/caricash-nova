@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
+    ApiError,
     Badge,
     Button,
     Card,
@@ -200,13 +201,37 @@ function persistRecentMerchant(merchant: RecentMerchant): RecentMerchant[] {
     return next;
 }
 
+function isInsufficientFundsError(err: unknown): boolean {
+    if (!(err instanceof ApiError)) {
+        return err instanceof Error && /insufficient|balance too low/i.test(err.message);
+    }
+
+    const body = err.body;
+    if (body && typeof body === 'object') {
+        const code = 'code' in body ? String((body as { code?: unknown }).code ?? '') : '';
+        const name = 'name' in body ? String((body as { name?: unknown }).name ?? '') : '';
+        if (code === 'INSUFFICIENT_FUNDS' || name === 'InsufficientFundsError') return true;
+    }
+
+    return /insufficient|balance too low/i.test(err.message);
+}
+
+function getPaymentErrorMessage(err: unknown): string {
+    if (isInsufficientFundsError(err)) {
+        return 'Insufficient balance. Reduce the amount and try again.';
+    }
+    if (err instanceof Error && err.message.trim()) {
+        return err.message;
+    }
+    return 'Payment failed. Please try again.';
+}
+
 export function PayMerchantPage() {
     const { actor } = useAuth();
     const api = useApi();
     const navigate = useNavigate();
 
     const [storeCode, setStoreCode] = useState('');
-    const [merchantName, setMerchantName] = useState('');
     const [amount, setAmount] = useState('');
     const [confirmPin, setConfirmPin] = useState('');
     const [confirmOpen, setConfirmOpen] = useState(false);
@@ -225,7 +250,6 @@ export function PayMerchantPage() {
         const prefill = consumePayFlowPrefill();
         if (!prefill) return;
         if (prefill.storeCode) setStoreCode(prefill.storeCode);
-        if (prefill.merchantName) setMerchantName(prefill.merchantName);
         if (prefill.amount) setAmount(prefill.amount);
     }, []);
 
@@ -257,7 +281,6 @@ export function PayMerchantPage() {
         (parsed: ParsedMerchantQr) => {
             setStoreCode(parsed.storeCode);
             if (parsed.amount) setAmount(parsed.amount);
-            if (parsed.merchantName) setMerchantName(parsed.merchantName);
             setScannerError(null);
             setScannerOpen(false);
             setManualQrPayload('');
@@ -357,20 +380,21 @@ export function PayMerchantPage() {
             setRecentMerchants(
                 persistRecentMerchant({
                     storeCode: storeCode.trim(),
-                    merchantName: merchantName.trim() || undefined,
+                    merchantName: verifiedMerchant?.name?.trim() || undefined,
                 }),
             );
             setStoreCode('');
-            setMerchantName('');
             setAmount('');
             setConfirmPin('');
             setConfirmOpen(false);
             setVerifiedMerchant(null);
         },
     });
+    const mutationErrorMessage = mutation.isError ? getPaymentErrorMessage(mutation.error) : null;
 
     async function beginReview() {
         if (!canReview) return;
+        mutation.reset();
 
         // Look up merchant before showing PIN modal
         setVerifyLoading(true);
@@ -382,10 +406,6 @@ export function PayMerchantPage() {
                 `/actors/lookup?store_code=${encodeURIComponent(storeCode.trim())}`,
             );
             setVerifiedMerchant(result.actor);
-            // Also update merchant name from verified data
-            if (result.actor.name && !merchantName.trim()) {
-                setMerchantName(result.actor.name);
-            }
             setConfirmOpen(true);
         } catch (err) {
             const msg = err instanceof Error ? err.message : 'Merchant not found';
@@ -406,7 +426,8 @@ export function PayMerchantPage() {
             if (parts.length > 0) return `${verifiedMerchant.name} (${parts.join(' ')})`;
             return verifiedMerchant.name;
         }
-        return merchantName.trim() || storeCode.trim() || '-';
+        const cached = recentMerchants.find((entry) => entry.storeCode === storeCode.trim())?.merchantName;
+        return cached || storeCode.trim() || '-';
     }
 
     const stepItems = [
@@ -543,20 +564,14 @@ export function PayMerchantPage() {
                                                             type="text"
                                                             placeholder="e.g. STORE001"
                                                             value={storeCode}
-                                                            onChange={(e) => setStoreCode(e.target.value)}
+                                                            onChange={(e) => {
+                                                                setStoreCode(e.target.value);
+                                                                setVerifyError(null);
+                                                                setVerifiedMerchant(null);
+                                                                mutation.reset();
+                                                            }}
                                                             className="h-11 rounded-xl border-border/70"
                                                             required
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-1.5">
-                                                        <Label htmlFor="merchant-name">Merchant Name (optional)</Label>
-                                                        <Input
-                                                            id="merchant-name"
-                                                            type="text"
-                                                            placeholder="e.g. Corner Grocer"
-                                                            value={merchantName}
-                                                            onChange={(e) => setMerchantName(e.target.value)}
-                                                            className="h-11 rounded-xl border-border/70"
                                                         />
                                                     </div>
                                                 </motion.div>
@@ -587,30 +602,22 @@ export function PayMerchantPage() {
                                                         </Button>
                                                     </div>
 
-                                                    <div className="grid gap-4 sm:grid-cols-2">
-                                                        <div className="space-y-1.5">
-                                                            <Label htmlFor="store-code-scan">Store Code</Label>
-                                                            <Input
-                                                                id="store-code-scan"
-                                                                type="text"
-                                                                placeholder="Autofilled or enter manually"
-                                                                value={storeCode}
-                                                                onChange={(e) => setStoreCode(e.target.value)}
-                                                                className="h-11 rounded-xl border-border/70"
-                                                                required
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1.5">
-                                                            <Label htmlFor="merchant-name-scan">Merchant Name</Label>
-                                                            <Input
-                                                                id="merchant-name-scan"
-                                                                type="text"
-                                                                placeholder="Optional"
-                                                                value={merchantName}
-                                                                onChange={(e) => setMerchantName(e.target.value)}
-                                                                className="h-11 rounded-xl border-border/70"
-                                                            />
-                                                        </div>
+                                                    <div className="space-y-1.5">
+                                                        <Label htmlFor="store-code-scan">Store Code</Label>
+                                                        <Input
+                                                            id="store-code-scan"
+                                                            type="text"
+                                                            placeholder="Autofilled or enter manually"
+                                                            value={storeCode}
+                                                            onChange={(e) => {
+                                                                setStoreCode(e.target.value);
+                                                                setVerifyError(null);
+                                                                setVerifiedMerchant(null);
+                                                                mutation.reset();
+                                                            }}
+                                                            className="h-11 rounded-xl border-border/70"
+                                                            required
+                                                        />
                                                     </div>
                                                 </motion.div>
                                             </TabsContent>
@@ -633,7 +640,9 @@ export function PayMerchantPage() {
                                                             whileTap={{ scale: 0.98 }}
                                                             onClick={() => {
                                                                 setStoreCode(merchant.storeCode);
-                                                                setMerchantName(merchant.merchantName ?? '');
+                                                                setVerifyError(null);
+                                                                setVerifiedMerchant(null);
+                                                                mutation.reset();
                                                             }}
                                                             className={cn(
                                                                 'min-w-[160px] shrink-0 rounded-2xl border p-3 text-left transition-colors',
@@ -676,12 +685,21 @@ export function PayMerchantPage() {
                                                     step="0.01"
                                                     placeholder="0.00"
                                                     value={amount}
-                                                    onChange={(e) => setAmount(e.target.value)}
+                                                    onChange={(e) => {
+                                                        setAmount(e.target.value);
+                                                        mutation.reset();
+                                                    }}
                                                     className="h-11 rounded-xl border-border/70 text-base"
                                                     required
                                                 />
                                             </div>
-                                            <QuickAmountGrid amounts={QUICK_AMOUNTS} onSelect={setAmount} />
+                                            <QuickAmountGrid
+                                                amounts={QUICK_AMOUNTS}
+                                                onSelect={(value) => {
+                                                    setAmount(value);
+                                                    mutation.reset();
+                                                }}
+                                            />
                                         </div>
 
                                         <div className="space-y-4 rounded-2xl border border-border/70 bg-background/70 p-4">
@@ -706,7 +724,7 @@ export function PayMerchantPage() {
                                                 </div>
                                                 <div className="flex items-center justify-between gap-2">
                                                     <span className="text-muted-foreground">Merchant</span>
-                                                    <span className="max-w-[60%] truncate font-semibold">{merchantName.trim() || 'Optional'}</span>
+                                                    <span className="max-w-[60%] truncate font-semibold">{getMerchantDisplayName()}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -752,7 +770,7 @@ export function PayMerchantPage() {
                                                 exit={{ opacity: 0, y: 6 }}
                                                 className="text-sm text-destructive"
                                             >
-                                                {mutation.error?.message ?? 'Payment failed. Please try again.'}
+                                                {mutationErrorMessage}
                                             </motion.p>
                                         ) : null}
                                     </AnimatePresence>
@@ -847,7 +865,7 @@ export function PayMerchantPage() {
                 title={`BBD ${normalizedAmount}`}
                 subtitle={
                     storeCode.trim()
-                        ? `Pay ${merchantName.trim() || storeCode.trim()}`
+                        ? `Pay ${getMerchantDisplayName()}`
                         : 'Add merchant and amount to continue'
                 }
                 actionLabel={verifyLoading ? 'Verifying...' : 'Review'}
@@ -875,11 +893,17 @@ export function PayMerchantPage() {
                     { label: 'Fee', value: 'BBD 0.00' },
                 ]}
                 pin={confirmPin}
-                onPinChange={setConfirmPin}
-                onConfirm={() => mutation.mutate()}
+                onPinChange={(value) => {
+                    setConfirmPin(value);
+                    if (mutation.isError) mutation.reset();
+                }}
+                onConfirm={() => {
+                    mutation.reset();
+                    mutation.mutate();
+                }}
                 confirmLabel="Confirm Payment"
                 loading={mutation.isPending}
-                error={mutation.isError ? mutation.error?.message ?? 'Payment failed.' : null}
+                error={mutationErrorMessage}
             />
 
             <Dialog
@@ -948,17 +972,18 @@ export function PayMerchantPage() {
                 onOpenChange={(open) => {
                     if (!open) setReceipt(null);
                 }}
-                title="Payment Successful"
-                description="Your payment has been processed."
+                title="Payment complete"
+                description={`BBD ${normalizedAmount} was paid to ${getMerchantDisplayName()}.`}
             >
                 {receipt ? (
                     <div className="rounded-md bg-muted p-4 text-sm">
                         <p>
-                            <span className="font-medium">Posting ID:</span> {receipt.posting_id}
+                            <span className="font-medium">Reference:</span> {receipt.posting_id}
                         </p>
                         <p>
-                            <span className="font-medium">State:</span> {receipt.state}
+                            <span className="font-medium">Status:</span> {receipt.state}
                         </p>
+                        <p className="mt-1 text-muted-foreground">You can find this payment in Activity.</p>
                     </div>
                 ) : null}
             </CustomerSuccessDialog>
