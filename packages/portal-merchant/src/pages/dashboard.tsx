@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { CreditCard, ArrowLeftRight, TrendingUp, QrCode, Users } from 'lucide-react';
+import { CreditCard, ArrowLeftRight, TrendingUp, QrCode, Users, Banknote } from 'lucide-react';
 import {
     useAuth,
     useApi,
@@ -9,12 +9,34 @@ import {
     BalanceCard,
     StatCard,
     ActionCard,
+    formatCurrency,
 } from '@caricash/ui';
 
 interface BalanceResponse {
     balance: string;
     currency: string;
     wallet_id: string;
+}
+
+interface StatementEntry {
+    entry_type: 'DR' | 'CR';
+    amount: string;
+    posted_at: string;
+    credit_amount_minor?: number;
+    txn_type: string;
+}
+
+interface StatementResponse {
+    entries: StatementEntry[];
+    count: number;
+}
+
+function isToday(dateStr: string): boolean {
+    const d = new Date(dateStr);
+    const now = new Date();
+    return d.getFullYear() === now.getFullYear()
+        && d.getMonth() === now.getMonth()
+        && d.getDate() === now.getDate();
 }
 
 export function DashboardPage() {
@@ -31,6 +53,31 @@ export function DashboardPage() {
         enabled: !!actor?.id,
         refetchInterval: 30_000,
     });
+
+    const statementQuery = useQuery({
+        queryKey: ['merchant-statement-dash', actor?.id],
+        queryFn: () =>
+            api.get<StatementResponse>(
+                `/wallets/MERCHANT/${actor!.id}/BBD/statement?limit=200`,
+            ),
+        enabled: !!actor?.id,
+        refetchInterval: 60_000,
+    });
+
+    // Compute stats from statement
+    const entries = statementQuery.data?.entries ?? [];
+    const credits = entries.filter((e) => e.entry_type === 'CR');
+    const todayCredits = credits.filter((e) => isToday(e.posted_at));
+
+    const todayTotal = todayCredits.reduce((sum, e) => {
+        const amt = parseFloat(e.amount) || (e.credit_amount_minor ? e.credit_amount_minor / 100 : 0);
+        return sum + amt;
+    }, 0);
+
+    const totalRevenue = credits.reduce((sum, e) => {
+        const amt = parseFloat(e.amount) || (e.credit_amount_minor ? e.credit_amount_minor / 100 : 0);
+        return sum + amt;
+    }, 0);
 
     return (
         <PageTransition>
@@ -50,14 +97,18 @@ export function DashboardPage() {
                     />
                     <StatCard
                         title="Today's Payments"
-                        value="—"
+                        value={todayCredits.length > 0
+                            ? `${todayCredits.length} (${formatCurrency(todayTotal.toFixed(2), 'BBD')})`
+                            : '0'}
                         description="Incoming payments today"
                         icon={<CreditCard className="h-4 w-4" />}
                     />
                     <StatCard
                         title="Revenue"
-                        value="—"
-                        description="Total revenue this period"
+                        value={credits.length > 0
+                            ? formatCurrency(totalRevenue.toFixed(2), 'BBD')
+                            : '—'}
+                        description={`Total from ${credits.length} transaction${credits.length !== 1 ? 's' : ''}`}
                         icon={<TrendingUp className="h-4 w-4" />}
                     />
                 </div>

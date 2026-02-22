@@ -158,6 +158,49 @@ export async function listStaffActors(
   return (res.results ?? []) as Actor[];
 }
 
+export async function listActors(
+  db: D1Database,
+  filters?: { type?: string; state?: string; parent_actor_id?: string; limit?: number; offset?: number },
+): Promise<Actor[]> {
+  const where: string[] = [];
+  const values: (string | number)[] = [];
+  let paramIdx = 1;
+
+  if (filters?.type) {
+    where.push(`type = ?${paramIdx++}`);
+    values.push(filters.type);
+  }
+  if (filters?.state) {
+    where.push(`state = ?${paramIdx++}`);
+    values.push(filters.state);
+  }
+  if (filters?.parent_actor_id) {
+    where.push(`parent_actor_id = ?${paramIdx++}`);
+    values.push(filters.parent_actor_id);
+  }
+
+  const limit = filters?.limit ?? 200;
+  const offset = filters?.offset ?? 0;
+
+  values.push(limit);
+  const limitParam = paramIdx++;
+  values.push(offset);
+  const offsetParam = paramIdx++;
+
+  const res = await db
+    .prepare(
+      `SELECT *
+       FROM actors
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY created_at DESC
+       LIMIT ?${limitParam} OFFSET ?${offsetParam}`,
+    )
+    .bind(...values)
+    .all();
+
+  return (res.results ?? []) as Actor[];
+}
+
 export async function getStaffActorById(db: D1Database, id: string): Promise<Actor | null> {
   return (await db
     .prepare("SELECT * FROM actors WHERE id = ?1 AND type = 'STAFF'")

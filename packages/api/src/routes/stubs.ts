@@ -2,22 +2,16 @@
  * Stub routes for endpoints defined in the OpenAPI spec but not yet implemented.
  * Each returns 501 Not Implemented with a clear message.
  * These ensure spec-to-route coverage tests pass.
+ *
+ * Implemented stubs are removed as real endpoints are added.
  */
 import { Hono } from 'hono';
 import type { Env } from '../index.js';
 
 // ---- Customer stubs ----
+// GET /customers/:id — now implemented in customers.ts
+// GET /customers/:id/kyc — now implemented in customers.ts
 export const customerStubRoutes = new Hono<{ Bindings: Env }>();
-
-// GET /customers/:id — TODO: implement full customer profile retrieval
-customerStubRoutes.get('/:id', async (c) => {
-  return c.json({ error: 'Not yet implemented', code: 'NOT_IMPLEMENTED' }, 501);
-});
-
-// GET /customers/:id/kyc — TODO: implement KYC status retrieval
-customerStubRoutes.get('/:id/kyc', async (c) => {
-  return c.json({ error: 'Not yet implemented', code: 'NOT_IMPLEMENTED' }, 501);
-});
 
 // ---- Agent stubs ----
 export const agentStubRoutes = new Hono<{ Bindings: Env }>();
@@ -38,32 +32,8 @@ agentStubRoutes.get('/:id/kyc', async (c) => {
 });
 
 // ---- Merchant stubs ----
+// All merchant stubs now implemented in merchants.ts
 export const merchantStubRoutes = new Hono<{ Bindings: Env }>();
-
-// GET /merchants/:id — TODO: implement merchant profile retrieval
-merchantStubRoutes.get('/:id', async (c) => {
-  return c.json({ error: 'Not yet implemented', code: 'NOT_IMPLEMENTED' }, 501);
-});
-
-// POST /merchants/:id/kyc/initiate — TODO: implement merchant KYC initiation
-merchantStubRoutes.post('/:id/kyc/initiate', async (c) => {
-  return c.json({ error: 'Not yet implemented', code: 'NOT_IMPLEMENTED' }, 501);
-});
-
-// GET /merchants/:id/kyc — TODO: implement merchant KYC status retrieval
-merchantStubRoutes.get('/:id/kyc', async (c) => {
-  return c.json({ error: 'Not yet implemented', code: 'NOT_IMPLEMENTED' }, 501);
-});
-
-// POST /merchants/:id/stores — TODO: implement store creation
-merchantStubRoutes.post('/:id/stores', async (c) => {
-  return c.json({ error: 'Not yet implemented', code: 'NOT_IMPLEMENTED' }, 501);
-});
-
-// GET /merchants/:id/stores — TODO: implement store listing
-merchantStubRoutes.get('/:id/stores', async (c) => {
-  return c.json({ error: 'Not yet implemented', code: 'NOT_IMPLEMENTED' }, 501);
-});
 
 // ---- Store stubs ----
 export const storeStubRoutes = new Hono<{ Bindings: Env }>();
@@ -76,10 +46,7 @@ storeStubRoutes.get('/:id', async (c) => {
 // ---- Wallet stubs ----
 export const walletStubRoutes = new Hono<{ Bindings: Env }>();
 
-// GET /wallets/:owner_type/:owner_id/:currency/statement — TODO: implement statement
-walletStubRoutes.get('/:owner_type/:owner_id/:currency/statement', async (c) => {
-  return c.json({ error: 'Not yet implemented', code: 'NOT_IMPLEMENTED' }, 501);
-});
+// (wallet statement now implemented in wallets.ts)
 
 // ---- Transaction stubs ----
 export const txStubRoutes = new Hono<{ Bindings: Env }>();

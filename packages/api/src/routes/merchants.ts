@@ -22,6 +22,7 @@ import {
   getActorByMsisdnAndType,
   getActiveCodeReservation,
   insertEvent,
+  insertAuditLog,
   insertMerchantUser,
   initMerchantStoreClosure,
   linkMerchantStoreBranch,
@@ -31,6 +32,11 @@ import {
   getKycProfileByActorId,
   listKycRequirementsByActorType,
   upsertKycProfile,
+  listActors,
+  updateActorProfile,
+  getMerchantDescendants,
+  getLedgerAccount,
+  getAccountBalance,
 } from '@caricash/db';
 import { hashPin, generateSalt } from '../lib/pin.js';
 import { generateUniqueStoreCode } from '../lib/code-generator.js';
@@ -358,6 +364,214 @@ merchantRoutes.post('/:merchantId/kyc/initiate', async (c) => {
     });
 
     return c.json({ actor_id: merchantId, kyc_state: KycState.PENDING, correlation_id: correlationId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /merchants - list merchants with pagination/filters
+// ---------------------------------------------------------------------------
+merchantRoutes.get('/', async (c) => {
+  try {
+    const state = c.req.query('state');
+    const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : 50;
+    const offset = c.req.query('offset') ? parseInt(c.req.query('offset')!, 10) : 0;
+    const parentId = c.req.query('parent_actor_id');
+
+    const merchants = await listActors(c.env.DB, {
+      type: ActorType.MERCHANT,
+      state,
+      parent_actor_id: parentId,
+      limit: Math.min(limit, 200),
+      offset,
+    });
+
+    // Strip sensitive fields for listing
+    const sanitized = merchants.map((m) => ({
+      id: m.id,
+      type: m.type,
+      state: m.state,
+      name: m.name,
+      display_name: m.display_name,
+      store_code: m.store_code,
+      parent_actor_id: m.parent_actor_id,
+      kyc_state: m.kyc_state,
+      created_at: m.created_at,
+      updated_at: m.updated_at,
+    }));
+
+    return c.json({ merchants: sanitized, count: sanitized.length, limit, offset });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /merchants/:merchantId - merchant profile
+// ---------------------------------------------------------------------------
+merchantRoutes.get('/:merchantId', async (c) => {
+  const merchantId = c.req.param('merchantId');
+  const correlationId = generateId();
+
+  try {
+    const merchant = await getActorById(c.env.DB, merchantId);
+    if (!merchant || merchant.type !== ActorType.MERCHANT) {
+      return c.json({ error: 'Merchant not found', correlation_id: correlationId }, 404);
+    }
+
+    // Fetch wallet balance
+    const walletAccount = await getLedgerAccount(
+      c.env.DB, ActorType.MERCHANT, merchantId, AccountType.WALLET, 'BBD',
+    );
+    let balance: { actual_balance: string; available_balance: string } | null = null;
+    if (walletAccount) {
+      const bal = await getAccountBalance(c.env.DB, walletAccount.id);
+      if (bal) {
+        balance = { actual_balance: bal.actual_balance, available_balance: bal.available_balance };
+      }
+    }
+
+    // KYC profile
+    const kyc = await getKycProfileByActorId(c.env.DB, merchantId);
+
+    return c.json({
+      merchant: {
+        id: merchant.id,
+        type: merchant.type,
+        state: merchant.state,
+        name: merchant.name,
+        display_name: merchant.display_name,
+        email: merchant.email,
+        msisdn: merchant.msisdn,
+        store_code: merchant.store_code,
+        parent_actor_id: merchant.parent_actor_id,
+        kyc_state: merchant.kyc_state,
+        created_at: merchant.created_at,
+        updated_at: merchant.updated_at,
+      },
+      wallet: walletAccount ? { account_id: walletAccount.id, currency: walletAccount.currency, ...balance } : null,
+      kyc: kyc ? { status: kyc.status, verification_level: kyc.verification_level, submitted_at: kyc.submitted_at } : null,
+      correlation_id: correlationId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /merchants/:merchantId - update merchant profile
+// ---------------------------------------------------------------------------
+merchantRoutes.put('/:merchantId', async (c) => {
+  const merchantId = c.req.param('merchantId');
+  const body = await c.req.json();
+  const correlationId = (body.correlation_id as string) || generateId();
+
+  try {
+    const merchant = await getActorById(c.env.DB, merchantId);
+    if (!merchant || merchant.type !== ActorType.MERCHANT) {
+      return c.json({ error: 'Merchant not found', correlation_id: correlationId }, 404);
+    }
+
+    const updates: Record<string, string | undefined> = {};
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.display_name !== undefined) updates.display_name = body.display_name;
+    if (body.email !== undefined) updates.email = body.email;
+    if (body.first_name !== undefined) updates.first_name = body.first_name;
+    if (body.last_name !== undefined) updates.last_name = body.last_name;
+
+    if (Object.keys(updates).length === 0) {
+      return c.json({ error: 'No fields to update', correlation_id: correlationId }, 400);
+    }
+
+    const now = nowISO();
+    const beforeSnapshot = JSON.stringify({
+      name: merchant.name, display_name: merchant.display_name,
+      email: merchant.email, first_name: merchant.first_name, last_name: merchant.last_name,
+    });
+
+    await updateActorProfile(c.env.DB, merchantId, updates);
+
+    const afterSnapshot = JSON.stringify({ ...JSON.parse(beforeSnapshot), ...updates });
+
+    // Audit log
+    await insertAuditLog(c.env.DB, {
+      id: generateId(),
+      action: 'MERCHANT_PROFILE_UPDATED',
+      actor_type: ActorType.MERCHANT,
+      actor_id: merchantId,
+      target_type: 'actor',
+      target_id: merchantId,
+      before_json: beforeSnapshot,
+      after_json: afterSnapshot,
+      correlation_id: correlationId,
+      created_at: now,
+    });
+
+    // Emit event
+    await insertEvent(c.env.DB, {
+      id: generateId(),
+      name: EventName.MERCHANT_PROFILE_UPDATED,
+      entity_type: 'actor',
+      entity_id: merchantId,
+      correlation_id: correlationId,
+      actor_type: ActorType.MERCHANT,
+      actor_id: merchantId,
+      schema_version: 1,
+      payload_json: afterSnapshot,
+      created_at: now,
+    });
+
+    const updated = await getActorById(c.env.DB, merchantId);
+    return c.json({
+      merchant: {
+        id: updated!.id,
+        type: updated!.type,
+        state: updated!.state,
+        name: updated!.name,
+        display_name: updated!.display_name,
+        email: updated!.email,
+        store_code: updated!.store_code,
+        kyc_state: updated!.kyc_state,
+        updated_at: updated!.updated_at,
+      },
+      correlation_id: correlationId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /merchants/:merchantId/stores - list stores under a merchant
+// ---------------------------------------------------------------------------
+merchantRoutes.get('/:merchantId/stores', async (c) => {
+  const merchantId = c.req.param('merchantId');
+  const correlationId = generateId();
+
+  try {
+    const merchant = await getActorById(c.env.DB, merchantId);
+    if (!merchant || merchant.type !== ActorType.MERCHANT) {
+      return c.json({ error: 'Merchant not found', correlation_id: correlationId }, 404);
+    }
+
+    const descendants = await getMerchantDescendants(c.env.DB, merchantId);
+
+    const stores = descendants.map((d) => ({
+      id: d.id,
+      name: d.name,
+      store_code: d.store_code,
+      state: d.state,
+      kyc_state: d.kyc_state,
+      parent_actor_id: d.parent_actor_id,
+      created_at: d.created_at,
+    }));
+
+    return c.json({ stores, count: stores.length, merchant_id: merchantId, correlation_id: correlationId });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';
     return c.json({ error: message, correlation_id: correlationId }, 500);

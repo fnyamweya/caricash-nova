@@ -26,6 +26,10 @@ import {
   upsertKycProfile,
   getKycProfileByActorId,
   listKycRequirementsByActorType,
+  listActors,
+  updateActorProfile,
+  getLedgerAccount,
+  getAccountBalance,
 } from '@caricash/db';
 import { hashPin, generateSalt } from '../lib/pin.js';
 
@@ -396,4 +400,192 @@ async function handleKycInitiate(c: any) {
     const message = err instanceof Error ? err.message : 'Internal server error';
     return c.json({ error: message, correlation_id: correlationId }, 500);
   }
+}
+
+// ---------------------------------------------------------------------------
+// GET /customers - list customers with pagination/filters
+// ---------------------------------------------------------------------------
+customerRoutes.get('/', async (c) => {
+  try {
+    const state = c.req.query('state');
+    const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : 50;
+    const offset = c.req.query('offset') ? parseInt(c.req.query('offset')!, 10) : 0;
+
+    const customers = await listActors(c.env.DB, {
+      type: ActorType.CUSTOMER,
+      state,
+      limit: Math.min(limit, 200),
+      offset,
+    });
+
+    // Strip sensitive fields for listing — PII safe
+    const sanitized = customers.map((cust) => ({
+      id: cust.id,
+      type: cust.type,
+      state: cust.state,
+      name: cust.name,
+      display_name: cust.display_name,
+      msisdn: cust.msisdn ? maskMsisdn(cust.msisdn) : undefined,
+      kyc_state: cust.kyc_state,
+      created_at: cust.created_at,
+      updated_at: cust.updated_at,
+    }));
+
+    return c.json({ customers: sanitized, count: sanitized.length, limit, offset });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /customers/:id - customer profile
+// ---------------------------------------------------------------------------
+customerRoutes.get('/:id', async (c) => {
+  const customerId = c.req.param('id');
+  // Avoid colliding with GET /:id/kyc — Hono should resolve this correctly
+  // because /:id/kyc is registered with a more specific path
+  const correlationId = generateId();
+
+  try {
+    const customer = await getActorById(c.env.DB, customerId);
+    if (!customer || customer.type !== ActorType.CUSTOMER) {
+      return c.json({ error: 'Customer not found', correlation_id: correlationId }, 404);
+    }
+
+    // Fetch wallet balance
+    const walletAccount = await getLedgerAccount(
+      c.env.DB, ActorType.CUSTOMER, customerId, AccountType.WALLET, 'BBD',
+    );
+    let balance: { actual_balance: string; available_balance: string } | null = null;
+    if (walletAccount) {
+      const bal = await getAccountBalance(c.env.DB, walletAccount.id);
+      if (bal) {
+        balance = { actual_balance: bal.actual_balance, available_balance: bal.available_balance };
+      }
+    }
+
+    // KYC profile
+    const kyc = await getKycProfileByActorId(c.env.DB, customerId);
+
+    return c.json({
+      customer: {
+        id: customer.id,
+        type: customer.type,
+        state: customer.state,
+        name: customer.name,
+        first_name: customer.first_name,
+        last_name: customer.last_name,
+        display_name: customer.display_name,
+        email: customer.email,
+        msisdn: customer.msisdn,
+        kyc_state: customer.kyc_state,
+        created_at: customer.created_at,
+        updated_at: customer.updated_at,
+      },
+      wallet: walletAccount ? { account_id: walletAccount.id, currency: walletAccount.currency, ...balance } : null,
+      kyc: kyc ? { status: kyc.status, verification_level: kyc.verification_level, submitted_at: kyc.submitted_at } : null,
+      correlation_id: correlationId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /customers/:id - update customer profile
+// ---------------------------------------------------------------------------
+customerRoutes.put('/:id', async (c) => {
+  const customerId = c.req.param('id');
+  const body = await c.req.json();
+  const correlationId = (body.correlation_id as string) || generateId();
+
+  try {
+    const customer = await getActorById(c.env.DB, customerId);
+    if (!customer || customer.type !== ActorType.CUSTOMER) {
+      return c.json({ error: 'Customer not found', correlation_id: correlationId }, 404);
+    }
+
+    const updates: Record<string, string | undefined> = {};
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.first_name !== undefined) updates.first_name = body.first_name;
+    if (body.middle_name !== undefined) updates.middle_name = body.middle_name;
+    if (body.last_name !== undefined) updates.last_name = body.last_name;
+    if (body.display_name !== undefined) updates.display_name = body.display_name;
+    if (body.email !== undefined) updates.email = body.email;
+
+    if (Object.keys(updates).length === 0) {
+      return c.json({ error: 'No fields to update', correlation_id: correlationId }, 400);
+    }
+
+    const now = nowISO();
+    const beforeSnapshot = JSON.stringify({
+      name: customer.name, first_name: customer.first_name, middle_name: customer.middle_name,
+      last_name: customer.last_name, display_name: customer.display_name, email: customer.email,
+    });
+
+    await updateActorProfile(c.env.DB, customerId, updates);
+
+    const afterSnapshot = JSON.stringify({ ...JSON.parse(beforeSnapshot), ...updates });
+
+    // Audit log
+    await insertAuditLog(c.env.DB, {
+      id: generateId(),
+      action: 'CUSTOMER_PROFILE_UPDATED',
+      actor_type: ActorType.CUSTOMER,
+      actor_id: customerId,
+      target_type: 'actor',
+      target_id: customerId,
+      before_json: beforeSnapshot,
+      after_json: afterSnapshot,
+      correlation_id: correlationId,
+      created_at: now,
+    });
+
+    // Emit event
+    await insertEvent(c.env.DB, {
+      id: generateId(),
+      name: EventName.CUSTOMER_PROFILE_UPDATED,
+      entity_type: 'actor',
+      entity_id: customerId,
+      correlation_id: correlationId,
+      actor_type: ActorType.CUSTOMER,
+      actor_id: customerId,
+      schema_version: 1,
+      payload_json: afterSnapshot,
+      created_at: now,
+    });
+
+    const updated = await getActorById(c.env.DB, customerId);
+    return c.json({
+      customer: {
+        id: updated!.id,
+        type: updated!.type,
+        state: updated!.state,
+        name: updated!.name,
+        first_name: updated!.first_name,
+        last_name: updated!.last_name,
+        display_name: updated!.display_name,
+        email: updated!.email,
+        msisdn: updated!.msisdn,
+        kyc_state: updated!.kyc_state,
+        updated_at: updated!.updated_at,
+      },
+      correlation_id: correlationId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PII Masking Helpers
+// ---------------------------------------------------------------------------
+
+/** Mask MSISDN: show first 3 + last 4 digits, asterisks in between */
+function maskMsisdn(msisdn: string): string {
+  if (msisdn.length <= 7) return msisdn;
+  return msisdn.slice(0, 3) + '****' + msisdn.slice(-4);
 }

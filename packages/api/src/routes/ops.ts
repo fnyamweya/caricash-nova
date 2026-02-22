@@ -10,6 +10,7 @@ import {
   ApprovalState,
   ApprovalType,
   ActorType,
+  AccountType,
   StaffRole,
   EventName,
   ErrorCode,
@@ -22,6 +23,7 @@ import {
   insertApprovalRequest,
   getApprovalRequest,
   updateApprovalRequest,
+  listApprovalRequests,
   getOverdraftFacility,
   insertOverdraftFacility,
   updateOverdraftFacility,
@@ -31,6 +33,8 @@ import {
   insertAuditLog,
   getActorById,
   listActiveStaffByRole,
+  getLedgerAccount,
+  getAccountBalance,
   // V2 Accounting
   getChartOfAccounts,
   getChartOfAccountByCode,
@@ -565,6 +569,383 @@ opsRoutes.post('/overdraft/:id/reject', async (c) => {
     state: ApprovalState.REJECTED,
     correlation_id: correlationId,
   });
+});
+
+// ===========================================================================
+// Merchant Withdrawal — Maker-Checker (OPERATIONS role)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// POST /ops/merchant-withdrawal/request
+// Allows staff to request a merchant fund withdrawal.
+// Requires OPERATIONS or ADMIN role. Creates an approval request that must
+// be approved by a *different* OPERATIONS staff member (maker-checker).
+// ---------------------------------------------------------------------------
+opsRoutes.post('/merchant-withdrawal/request', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) {
+    return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  }
+
+  const body = await c.req.json();
+  const { merchant_id, amount, currency, reason, reference, idempotency_key } = body;
+  const correlationId = (body.correlation_id as string) || generateId();
+
+  if (!merchant_id || !amount || !currency) {
+    return c.json({ error: 'merchant_id, amount, and currency are required', code: ErrorCode.MISSING_REQUIRED_FIELD }, 400);
+  }
+
+  if (parseFloat(amount) <= 0) {
+    return c.json({ error: 'Amount must be positive', code: ErrorCode.VALIDATION_ERROR }, 400);
+  }
+
+  const maker = await getActorById(c.env.DB, staffId);
+  if (!maker || maker.type !== ActorType.STAFF) {
+    return c.json({ error: 'Staff actor not found', code: ErrorCode.ACTOR_NOT_FOUND }, 404);
+  }
+
+  // Only OPERATIONS, ADMIN, or SUPER_ADMIN can request merchant withdrawals
+  const allowedRoles: readonly string[] = [StaffRole.OPERATIONS, StaffRole.ADMIN, StaffRole.SUPER_ADMIN];
+  if (!allowedRoles.includes(maker.staff_role as string)) {
+    return c.json({ error: 'Only OPERATIONS, ADMIN, or SUPER_ADMIN can request merchant withdrawals', code: ErrorCode.FORBIDDEN }, 403);
+  }
+
+  // Verify merchant exists
+  const merchant = await getActorById(c.env.DB, merchant_id);
+  if (!merchant || merchant.type !== ActorType.MERCHANT) {
+    return c.json({ error: 'Merchant not found', code: ErrorCode.ACTOR_NOT_FOUND }, 404);
+  }
+
+  // Check merchant has sufficient balance
+  const walletAccount = await getLedgerAccount(c.env.DB, ActorType.MERCHANT, merchant_id, AccountType.WALLET, currency);
+  if (!walletAccount) {
+    return c.json({ error: 'Merchant wallet not found', code: ErrorCode.ACCOUNT_NOT_FOUND }, 404);
+  }
+
+  const balance = await getAccountBalance(c.env.DB, walletAccount.id);
+  if (!balance || parseFloat(balance.available_balance) < parseFloat(amount)) {
+    return c.json({
+      error: 'Insufficient funds',
+      code: ErrorCode.INSUFFICIENT_FUNDS,
+      available_balance: balance?.available_balance ?? '0.00',
+    }, 400);
+  }
+
+  // Find OPERATIONS reviewers (excluding the maker)
+  const opsReviewers = await listActiveStaffByRole(c.env.DB, StaffRole.OPERATIONS);
+  const eligibleReviewers = opsReviewers.filter((r) => r.id !== staffId);
+  if (eligibleReviewers.length === 0) {
+    return c.json({ error: 'No eligible OPERATIONS reviewer available (maker-checker requires a different staff member)', code: ErrorCode.MAKER_CHECKER_REQUIRED }, 409);
+  }
+
+  const now = nowISO();
+  const requestId = generateId();
+
+  const payload = {
+    operation: 'MERCHANT_WITHDRAWAL',
+    merchant_id,
+    merchant_name: merchant.name,
+    wallet_account_id: walletAccount.id,
+    amount,
+    currency,
+    reason: reason ?? null,
+    reference: reference ?? null,
+    idempotency_key: idempotency_key ?? generateId(),
+    requester: {
+      staff_id: maker.id,
+      staff_role: maker.staff_role,
+      name: maker.name,
+    },
+    approval_target_role: StaffRole.OPERATIONS,
+    eligible_reviewer_ids: eligibleReviewers.map((r) => r.id),
+    balance_at_request: balance.available_balance,
+    correlation_id: correlationId,
+    requested_at: now,
+  };
+
+  await insertApprovalRequest(c.env.DB, {
+    id: requestId,
+    type: ApprovalType.MERCHANT_WITHDRAWAL_REQUESTED,
+    payload_json: JSON.stringify(payload),
+    maker_staff_id: maker.id,
+    state: ApprovalState.PENDING,
+    created_at: now,
+  });
+
+  await insertEvent(c.env.DB, {
+    id: generateId(),
+    name: EventName.MERCHANT_WITHDRAWAL_REQUESTED,
+    entity_type: 'approval_request',
+    entity_id: requestId,
+    correlation_id: correlationId,
+    actor_type: ActorType.STAFF,
+    actor_id: maker.id,
+    schema_version: 1,
+    payload_json: JSON.stringify(payload),
+    created_at: now,
+  });
+
+  await insertAuditLog(c.env.DB, {
+    id: generateId(),
+    action: 'MERCHANT_WITHDRAWAL_REQUESTED',
+    actor_type: ActorType.STAFF,
+    actor_id: maker.id,
+    target_type: 'actor',
+    target_id: merchant_id,
+    after_json: JSON.stringify(payload),
+    correlation_id: correlationId,
+    created_at: now,
+  });
+
+  return c.json({
+    request_id: requestId,
+    type: ApprovalType.MERCHANT_WITHDRAWAL_REQUESTED,
+    state: ApprovalState.PENDING,
+    merchant_id,
+    amount,
+    currency,
+    approval_target_role: StaffRole.OPERATIONS,
+    eligible_reviewers: eligibleReviewers.map((r) => ({ id: r.id, name: r.name, staff_code: r.staff_code })),
+    correlation_id: correlationId,
+  }, 201);
+});
+
+// ---------------------------------------------------------------------------
+// POST /ops/merchant-withdrawal/:id/approve
+// OPERATIONS staff (different from maker) approves the withdrawal.
+// On approval, posts the transaction via PostingDO.
+// ---------------------------------------------------------------------------
+opsRoutes.post('/merchant-withdrawal/:id/approve', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) {
+    return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  }
+
+  const requestId = c.req.param('id');
+  const body = await c.req.json();
+  const correlationId = (body.correlation_id as string) || generateId();
+
+  const request = await getApprovalRequest(c.env.DB, requestId);
+  if (!request) {
+    return c.json({ error: 'Approval request not found', code: ErrorCode.APPROVAL_NOT_FOUND }, 404);
+  }
+
+  if (request.type !== ApprovalType.MERCHANT_WITHDRAWAL_REQUESTED) {
+    return c.json({ error: 'Not a merchant withdrawal request', code: ErrorCode.VALIDATION_ERROR }, 400);
+  }
+
+  if (request.state !== ApprovalState.PENDING) {
+    return c.json({ error: `Request is already ${request.state}`, code: ErrorCode.APPROVAL_ALREADY_DECIDED }, 409);
+  }
+
+  // Maker-checker enforcement
+  if (request.maker_staff_id === staffId) {
+    return c.json({ error: 'Maker cannot approve their own request', code: ErrorCode.MAKER_CHECKER_VIOLATION }, 403);
+  }
+
+  // Verify checker has OPERATIONS role
+  const checker = await getActorById(c.env.DB, staffId);
+  if (!checker || checker.type !== ActorType.STAFF) {
+    return c.json({ error: 'Staff actor not found', code: ErrorCode.ACTOR_NOT_FOUND }, 404);
+  }
+  if (checker.staff_role !== StaffRole.OPERATIONS && checker.staff_role !== StaffRole.SUPER_ADMIN) {
+    return c.json({ error: 'Only OPERATIONS or SUPER_ADMIN can approve merchant withdrawals', code: ErrorCode.FORBIDDEN }, 403);
+  }
+
+  const now = nowISO();
+  const payload = JSON.parse(request.payload_json) as {
+    merchant_id: string;
+    wallet_account_id: string;
+    amount: string;
+    currency: string;
+    idempotency_key: string;
+    correlation_id: string;
+  };
+
+  // Approve the request
+  await updateApprovalRequest(c.env.DB, requestId, ApprovalState.APPROVED, staffId, now);
+
+  // Post the withdrawal transaction via PostingDO
+  const doId = c.env.POSTING_DO.idFromName('singleton');
+  const stub = c.env.POSTING_DO.get(doId);
+  const postingRes = await stub.fetch('https://do/post', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      idempotency_key: payload.idempotency_key,
+      correlation_id: correlationId,
+      txn_type: 'WITHDRAWAL',
+      currency: payload.currency,
+      entries: [
+        {
+          account_id: payload.wallet_account_id,
+          entry_type: 'DR',
+          amount: payload.amount,
+          description: `Merchant withdrawal - ${payload.merchant_id}`,
+        },
+        {
+          owner_type: ActorType.STAFF,
+          owner_id: 'SETTLEMENT',
+          account_type: 'SUSPENSE',
+          entry_type: 'CR',
+          amount: payload.amount,
+          description: `Merchant withdrawal payout - ${payload.merchant_id}`,
+        },
+      ],
+      description: `Approved merchant withdrawal for ${payload.merchant_id}`,
+      actor_type: ActorType.STAFF,
+      actor_id: staffId,
+    }),
+  });
+
+  const postingResult = await postingRes.json() as Record<string, unknown>;
+
+  // Audit log
+  await insertAuditLog(c.env.DB, {
+    id: generateId(),
+    action: 'MERCHANT_WITHDRAWAL_APPROVED',
+    actor_type: ActorType.STAFF,
+    actor_id: staffId,
+    target_type: 'actor',
+    target_id: payload.merchant_id,
+    before_json: JSON.stringify({ state: ApprovalState.PENDING }),
+    after_json: JSON.stringify({ state: ApprovalState.APPROVED, posting: postingResult }),
+    correlation_id: correlationId,
+    created_at: now,
+  });
+
+  // Emit event
+  await insertEvent(c.env.DB, {
+    id: generateId(),
+    name: EventName.MERCHANT_WITHDRAWAL_APPROVED,
+    entity_type: 'approval_request',
+    entity_id: requestId,
+    correlation_id: correlationId,
+    actor_type: ActorType.STAFF,
+    actor_id: staffId,
+    schema_version: 1,
+    payload_json: JSON.stringify({
+      request_id: requestId,
+      merchant_id: payload.merchant_id,
+      amount: payload.amount,
+      currency: payload.currency,
+      posting_result: postingResult,
+    }),
+    created_at: now,
+  });
+
+  return c.json({
+    request_id: requestId,
+    state: ApprovalState.APPROVED,
+    posting: postingResult,
+    correlation_id: correlationId,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /ops/merchant-withdrawal/:id/reject
+// ---------------------------------------------------------------------------
+opsRoutes.post('/merchant-withdrawal/:id/reject', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) {
+    return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  }
+
+  const requestId = c.req.param('id');
+  const body = await c.req.json();
+  const correlationId = (body.correlation_id as string) || generateId();
+  const reason = body.reason || '';
+
+  const request = await getApprovalRequest(c.env.DB, requestId);
+  if (!request) {
+    return c.json({ error: 'Approval request not found', code: ErrorCode.APPROVAL_NOT_FOUND }, 404);
+  }
+
+  if (request.type !== ApprovalType.MERCHANT_WITHDRAWAL_REQUESTED) {
+    return c.json({ error: 'Not a merchant withdrawal request', code: ErrorCode.VALIDATION_ERROR }, 400);
+  }
+
+  if (request.state !== ApprovalState.PENDING) {
+    return c.json({ error: `Request is already ${request.state}`, code: ErrorCode.APPROVAL_ALREADY_DECIDED }, 409);
+  }
+
+  const now = nowISO();
+  await updateApprovalRequest(c.env.DB, requestId, ApprovalState.REJECTED, staffId, now);
+
+  const payload = JSON.parse(request.payload_json) as { merchant_id: string; amount: string; currency: string };
+
+  // Audit log
+  await insertAuditLog(c.env.DB, {
+    id: generateId(),
+    action: 'MERCHANT_WITHDRAWAL_REJECTED',
+    actor_type: ActorType.STAFF,
+    actor_id: staffId,
+    target_type: 'actor',
+    target_id: payload.merchant_id,
+    before_json: JSON.stringify({ state: ApprovalState.PENDING }),
+    after_json: JSON.stringify({ state: ApprovalState.REJECTED, reason }),
+    correlation_id: correlationId,
+    created_at: now,
+  });
+
+  // Emit event
+  await insertEvent(c.env.DB, {
+    id: generateId(),
+    name: EventName.MERCHANT_WITHDRAWAL_REJECTED,
+    entity_type: 'approval_request',
+    entity_id: requestId,
+    correlation_id: correlationId,
+    actor_type: ActorType.STAFF,
+    actor_id: staffId,
+    schema_version: 1,
+    payload_json: JSON.stringify({ request_id: requestId, merchant_id: payload.merchant_id, reason }),
+    created_at: now,
+  });
+
+  return c.json({
+    request_id: requestId,
+    state: ApprovalState.REJECTED,
+    reason,
+    correlation_id: correlationId,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /ops/merchant-withdrawal/requests - list withdrawal requests
+// ---------------------------------------------------------------------------
+opsRoutes.get('/merchant-withdrawal/requests', async (c) => {
+  const staffId = await requireStaff(c);
+  if (!staffId) {
+    return c.json({ error: 'Staff authentication required', code: ErrorCode.UNAUTHORIZED }, 401);
+  }
+
+  const state = c.req.query('state');
+  const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : 50;
+
+  const requests = await listApprovalRequests(c.env.DB, {
+    type: ApprovalType.MERCHANT_WITHDRAWAL_REQUESTED,
+    state,
+    limit,
+  });
+
+  const enriched = requests.map((r) => {
+    const payload = JSON.parse(r.payload_json) as Record<string, unknown>;
+    return {
+      id: r.id,
+      state: r.state,
+      maker_staff_id: r.maker_staff_id,
+      checker_staff_id: r.checker_staff_id,
+      merchant_id: payload.merchant_id,
+      merchant_name: payload.merchant_name,
+      amount: payload.amount,
+      currency: payload.currency,
+      reason: payload.reason,
+      created_at: r.created_at,
+      decided_at: r.decided_at,
+    };
+  });
+
+  return c.json({ requests: enriched, count: enriched.length });
 });
 
 // ===========================================================================

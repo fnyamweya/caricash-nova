@@ -125,3 +125,30 @@ function canonicalStringify(value: unknown): string {
   const parts = sortedKeys.map((k) => JSON.stringify(k) + ':' + canonicalStringify(obj[k]));
   return '{' + parts.join(',') + '}';
 }
+
+// ---------------------------------------------------------------------------
+// PII Masking Utilities
+// ---------------------------------------------------------------------------
+
+/** Mask MSISDN: show first 3 + last 4 digits, asterisks in between. */
+export function maskMsisdn(msisdn: string): string {
+  if (!msisdn || msisdn.length <= 7) return msisdn ?? '';
+  return msisdn.slice(0, 3) + '****' + msisdn.slice(-4);
+}
+
+/** Mask email: show first 2 chars + domain. e.g. jo****@example.com */
+export function maskEmail(email: string): string {
+  if (!email) return '';
+  const [local, domain] = email.split('@');
+  if (!domain || !local) return '****';
+  const visible = local.slice(0, 2);
+  return `${visible}****@${domain}`;
+}
+
+/** Mask a person's name: show first name initial + full last name. e.g. J. Doe */
+export function maskName(name: string): string {
+  if (!name) return '';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0]![0] + '****';
+  return parts[0]![0] + '. ' + parts[parts.length - 1];
+}
