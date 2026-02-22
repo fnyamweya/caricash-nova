@@ -19,6 +19,8 @@ info:
     name: MIT
 
 servers:
+  - url: https://api-staging.caricash.com/
+    description: Staging environment
   - url: /
     description: Current host
   - url: http://localhost:8787
