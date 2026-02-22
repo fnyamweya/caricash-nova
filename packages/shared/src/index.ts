@@ -8,3 +8,5 @@ export * from './errors.js';
 export * from './utils.js';
 export * from './error-codes.js';
 export * from './contracts.js';
+export * from './circuit-breaker.js';
+export * from './retry.js';

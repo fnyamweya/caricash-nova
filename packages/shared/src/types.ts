@@ -854,6 +854,7 @@ export interface CitibankWebhookPayload {
 
 export interface CircuitBreakerConfig {
   failure_threshold: number;
+  window_ms: number;
   reset_timeout_ms: number;
   half_open_max_attempts: number;
 }
