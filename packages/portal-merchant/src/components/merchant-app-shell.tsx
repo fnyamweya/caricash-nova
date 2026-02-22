@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-    AppearanceMenu,
     Avatar,
     AvatarFallback,
     Badge,
@@ -28,6 +27,7 @@ import {
     SheetTitle,
     cn,
     getInitials,
+    useTheme,
     type NavItem,
 } from '@caricash/ui';
 import {
@@ -43,6 +43,9 @@ import {
     Building2,
     ArrowRightLeft,
     CreditCard,
+    Sun,
+    Moon,
+    Laptop,
 } from 'lucide-react';
 import { useMerchantWorkspace } from '../lib/merchant-workspace.js';
 
@@ -108,6 +111,69 @@ function MerchantUserMenu({ user, onLogout }: { user: MerchantAppShellProps['use
                     <LogOut className="h-4 w-4" />
                     Log out
                 </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+}
+
+function ThemeModeMenu({ inverted = false }: { inverted?: boolean }) {
+    const { theme, setTheme } = useTheme();
+
+    const options: Array<{ value: 'light' | 'dark' | 'system'; label: string; icon: React.ReactNode }> = [
+        { value: 'light', label: 'Light', icon: <Sun className="h-4 w-4" /> },
+        { value: 'dark', label: 'Dark', icon: <Moon className="h-4 w-4" /> },
+        { value: 'system', label: 'System', icon: <Laptop className="h-4 w-4" /> },
+    ];
+
+    const active = options.find((option) => option.value === theme) ?? options[2];
+
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button
+                    type="button"
+                    variant={inverted ? 'ghost' : 'outline'}
+                    size="sm"
+                    className={cn(
+                        'rounded-xl gap-2',
+                        inverted
+                            ? 'text-white hover:bg-white/10 hover:text-white'
+                            : 'bg-background/70',
+                    )}
+                >
+                    {active.icon}
+                    <span className="hidden sm:inline">{active.label}</span>
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+                align="end"
+                className={cn(
+                    'w-44 rounded-2xl',
+                    inverted && 'bg-emerald-950/95 text-white border-white/10',
+                )}
+            >
+                <DropdownMenuLabel className={cn(inverted && 'text-white/80')}>
+                    Theme Mode
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className={cn(inverted && 'bg-white/10')} />
+                {options.map((option) => (
+                    <DropdownMenuItem
+                        key={option.value}
+                        className={cn(
+                            'gap-2 rounded-xl',
+                            inverted && 'focus:bg-white/10 focus:text-white',
+                        )}
+                        onClick={() => setTheme(option.value)}
+                    >
+                        {option.icon}
+                        <span>{option.label}</span>
+                        {theme === option.value ? (
+                            <span className={cn('ml-auto text-xs', inverted ? 'text-white/70' : 'text-muted-foreground')}>
+                                Active
+                            </span>
+                        ) : null}
+                    </DropdownMenuItem>
+                ))}
             </DropdownMenuContent>
         </DropdownMenu>
     );
@@ -345,7 +411,7 @@ export function MerchantAppShell({
 
                             <div className="hidden items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70 xl:flex">
                                 <span>{user?.role ?? 'Merchant'}</span>
-                                <AppearanceMenu compact />
+                                <ThemeModeMenu inverted />
                             </div>
                         </div>
                     </aside>
@@ -372,7 +438,7 @@ export function MerchantAppShell({
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    <AppearanceMenu compact />
+                                    <ThemeModeMenu />
                                     <MerchantUserMenu user={user} onLogout={onLogout} />
                                 </div>
                             </div>
@@ -469,10 +535,10 @@ export function MerchantAppShell({
                         <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                             <div className="flex items-center justify-between gap-2">
                                 <div>
-                                    <p className="text-sm font-semibold">Theme & appearance</p>
-                                    <p className="text-xs text-white/70">Tune the workspace for your team.</p>
+                                    <p className="text-sm font-semibold">Theme mode</p>
+                                    <p className="text-xs text-white/70">Choose light, dark, or system.</p>
                                 </div>
-                                <AppearanceMenu compact />
+                                <ThemeModeMenu inverted />
                             </div>
                             <Button
                                 type="button"
