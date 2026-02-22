@@ -8,3 +8,4 @@ export { verifyJournalIntegrity, computeJournalHash } from './integrity.js';
 export type { IntegrityCheckResult } from './integrity.js';
 export { processQueueMessage, resetProcessedMessages } from './queue-consumer.js';
 export type { QueueMessage, QueueConsumerResult } from './queue-consumer.js';
+export { runSettlementScheduler, detectStuckTransfers, runSettlementReconciliation } from './settlement.js';
