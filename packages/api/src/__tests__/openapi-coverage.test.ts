@@ -105,6 +105,7 @@ describe('OpenAPI Spec', () => {
     const requiredTags = [
       'Auth', 'Customers', 'Agents', 'Merchants', 'Wallets',
       'Transactions', 'Approvals', 'Ops', 'Reconciliation', 'Overdraft',
+      'Bank', 'Settlement', 'Fraud',
     ];
     for (const tag of requiredTags) {
       expect(specContent).toContain(`name: ${tag}`);
@@ -192,6 +193,33 @@ describe('OpenAPI Spec Endpoints Inventory', () => {
     { method: 'POST', path: '/ops/overdraft/request' },
     { method: 'POST', path: '/ops/overdraft/{facilityId}/approve' },
     { method: 'POST', path: '/ops/overdraft/{facilityId}/reject' },
+    // Phase 4: Bank
+    { method: 'POST', path: '/bank/deposits/initiate' },
+    { method: 'GET', path: '/bank/deposits/{depositId}' },
+    { method: 'POST', path: '/bank/webhooks/citibank' },
+    // Phase 4: Settlement
+    { method: 'GET', path: '/merchants/{merchantId}/settlement/profile' },
+    { method: 'POST', path: '/merchants/{merchantId}/settlement/profile/request' },
+    { method: 'POST', path: '/merchants/{merchantId}/settlement/profile/{profileId}/approve' },
+    { method: 'POST', path: '/merchants/{merchantId}/settlement/profile/{profileId}/reject' },
+    { method: 'GET', path: '/merchants/{merchantId}/settlements' },
+    { method: 'POST', path: '/merchants/{merchantId}/settlements/request-payout' },
+    { method: 'GET', path: '/merchants/{merchantId}/payouts/{payoutId}' },
+    // Phase 4: Ops
+    { method: 'GET', path: '/ops/external-transfers' },
+    { method: 'GET', path: '/ops/external-transfers/{transferId}' },
+    { method: 'POST', path: '/ops/external-transfers/{transferId}/retry' },
+    { method: 'GET', path: '/ops/settlement/batches' },
+    { method: 'POST', path: '/ops/settlement/batches/run' },
+    { method: 'POST', path: '/ops/settlement/payouts/{payoutId}/approve' },
+    { method: 'POST', path: '/ops/settlement/payouts/{payoutId}/reject' },
+    { method: 'POST', path: '/ops/webhooks/replay/{deliveryId}' },
+    // Phase 4: Fraud
+    { method: 'GET', path: '/ops/fraud/decisions' },
+    { method: 'GET', path: '/ops/fraud/signals' },
+    { method: 'POST', path: '/ops/fraud/rules/version/request' },
+    { method: 'POST', path: '/ops/fraud/rules/version/{versionId}/approve' },
+    { method: 'GET', path: '/ops/fraud/rules/version/{versionId}' },
   ];
 
   for (const ep of requiredEndpoints) {
@@ -301,6 +329,33 @@ describe('Route-to-Spec Coverage', () => {
     { method: 'POST', path: '/ops/overdraft/:id/approve' },
     { method: 'POST', path: '/ops/overdraft/:id/reject' },
     { method: 'GET', path: '/ops/overdraft' },
+    // Phase 4: Bank routes
+    { method: 'POST', path: '/bank/deposits/initiate' },
+    { method: 'GET', path: '/bank/deposits/:id' },
+    { method: 'POST', path: '/bank/webhooks/citibank' },
+    // Phase 4: Settlement routes (mounted under /merchants)
+    { method: 'GET', path: '/merchants/:id/settlement/profile' },
+    { method: 'POST', path: '/merchants/:id/settlement/profile/request' },
+    { method: 'POST', path: '/merchants/:id/settlement/profile/:profileId/approve' },
+    { method: 'POST', path: '/merchants/:id/settlement/profile/:profileId/reject' },
+    { method: 'GET', path: '/merchants/:id/settlements' },
+    { method: 'POST', path: '/merchants/:id/settlements/request-payout' },
+    { method: 'GET', path: '/merchants/:id/payouts/:payoutId' },
+    // Phase 4: Ops routes
+    { method: 'GET', path: '/ops/external-transfers' },
+    { method: 'GET', path: '/ops/external-transfers/:id' },
+    { method: 'POST', path: '/ops/external-transfers/:id/retry' },
+    { method: 'GET', path: '/ops/settlement/batches' },
+    { method: 'POST', path: '/ops/settlement/batches/run' },
+    { method: 'POST', path: '/ops/settlement/payouts/:id/approve' },
+    { method: 'POST', path: '/ops/settlement/payouts/:id/reject' },
+    { method: 'POST', path: '/ops/webhooks/replay/:deliveryId' },
+    // Phase 4: Fraud routes (mounted under /ops/fraud)
+    { method: 'GET', path: '/ops/fraud/decisions' },
+    { method: 'GET', path: '/ops/fraud/signals' },
+    { method: 'POST', path: '/ops/fraud/rules/version/request' },
+    { method: 'POST', path: '/ops/fraud/rules/version/:id/approve' },
+    { method: 'GET', path: '/ops/fraud/rules/version/:id' },
     // Docs
     { method: 'GET', path: '/docs' },
     { method: 'GET', path: '/openapi.yaml' },
