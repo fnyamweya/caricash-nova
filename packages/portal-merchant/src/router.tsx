@@ -15,8 +15,10 @@ import {
     Clock,
     QrCode,
     Users,
+    Settings,
 } from 'lucide-react';
-import { AppShell, NotFoundPage, useAuth, type NavItem } from '@caricash/ui';
+import { NotFoundPage, useAuth, type NavItem } from '@caricash/ui';
+import { MerchantAppShell } from './components/merchant-app-shell.js';
 import { LoginPage } from './pages/login.js';
 import { RegisterPage } from './pages/register.js';
 import { DashboardPage } from './pages/dashboard.js';
@@ -25,13 +27,12 @@ import { TransferPage } from './pages/transfer.js';
 import { HistoryPage } from './pages/history.js';
 import { QrCodePage } from './pages/qr-code.js';
 import { TeamPage } from './pages/team.js';
+import { SettingsPage } from './pages/settings.js';
 
-// ── Root ──────────────────────────────────────────────
 const rootRoute = createRootRoute({
     component: () => <Outlet />,
 });
 
-// ── Login (public) ────────────────────────────────────
 const loginRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/login',
@@ -44,7 +45,6 @@ const registerRoute = createRoute({
     component: RegisterPage,
 });
 
-// ── Auth layout ───────────────────────────────────────
 function AuthLayout() {
     const { isAuthenticated, actor, logout } = useAuth();
     const navigate = useNavigate();
@@ -68,7 +68,7 @@ function AuthLayout() {
             active: location.pathname === '/dashboard',
         },
         {
-            label: 'My QR Code',
+            label: 'QR Collect',
             href: '/qr-code',
             icon: <QrCode className="h-4 w-4" />,
             active: location.pathname === '/qr-code',
@@ -80,7 +80,7 @@ function AuthLayout() {
             active: location.pathname === '/payments',
         },
         {
-            label: 'Transfer',
+            label: 'Transfer & Settle',
             href: '/transfer',
             icon: <ArrowLeftRight className="h-4 w-4" />,
             active: location.pathname === '/transfer',
@@ -97,20 +97,26 @@ function AuthLayout() {
             icon: <Users className="h-4 w-4" />,
             active: location.pathname === '/team',
         },
+        {
+            label: 'Settings',
+            href: '/settings',
+            icon: <Settings className="h-4 w-4" />,
+            active: location.pathname === '/settings',
+        },
     ];
 
     return (
-        <AppShell
+        <MerchantAppShell
             navigation={navigation}
             appName="CariCash Merchant Console"
-            user={actor ? { name: actor.name, role: 'Merchant' } : null}
+            user={actor ? { name: actor.name, role: 'Merchant Client' } : null}
             onLogout={() => {
                 logout();
                 navigate({ to: '/login' });
             }}
         >
             <Outlet />
-        </AppShell>
+        </MerchantAppShell>
     );
 }
 
@@ -120,7 +126,6 @@ const authLayoutRoute = createRoute({
     component: AuthLayout,
 });
 
-// ── Index redirect ────────────────────────────────────
 const indexRoute = createRoute({
     getParentRoute: () => authLayoutRoute,
     path: '/',
@@ -129,44 +134,14 @@ const indexRoute = createRoute({
     },
 });
 
-// ── Authenticated pages ───────────────────────────────
-const dashboardRoute = createRoute({
-    getParentRoute: () => authLayoutRoute,
-    path: '/dashboard',
-    component: DashboardPage,
-});
+const dashboardRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/dashboard', component: DashboardPage });
+const paymentsRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/payments', component: PaymentsPage });
+const transferRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/transfer', component: TransferPage });
+const historyRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/history', component: HistoryPage });
+const qrCodeRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/qr-code', component: QrCodePage });
+const teamRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/team', component: TeamPage });
+const settingsRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/settings', component: SettingsPage });
 
-const paymentsRoute = createRoute({
-    getParentRoute: () => authLayoutRoute,
-    path: '/payments',
-    component: PaymentsPage,
-});
-
-const transferRoute = createRoute({
-    getParentRoute: () => authLayoutRoute,
-    path: '/transfer',
-    component: TransferPage,
-});
-
-const historyRoute = createRoute({
-    getParentRoute: () => authLayoutRoute,
-    path: '/history',
-    component: HistoryPage,
-});
-
-const qrCodeRoute = createRoute({
-    getParentRoute: () => authLayoutRoute,
-    path: '/qr-code',
-    component: QrCodePage,
-});
-
-const teamRoute = createRoute({
-    getParentRoute: () => authLayoutRoute,
-    path: '/team',
-    component: TeamPage,
-});
-
-// ── Router tree ───────────────────────────────────────
 const routeTree = rootRoute.addChildren([
     loginRoute,
     registerRoute,
@@ -178,6 +153,7 @@ const routeTree = rootRoute.addChildren([
         historyRoute,
         qrCodeRoute,
         teamRoute,
+        settingsRoute,
     ]),
 ]);
 

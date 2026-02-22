@@ -1,33 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import QRCode from 'qrcode';
 import {
+    Badge,
     Button,
-    Card,
-    CardContent,
-    CardDescription,
-    CardFooter,
-    CardHeader,
-    CardTitle,
     Input,
     Label,
-    PageHeader,
     PageTransition,
-    Tabs,
-    TabsContent,
-    TabsList,
-    TabsTrigger,
-    useAuth,
 } from '@caricash/ui';
 import {
-    Download,
-    Copy,
     Check,
-    QrCode,
-    Printer,
-    RefreshCw,
-    Store,
+    Copy,
     DollarSign,
+    Download,
+    Printer,
+    QrCode,
+    RefreshCw,
+    ScanLine,
+    Store,
 } from 'lucide-react';
+import { MerchantHero, MerchantSection, MerchantSegmentedFilters, MerchantStickyActionBar } from '../components/merchant-ui.js';
+import { useMerchantWorkspace } from '../lib/merchant-workspace.js';
 
 type QrFormat = 'static' | 'amount';
 
@@ -39,20 +32,17 @@ interface QrPayload {
 }
 
 function buildQrPayload(storeCode: string, merchantName: string, amount?: string): QrPayload {
-    const payload: QrPayload = {
-        store_code: storeCode,
-        currency: 'BBD',
-    };
+    const payload: QrPayload = { store_code: storeCode, currency: 'BBD' };
     if (merchantName.trim()) payload.merchant_name = merchantName.trim();
     if (amount && Number(amount) > 0) payload.amount = Number(amount).toFixed(2);
     return payload;
 }
 
 export function QrCodePage() {
-    const { actor } = useAuth();
-    const storeCode = localStorage.getItem('caricash_store_code') ?? actor?.name ?? '';
+    const { activeStore, activeStoreCode } = useMerchantWorkspace();
+    const storeCode = activeStoreCode || activeStore?.store_code || '';
 
-    const [merchantName, setMerchantName] = useState('');
+    const [merchantName, setMerchantName] = useState(activeStore?.name ?? '');
     const [amount, setAmount] = useState('');
     const [format, setFormat] = useState<QrFormat>('static');
     const [copied, setCopied] = useState(false);
@@ -60,73 +50,68 @@ export function QrCodePage() {
     const [svgMarkup, setSvgMarkup] = useState<string | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
+    useEffect(() => {
+        if (activeStore?.name) {
+            setMerchantName((prev) => prev || activeStore.name);
+        }
+    }, [activeStore?.name]);
+
     const payload = useMemo(
-        () =>
-            buildQrPayload(
-                storeCode,
-                merchantName,
-                format === 'amount' ? amount : undefined,
-            ),
+        () => buildQrPayload(storeCode, merchantName, format === 'amount' ? amount : undefined),
         [storeCode, merchantName, amount, format],
     );
-
     const payloadJson = useMemo(() => JSON.stringify(payload), [payload]);
 
-    // Generate QR on payload change
     useEffect(() => {
         let cancelled = false;
-
         async function generate() {
+            if (!storeCode) return;
             try {
-                // Generate data URL for display
                 const dataUrl = await QRCode.toDataURL(payloadJson, {
                     width: 320,
                     margin: 2,
-                    color: { dark: '#0f172a', light: '#ffffff' },
+                    color: { dark: '#06291f', light: '#ffffff' },
                     errorCorrectionLevel: 'M',
                 });
                 if (!cancelled) setQrDataUrl(dataUrl);
 
-                // Generate SVG for print/download
                 const svg = await QRCode.toString(payloadJson, {
                     type: 'svg',
                     width: 320,
                     margin: 2,
-                    color: { dark: '#0f172a', light: '#ffffff' },
+                    color: { dark: '#06291f', light: '#ffffff' },
                     errorCorrectionLevel: 'M',
                 });
                 if (!cancelled) setSvgMarkup(svg);
 
-                // Render to hidden canvas for PNG download
                 if (canvasRef.current && !cancelled) {
                     await QRCode.toCanvas(canvasRef.current, payloadJson, {
                         width: 640,
                         margin: 2,
-                        color: { dark: '#0f172a', light: '#ffffff' },
+                        color: { dark: '#06291f', light: '#ffffff' },
                         errorCorrectionLevel: 'M',
                     });
                 }
             } catch {
-                // QR generation failed silently
+                // ignore QR rendering failures
             }
         }
-
         void generate();
         return () => { cancelled = true; };
-    }, [payloadJson]);
+    }, [payloadJson, storeCode]);
 
     const handleCopy = useCallback(async () => {
         try {
             await navigator.clipboard.writeText(payloadJson);
             setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+            setTimeout(() => setCopied(false), 1800);
         } catch {
-            // Clipboard API not available
+            // noop
         }
     }, [payloadJson]);
 
     const handleDownloadPng = useCallback(() => {
-        if (!canvasRef.current) return;
+        if (!canvasRef.current || !storeCode) return;
         const link = document.createElement('a');
         link.download = `qr-${storeCode}.png`;
         link.href = canvasRef.current.toDataURL('image/png');
@@ -134,207 +119,165 @@ export function QrCodePage() {
     }, [storeCode]);
 
     const handleDownloadSvg = useCallback(() => {
-        if (!svgMarkup) return;
+        if (!svgMarkup || !storeCode) return;
         const blob = new Blob([svgMarkup], { type: 'image/svg+xml' });
         const link = document.createElement('a');
+        const objectUrl = URL.createObjectURL(blob);
         link.download = `qr-${storeCode}.svg`;
-        link.href = URL.createObjectURL(blob);
+        link.href = objectUrl;
         link.click();
-        URL.revokeObjectURL(link.href);
+        URL.revokeObjectURL(objectUrl);
     }, [svgMarkup, storeCode]);
 
     const handlePrint = useCallback(() => {
-        if (!svgMarkup) return;
+        if (!svgMarkup || !storeCode) return;
         const win = window.open('', '_blank');
         if (!win) return;
-        win.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>QR Code – ${storeCode}</title>
-                <style>
-                    body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui, sans-serif; margin: 0; }
-                    .store { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; }
-                    .label { font-size: 1rem; color: #64748b; margin-bottom: 1.5rem; }
-                    .qr svg { width: 320px; height: 320px; }
-                    .footer { margin-top: 1.5rem; font-size: 0.875rem; color: #94a3b8; }
-                </style>
-            </head>
-            <body>
-                <p class="store">${storeCode}</p>
-                ${merchantName.trim() ? `<p class="label">${merchantName.trim()}</p>` : '<p class="label">Scan to pay</p>'}
-                <div class="qr">${svgMarkup}</div>
-                ${format === 'amount' && amount && Number(amount) > 0 ? `<p class="footer">Amount: BBD ${Number(amount).toFixed(2)}</p>` : '<p class="footer">Customer enters amount after scanning</p>'}
-                <script>window.onload=()=>{window.print();window.close();}<\/script>
-            </body>
-            </html>
-        `);
+        win.document.write(`<!DOCTYPE html><html><head><title>QR Code - ${storeCode}</title><style>body{font-family:system-ui,sans-serif;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f8fafc;color:#0f172a}.wrap{background:white;border:1px solid #e2e8f0;border-radius:20px;padding:24px;box-shadow:0 20px 50px -35px rgba(0,0,0,.25);text-align:center}.wrap .code{font-weight:700}.wrap .sub{color:#64748b;margin:8px 0 16px}.qr svg{width:320px;height:320px}.amt{margin-top:12px;font-weight:600}</style></head><body><div class="wrap"><div class="code">${storeCode}</div><div class="sub">${merchantName.trim() || 'Scan to pay'}</div><div class="qr">${svgMarkup}</div><div class="amt">${format === 'amount' && amount && Number(amount) > 0 ? `BBD ${Number(amount).toFixed(2)}` : 'Customer enters amount after scanning'}</div></div><script>window.onload=()=>{window.print();window.close();}<' + '/script></body></html>`);
         win.document.close();
-    }, [svgMarkup, storeCode, merchantName, amount, format]);
+    }, [svgMarkup, storeCode, merchantName, format, amount]);
+
+    const canRenderQr = !!storeCode;
 
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6">
-                <PageHeader
-                    title="My QR Code"
-                    description="Display or print your QR code so customers can scan and pay."
-                    badge="Receive Payments"
-                />
+            <div className="flex flex-col gap-4 md:gap-5">
+                <MerchantHero
+                    title="QR Collect Workspace"
+                    description="Create a countertop-ready QR experience for each store. Switch stores from the sidebar to generate the right QR instantly."
+                    badge={storeCode ? `QR for ${storeCode}` : 'Select active store'}
+                    actions={(
+                        <Badge variant="outline" className="rounded-full bg-background/70 px-3 py-1">
+                            {format === 'amount' ? 'Fixed amount QR' : 'Static QR'}
+                        </Badge>
+                    )}
+                >
+                    <div className="grid gap-3 sm:grid-cols-3">
+                        <QuickHint icon={<Store className="h-4 w-4" />} label="Store" value={activeStore?.name || 'No active store'} />
+                        <QuickHint icon={<ScanLine className="h-4 w-4" />} label="Use Case" value={format === 'amount' ? 'Checkout-specific amount' : 'Countertop general collect'} />
+                        <QuickHint icon={<DollarSign className="h-4 w-4" />} label="Amount" value={format === 'amount' && amount ? `BBD ${Number(amount || 0).toFixed(2)}` : 'Customer enters amount'} />
+                    </div>
+                </MerchantHero>
 
-                <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-                    {/* QR Display */}
-                    <Card>
-                        <CardHeader className="text-center">
-                            <CardTitle className="flex items-center justify-center gap-2 text-base">
-                                <QrCode className="h-4 w-4 text-primary" />
-                                {storeCode}
-                            </CardTitle>
-                            <CardDescription>
-                                {merchantName.trim() || 'Your store QR code'}
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="flex flex-col items-center gap-4">
-                            {qrDataUrl ? (
-                                <div className="rounded-2xl border border-border/60 bg-white p-4 shadow-sm">
-                                    <img
-                                        src={qrDataUrl}
-                                        alt={`QR code for ${storeCode}`}
-                                        className="h-64 w-64"
-                                        draggable={false}
-                                    />
+                <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+                    <MerchantSection title="QR Preview" description="Optimized display for screen sharing, print, or countertop use.">
+                        <div className="space-y-4">
+                            <motion.div layout className="rounded-[28px] border border-white/50 bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(244,255,250,0.9))] p-4 shadow-[0_20px_45px_-35px_rgba(3,18,14,0.6)]">
+                                <div className="mb-3 flex items-center justify-between gap-2">
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Collect QR</p>
+                                        <p className="text-sm font-semibold">{storeCode || 'No store selected'}</p>
+                                    </div>
+                                    <Badge className="rounded-full bg-emerald-500/12 text-emerald-700 hover:bg-emerald-500/12">
+                                        {format === 'amount' ? 'Fixed' : 'Open Amount'}
+                                    </Badge>
                                 </div>
-                            ) : (
-                                <div className="flex h-64 w-64 items-center justify-center rounded-2xl border border-dashed border-border/60 bg-muted/20">
-                                    <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-                                </div>
-                            )}
 
-                            {format === 'amount' && amount && Number(amount) > 0 ? (
-                                <p className="text-lg font-bold tracking-tight">
-                                    BBD {Number(amount).toFixed(2)}
-                                </p>
-                            ) : (
-                                <p className="text-sm text-muted-foreground">
-                                    Customer enters amount after scanning
-                                </p>
-                            )}
+                                <div className="flex min-h-[22rem] items-center justify-center rounded-2xl border border-dashed border-border/60 bg-background/80 p-4">
+                                    {canRenderQr && qrDataUrl ? (
+                                        <motion.img
+                                            key={qrDataUrl}
+                                            initial={{ opacity: 0, scale: 0.98 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            src={qrDataUrl}
+                                            alt={`QR code for ${storeCode}`}
+                                            className="h-64 w-64 rounded-xl bg-white p-2 shadow-sm"
+                                            draggable={false}
+                                        />
+                                    ) : canRenderQr ? (
+                                        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                                    ) : (
+                                        <div className="text-center text-muted-foreground">
+                                            <Store className="mx-auto mb-2 h-8 w-8 opacity-50" />
+                                            <p className="text-sm">Select an active store from the sidebar to generate the QR.</p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="mt-3 text-center">
+                                    <p className="text-sm font-semibold">{merchantName.trim() || activeStore?.name || 'Merchant Store'}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                        {format === 'amount' && amount && Number(amount) > 0 ? `BBD ${Number(amount).toFixed(2)}` : 'Customer enters amount after scan'}
+                                    </p>
+                                </div>
+                            </motion.div>
+
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                <Button variant="outline" className="rounded-xl" onClick={handleDownloadPng} disabled={!canRenderQr}>
+                                    <Download className="h-4 w-4" /> PNG
+                                </Button>
+                                <Button variant="outline" className="rounded-xl" onClick={handleDownloadSvg} disabled={!canRenderQr}>
+                                    <Download className="h-4 w-4" /> SVG
+                                </Button>
+                                <Button variant="outline" className="rounded-xl" onClick={handlePrint} disabled={!canRenderQr}>
+                                    <Printer className="h-4 w-4" /> Print
+                                </Button>
+                                <Button variant="outline" className="rounded-xl" onClick={handleCopy} disabled={!canRenderQr}>
+                                    {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                                    {copied ? 'Copied' : 'Copy'}
+                                </Button>
+                            </div>
 
                             <canvas ref={canvasRef} className="hidden" />
-                        </CardContent>
-                        <CardFooter className="flex flex-wrap justify-center gap-2">
-                            <Button variant="outline" size="sm" onClick={handleDownloadPng}>
-                                <Download className="mr-1.5 h-3.5 w-3.5" />
-                                PNG
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={handleDownloadSvg}>
-                                <Download className="mr-1.5 h-3.5 w-3.5" />
-                                SVG
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={handlePrint}>
-                                <Printer className="mr-1.5 h-3.5 w-3.5" />
-                                Print
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={handleCopy}>
-                                {copied ? (
-                                    <Check className="mr-1.5 h-3.5 w-3.5 text-green-500" />
-                                ) : (
-                                    <Copy className="mr-1.5 h-3.5 w-3.5" />
-                                )}
-                                {copied ? 'Copied' : 'Copy'}
-                            </Button>
-                        </CardFooter>
-                    </Card>
+                        </div>
+                    </MerchantSection>
 
-                    {/* Configuration */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2 text-base">
-                                <Store className="h-4 w-4 text-primary" />
-                                QR Configuration
-                            </CardTitle>
-                            <CardDescription>
-                                Customize what's encoded in your QR code.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="flex flex-col gap-5">
-                            <div className="flex flex-col gap-1.5">
-                                <Label>Store Code</Label>
-                                <Input value={storeCode} disabled />
-                                <p className="text-xs text-muted-foreground">
-                                    Your store code is automatically set from your login.
-                                </p>
-                            </div>
-
-                            <div className="flex flex-col gap-1.5">
-                                <Label htmlFor="merchant-display-name">
-                                    Display Name (optional)
-                                </Label>
-                                <Input
-                                    id="merchant-display-name"
-                                    placeholder="e.g. Corner Grocer"
-                                    value={merchantName}
-                                    onChange={(e) => setMerchantName(e.target.value)}
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                    Shown to customers when they scan your QR code.
-                                </p>
-                            </div>
-
-                            <Tabs
+                    <MerchantSection title="QR Configuration" description="Tune your customer collection experience per store and checkout context.">
+                        <div className="space-y-4">
+                            <MerchantSegmentedFilters<QrFormat>
                                 value={format}
-                                onValueChange={(v) => setFormat(v as QrFormat)}
-                            >
-                                <TabsList className="w-full">
-                                    <TabsTrigger value="static" className="flex-1">
-                                        <QrCode className="mr-1.5 h-3.5 w-3.5" />
-                                        Static QR
-                                    </TabsTrigger>
-                                    <TabsTrigger value="amount" className="flex-1">
-                                        <DollarSign className="mr-1.5 h-3.5 w-3.5" />
-                                        Fixed Amount
-                                    </TabsTrigger>
-                                </TabsList>
+                                onChange={setFormat}
+                                options={[
+                                    { value: 'static', label: 'Static QR' },
+                                    { value: 'amount', label: 'Fixed Amount' },
+                                ]}
+                            />
 
-                                <TabsContent value="static">
-                                    <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 p-3">
-                                        <p className="text-sm text-muted-foreground">
-                                            Customers scan and type the amount themselves.
-                                            Ideal for general-purpose countertop display.
-                                        </p>
-                                    </div>
-                                </TabsContent>
+                            <div className="grid gap-4">
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="merchant-display-name">Display Name (optional)</Label>
+                                    <Input id="merchant-display-name" value={merchantName} onChange={(e) => setMerchantName(e.target.value)} className="h-11 rounded-xl" placeholder="Corner Grocer - Sunset Mall" />
+                                    <p className="text-xs text-muted-foreground">Displayed to customers in QR metadata.</p>
+                                </div>
 
-                                <TabsContent value="amount" className="space-y-3">
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="fixed-amount">Amount (BBD)</Label>
-                                        <Input
-                                            id="fixed-amount"
-                                            type="number"
-                                            min="0.01"
-                                            step="0.01"
-                                            placeholder="0.00"
-                                            value={amount}
-                                            onChange={(e) => setAmount(e.target.value)}
-                                        />
-                                        <p className="text-xs text-muted-foreground">
-                                            Pre-fills the customer's payment amount on scan.
-                                        </p>
-                                    </div>
-                                </TabsContent>
-                            </Tabs>
+                                {format === 'amount' ? (
+                                    <AnimatePresence mode="wait">
+                                        <motion.div key="fixed-amount" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="space-y-1.5">
+                                            <Label htmlFor="fixed-amount">Fixed Amount (BBD)</Label>
+                                            <Input id="fixed-amount" type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-11 rounded-xl" placeholder="0.00" />
+                                            <p className="text-xs text-muted-foreground">Use this for exact checkout totals or pre-priced services.</p>
+                                        </motion.div>
+                                    </AnimatePresence>
+                                ) : null}
 
-                            <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-                                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                    QR Payload Preview
-                                </p>
-                                <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded bg-background p-2 text-xs font-mono text-muted-foreground">
-                                    {JSON.stringify(payload, null, 2)}
-                                </pre>
+                                <div className="rounded-2xl border border-border/70 bg-muted/20 p-3">
+                                    <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Payload Preview</p>
+                                    <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-border/60 bg-background/70 p-3 text-xs text-muted-foreground">
+                                        {JSON.stringify(payload, null, 2)}
+                                    </pre>
+                                </div>
                             </div>
-                        </CardContent>
-                    </Card>
+                        </div>
+                    </MerchantSection>
                 </div>
+
+                <MerchantStickyActionBar
+                    title={storeCode ? `QR ready for ${storeCode}` : 'Select a store to generate QR'}
+                    subtitle={format === 'amount' && amount ? `Fixed amount: BBD ${Number(amount || 0).toFixed(2)}` : 'Static collect QR recommended for countertop usage.'}
+                    secondary={<Button variant="outline" className="w-full rounded-xl sm:w-auto" onClick={() => { setFormat('static'); setAmount(''); }}>Reset to Static</Button>}
+                    primary={<Button className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-600/90 sm:w-auto" onClick={handlePrint} disabled={!canRenderQr}><Printer className="h-4 w-4" />Print Counter QR</Button>}
+                />
             </div>
         </PageTransition>
+    );
+}
+
+function QuickHint({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+    return (
+        <div className="rounded-2xl border border-border/70 bg-background/70 p-3">
+            <div className="mb-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-muted">{icon}</div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+            <p className="mt-1 text-sm font-semibold">{value}</p>
+        </div>
     );
 }

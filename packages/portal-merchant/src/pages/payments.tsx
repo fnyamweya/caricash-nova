@@ -1,241 +1,194 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CreditCard, Search, Download } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-    PageHeader,
-    PageTransition,
-    EmptyState,
-    Card,
-    CardContent,
     Badge,
     Button,
+    EmptyState,
     Input,
-    Table,
-    TableHeader,
-    TableBody,
-    TableRow,
-    TableHead,
-    TableCell,
     LoadingSpinner,
-    useAuth,
-    useApi,
-    SectionBlock,
-    SectionToolbar,
+    PageTransition,
     formatCurrency,
     formatDate,
+    formatRelativeTime,
+    useApi,
+    useAuth,
 } from '@caricash/ui';
+import { CreditCard, Download, QrCode, RefreshCw, Search, Sparkles, Store } from 'lucide-react';
+import { MerchantHero, MerchantMetricCard, MerchantSection, MerchantSegmentedFilters } from '../components/merchant-ui.js';
+import { useMerchantWorkspace } from '../lib/merchant-workspace.js';
+import {
+    entryAmount,
+    entryDisplayAmount,
+    parseMerchantDescription,
+    txnTypeBadge,
+    type StatementEntry,
+    type StatementResponse,
+} from '../lib/merchant-transactions.js';
 
-interface StatementEntry {
-    journal_id: string;
-    txn_type: string;
-    posted_at: string;
-    entry_type: 'DR' | 'CR';
-    amount: string;
-    line_description?: string;
-    correlation_id: string;
-    currency: string;
-    debit_amount_minor?: number;
-    credit_amount_minor?: number;
-}
-
-interface StatementResponse {
-    entries: StatementEntry[];
-    count: number;
-    account_id: string;
-}
-
-/** Mask a msisdn: show first 3 + last 4, asterisks in between */
-function maskMsisdn(msisdn: string): string {
-    if (msisdn.length <= 7) return msisdn;
-    return msisdn.slice(0, 3) + '****' + msisdn.slice(-4);
-}
-
-/** Extract counterparty info from description, masking PII */
-function parseDescription(desc?: string): { label: string; detail: string } {
-    if (!desc) return { label: 'Payment', detail: '' };
-    // Descriptions often contain reference like "Payment from 246XXXXXXX" or "Customer <name>"
-    const msisdnMatch = desc.match(/\d{10,15}/);
-    if (msisdnMatch) {
-        const masked = maskMsisdn(msisdnMatch[0]);
-        return { label: desc.replace(msisdnMatch[0], masked), detail: masked };
-    }
-    return { label: desc, detail: '' };
-}
-
-function getTxnTypeBadge(txnType: string) {
-    const normalized = txnType.toUpperCase();
-    if (normalized.includes('PAYMENT')) return { label: 'Payment', variant: 'default' as const };
-    if (normalized.includes('B2B')) return { label: 'B2B Transfer', variant: 'secondary' as const };
-    if (normalized.includes('REVERSAL')) return { label: 'Reversal', variant: 'destructive' as const };
-    if (normalized.includes('WITHDRAWAL')) return { label: 'Withdrawal', variant: 'outline' as const };
-    if (normalized.includes('DEPOSIT')) return { label: 'Deposit', variant: 'default' as const };
-    return { label: txnType, variant: 'secondary' as const };
-}
+type PaymentFilter = 'all' | 'large' | 'recent';
 
 export function PaymentsPage() {
     const { actor } = useAuth();
     const api = useApi();
+    const { activeStore } = useMerchantWorkspace();
     const [searchTerm, setSearchTerm] = useState('');
+    const [filter, setFilter] = useState<PaymentFilter>('all');
 
     const statementQuery = useQuery<StatementResponse>({
-        queryKey: ['merchant-statement', actor?.id],
-        queryFn: () =>
-            api.get<StatementResponse>(
-                `/wallets/MERCHANT/${actor!.id}/BBD/statement?limit=100`,
-            ),
+        queryKey: ['merchant-payments-statement', actor?.id],
+        queryFn: () => api.get(`/wallets/MERCHANT/${actor!.id}/BBD/statement?limit=160`),
         enabled: !!actor?.id,
         refetchInterval: 30_000,
     });
 
     const entries = statementQuery.data?.entries ?? [];
+    const incoming = entries.filter((entry) => entry.entry_type === 'CR');
 
-    // Only show credit entries (incoming payments) by default
-    const incomingPayments = entries.filter((e) => e.entry_type === 'CR');
+    const filtered = useMemo(() => {
+        const base = filter === 'all'
+            ? incoming
+            : filter === 'large'
+                ? incoming.filter((entry) => entryAmount(entry) >= 200)
+                : incoming.filter((entry) => Date.now() - new Date(entry.posted_at).getTime() < 24 * 60 * 60 * 1000);
 
-    // Apply search filter
-    const filtered = searchTerm
-        ? incomingPayments.filter((e) => {
-            const desc = parseDescription(e.line_description).label.toLowerCase();
-            const type = e.txn_type.toLowerCase();
-            const term = searchTerm.toLowerCase();
-            return desc.includes(term) || type.includes(term) || e.journal_id.includes(term);
-        })
-        : incomingPayments;
+        if (!searchTerm.trim()) return base;
+        const term = searchTerm.toLowerCase();
+        return base.filter((entry) => {
+            const parsed = parseMerchantDescription(entry.line_description).label.toLowerCase();
+            return parsed.includes(term)
+                || entry.txn_type.toLowerCase().includes(term)
+                || entry.journal_id.toLowerCase().includes(term);
+        });
+    }, [incoming, filter, searchTerm]);
 
-    // Calculate totals
-    const totalAmount = incomingPayments.reduce((sum, e) => {
-        const amt = parseFloat(e.amount) || (e.credit_amount_minor ? e.credit_amount_minor / 100 : 0);
-        return sum + amt;
-    }, 0);
+    const totalReceived = incoming.reduce((sum, entry) => sum + entryAmount(entry), 0);
+    const avgTicket = incoming.length ? totalReceived / incoming.length : 0;
+    const largest = incoming.reduce((max, entry) => Math.max(max, entryAmount(entry)), 0);
 
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6">
-                <PageHeader
-                    title="Incoming Payments"
-                    description="Track payments received from customers"
-                />
-
-                <SectionBlock
-                    title="Payment Summary"
-                    description="High-level totals for incoming customer payments."
-                    contentClassName="space-y-0"
-                >
-                    <div className="grid gap-4 sm:grid-cols-3">
-                        <Card className="shadow-none">
-                            <CardContent className="pt-6">
-                                <div className="text-sm text-muted-foreground">Total Payments</div>
-                                <div className="text-2xl font-bold">{incomingPayments.length}</div>
-                            </CardContent>
-                        </Card>
-                        <Card className="shadow-none">
-                            <CardContent className="pt-6">
-                                <div className="text-sm text-muted-foreground">Total Received</div>
-                                <div className="text-2xl font-bold text-green-600">
-                                    {formatCurrency(totalAmount.toFixed(2), 'BBD')}
-                                </div>
-                            </CardContent>
-                        </Card>
-                        <Card className="shadow-none">
-                            <CardContent className="pt-6">
-                                <div className="text-sm text-muted-foreground">Account</div>
-                                <div className="text-sm font-mono truncate">
-                                    {statementQuery.data?.account_id ?? '—'}
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
-                </SectionBlock>
-
-                {/* Filters */}
-                <SectionToolbar
-                    title="Payment Controls"
-                    description="Search incoming payments and prepare exports."
+            <div className="flex flex-col gap-4 md:gap-5">
+                <MerchantHero
+                    title="Collection Workspace"
+                    description="Monitor incoming customer payments, find specific transactions quickly, and stay on top of collection trends across stores."
+                    badge={activeStore ? `Collecting for ${activeStore.store_code}` : 'Incoming payments'}
                     actions={(
-                        <Button variant="outline" size="sm" disabled>
-                            <Download className="mr-1 h-4 w-4" />
-                            Export
-                        </Button>
+                        <>
+                            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => void statementQuery.refetch()} disabled={statementQuery.isFetching}>
+                                <RefreshCw className={cn('h-4 w-4', statementQuery.isFetching && 'animate-spin')} />
+                                {statementQuery.isFetching ? 'Refreshing' : 'Refresh'}
+                            </Button>
+                            <Button variant="outline" size="sm" className="rounded-xl" disabled>
+                                <Download className="h-4 w-4" />
+                                Export
+                            </Button>
+                        </>
                     )}
                 >
-                    <div className="flex items-center gap-3">
-                        <div className="relative flex-1 max-w-sm">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <MerchantMetricCard label="Incoming payments" value={incoming.length} helper="Credits posted to merchant wallet" icon={<CreditCard className="h-4 w-4" />} tone="emerald" />
+                        <MerchantMetricCard label="Total received" value={formatCurrency(totalReceived.toFixed(2), 'BBD')} helper="All visible collection history" icon={<Sparkles className="h-4 w-4" />} tone="blue" />
+                        <MerchantMetricCard label="Average ticket" value={formatCurrency(avgTicket.toFixed(2), 'BBD')} helper="Mean payment amount" icon={<QrCode className="h-4 w-4" />} tone="amber" />
+                        <MerchantMetricCard label="Largest payment" value={formatCurrency(largest.toFixed(2), 'BBD')} helper={statementQuery.data?.account_id ? `Acct ${statementQuery.data.account_id.slice(0, 10)}…` : 'Merchant account'} icon={<Store className="h-4 w-4" />} tone="slate" />
+                    </div>
+                </MerchantHero>
+
+                <MerchantSection
+                    title="Payment Feed"
+                    description="Search customer payments by description, reference, or type. Optimized for mobile operations and cashier workflows."
+                >
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <MerchantSegmentedFilters<PaymentFilter>
+                            value={filter}
+                            onChange={setFilter}
+                            options={[
+                                { value: 'all', label: 'All', count: incoming.length },
+                                { value: 'recent', label: '24h', count: incoming.filter((entry) => Date.now() - new Date(entry.posted_at).getTime() < 24 * 60 * 60 * 1000).length },
+                                { value: 'large', label: 'Large', count: incoming.filter((entry) => entryAmount(entry) >= 200).length },
+                            ]}
+                        />
+                        <div className="relative w-full lg:max-w-sm">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                             <Input
-                                placeholder="Search transactions..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="pl-10"
+                                placeholder="Search payment feed"
+                                className="h-10 rounded-xl pl-9"
                             />
                         </div>
-                        <Badge variant="outline">
-                            {filtered.length} result{filtered.length === 1 ? '' : 's'}
-                        </Badge>
                     </div>
-                </SectionToolbar>
 
-                {/* Table */}
-                {statementQuery.isLoading ? (
-                    <div className="flex justify-center py-12">
-                        <LoadingSpinner />
-                    </div>
-                ) : filtered.length > 0 ? (
-                    <SectionBlock
-                        title="Incoming Payment Feed"
-                        description="Credits posted to the merchant wallet."
-                        contentClassName="p-0"
-                    >
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Date</TableHead>
-                                        <TableHead>Type</TableHead>
-                                        <TableHead>Description</TableHead>
-                                        <TableHead>Reference</TableHead>
-                                        <TableHead className="text-right">Amount</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {filtered.map((entry) => {
-                                        const { label } = parseDescription(entry.line_description);
-                                        const badge = getTxnTypeBadge(entry.txn_type);
-                                        const amount = entry.amount || ((entry.credit_amount_minor ?? 0) / 100).toFixed(2);
-                                        return (
-                                            <TableRow key={`${entry.journal_id}-${entry.entry_type}`}>
-                                                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                                                    {formatDate(entry.posted_at)}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge variant={badge.variant}>{badge.label}</Badge>
-                                                </TableCell>
-                                                <TableCell className="max-w-[300px] truncate text-sm">
-                                                    {label}
-                                                </TableCell>
-                                                <TableCell className="font-mono text-xs text-muted-foreground">
-                                                    {entry.journal_id.slice(0, 12)}…
-                                                </TableCell>
-                                                <TableCell className="text-right font-medium text-green-600">
-                                                    +{formatCurrency(amount, entry.currency || 'BBD')}
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    })}
-                                </TableBody>
-                            </Table>
-                    </SectionBlock>
-                ) : (
-                    <SectionBlock
-                        title="Incoming Payment Feed"
-                        description="Payment history will populate when customer payments are posted."
-                    >
-                            <EmptyState
-                                icon={<CreditCard />}
-                                title="No payments yet"
-                                description="Payment history will appear here once customers start paying at your store."
-                            />
-                    </SectionBlock>
-                )}
+                    {statementQuery.isLoading ? (
+                        <div className="flex justify-center py-12"><LoadingSpinner /></div>
+                    ) : filtered.length === 0 ? (
+                        <EmptyState
+                            icon={<CreditCard />}
+                            title="No payments found"
+                            description="Try a different filter or wait for new customer payments to arrive in your wallet."
+                        />
+                    ) : (
+                        <div className="grid gap-2 sm:gap-3">
+                            <AnimatePresence initial={false}>
+                                {filtered.map((entry) => (
+                                    <PaymentCard key={`${entry.journal_id}-${entry.posted_at}`} entry={entry} />
+                                ))}
+                            </AnimatePresence>
+                        </div>
+                    )}
+                </MerchantSection>
             </div>
         </PageTransition>
     );
+}
+
+function PaymentCard({ entry }: { entry: StatementEntry }) {
+    const parsed = parseMerchantDescription(entry.line_description);
+    const badge = txnTypeBadge(entry.txn_type);
+    const amount = entryDisplayAmount(entry);
+
+    return (
+        <motion.div
+            layout
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="rounded-2xl border border-border/70 bg-background/85 p-3 shadow-sm"
+        >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex items-start gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-500/10 text-emerald-700">
+                        <CreditCard className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                            <p className="truncate text-sm font-semibold">{parsed.label}</p>
+                            <Badge variant="outline" className={cn(
+                                'rounded-full text-[11px]',
+                                badge.tone === 'emerald' && 'border-emerald-200 bg-emerald-500/8 text-emerald-700',
+                                badge.tone === 'blue' && 'border-blue-200 bg-blue-500/8 text-blue-700',
+                                badge.tone === 'amber' && 'border-amber-200 bg-amber-500/8 text-amber-700',
+                                badge.tone === 'rose' && 'border-rose-200 bg-rose-500/8 text-rose-700',
+                            )}>{badge.label}</Badge>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span>{formatDate(entry.posted_at)}</span>
+                            <span>•</span>
+                            <span>{formatRelativeTime(entry.posted_at)}</span>
+                            <span>•</span>
+                            <span className="font-mono">{entry.journal_id.slice(0, 12)}…</span>
+                        </div>
+                    </div>
+                </div>
+                <div className="text-right">
+                    <p className="text-base font-semibold text-emerald-700">+{formatCurrency(amount, entry.currency || 'BBD')}</p>
+                    <p className="text-xs text-muted-foreground">Incoming collection</p>
+                </div>
+            </div>
+        </motion.div>
+    );
+}
+
+function cn(...values: Array<string | false | null | undefined>) {
+    return values.filter(Boolean).join(' ');
 }
