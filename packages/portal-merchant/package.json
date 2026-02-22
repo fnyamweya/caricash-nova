@@ -13,6 +13,7 @@
         "@caricash/ui": "workspace:*",
         "@tanstack/react-query": "^5.62.0",
         "@tanstack/react-router": "^1.92.0",
+        "framer-motion": "^12.23.24",
         "lucide-react": "^0.468.0",
         "qrcode": "^1.5.4",
         "react": "^19.1.0",

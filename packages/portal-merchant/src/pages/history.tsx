@@ -1,218 +1,280 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Clock, ArrowUpRight, ArrowDownLeft, Search } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-    useAuth,
-    useApi,
-    PageHeader,
-    PageTransition,
+    Badge,
     Button,
     EmptyState,
-    Badge,
     Input,
-    Table,
-    TableHeader,
-    TableBody,
-    TableRow,
-    TableHead,
-    TableCell,
     LoadingSpinner,
-    Tabs,
-    TabsList,
-    TabsTrigger,
-    TabsContent,
-    SectionBlock,
-    SectionToolbar,
+    PageTransition,
     formatCurrency,
     formatDate,
+    formatRelativeTime,
+    useApi,
+    useAuth,
 } from '@caricash/ui';
+import { ChevronDown, Clock, RefreshCw, Search } from 'lucide-react';
+import { MerchantHero, MerchantSection, MerchantSegmentedFilters } from '../components/merchant-ui.js';
+import {
+    entryDisplayAmount,
+    parseMerchantDescription,
+    txnTypeBadge,
+    type StatementEntry,
+    type StatementResponse,
+} from '../lib/merchant-transactions.js';
 
-interface StatementEntry {
-    journal_id: string;
-    txn_type: string;
-    posted_at: string;
-    entry_type: 'DR' | 'CR';
-    amount: string;
-    line_description?: string;
-    correlation_id: string;
-    currency: string;
-    debit_amount_minor?: number;
-    credit_amount_minor?: number;
-}
-
-interface StatementResponse {
-    entries: StatementEntry[];
-    count: number;
-    account_id: string;
-}
-
-function getTxnTypeBadge(txnType: string) {
-    const n = txnType.toUpperCase();
-    if (n.includes('PAYMENT')) return { label: 'Payment', variant: 'default' as const };
-    if (n.includes('B2B')) return { label: 'B2B Transfer', variant: 'secondary' as const };
-    if (n.includes('REVERSAL')) return { label: 'Reversal', variant: 'destructive' as const };
-    if (n.includes('WITHDRAWAL')) return { label: 'Withdrawal', variant: 'outline' as const };
-    if (n.includes('DEPOSIT')) return { label: 'Deposit', variant: 'default' as const };
-    if (n.includes('COMMISSION')) return { label: 'Commission', variant: 'secondary' as const };
-    return { label: txnType, variant: 'secondary' as const };
-}
+type TabFilter = 'all' | 'incoming' | 'outgoing';
+type DateFilter = 'all' | 'today' | '7d' | '30d';
 
 export function HistoryPage() {
     const { actor } = useAuth();
     const api = useApi();
-    const [tab, setTab] = useState('all');
+    const [tab, setTab] = useState<TabFilter>('all');
+    const [dateFilter, setDateFilter] = useState<DateFilter>('7d');
     const [searchTerm, setSearchTerm] = useState('');
+    const [expandedId, setExpandedId] = useState<string | null>(null);
 
     const statementQuery = useQuery<StatementResponse>({
-        queryKey: ['merchant-statement-history', actor?.id],
-        queryFn: () =>
-            api.get<StatementResponse>(
-                `/wallets/MERCHANT/${actor!.id}/BBD/statement?limit=200`,
-            ),
+        queryKey: ['merchant-history-statement', actor?.id],
+        queryFn: () => api.get(`/wallets/MERCHANT/${actor!.id}/BBD/statement?limit=240`),
         enabled: !!actor?.id,
     });
 
     const entries = statementQuery.data?.entries ?? [];
+    const now = Date.now();
 
-    // Filter by tab
-    const tabFiltered = tab === 'all'
-        ? entries
-        : tab === 'incoming'
-            ? entries.filter((e) => e.entry_type === 'CR')
-            : entries.filter((e) => e.entry_type === 'DR');
+    const filtered = useMemo(() => {
+        let list = tab === 'all'
+            ? entries
+            : entries.filter((entry) => (tab === 'incoming' ? entry.entry_type === 'CR' : entry.entry_type === 'DR'));
 
-    // Search filter
-    const filtered = searchTerm
-        ? tabFiltered.filter((e) => {
+        if (dateFilter !== 'all') {
+            const windowMs = dateFilter === 'today'
+                ? 24 * 60 * 60 * 1000
+                : dateFilter === '7d'
+                    ? 7 * 24 * 60 * 60 * 1000
+                    : 30 * 24 * 60 * 60 * 1000;
+            list = list.filter((entry) => now - new Date(entry.posted_at).getTime() <= windowMs);
+        }
+
+        if (searchTerm.trim()) {
             const term = searchTerm.toLowerCase();
-            return (e.line_description ?? '').toLowerCase().includes(term)
-                || e.txn_type.toLowerCase().includes(term)
-                || e.journal_id.includes(term);
-        })
-        : tabFiltered;
+            list = list.filter((entry) => {
+                const parsed = parseMerchantDescription(entry.line_description).label.toLowerCase();
+                return parsed.includes(term)
+                    || entry.txn_type.toLowerCase().includes(term)
+                    || entry.journal_id.toLowerCase().includes(term)
+                    || (entry.correlation_id ?? '').toLowerCase().includes(term);
+            });
+        }
+
+        return list;
+    }, [entries, tab, dateFilter, searchTerm, now]);
+
+    const incomingCount = entries.filter((entry) => entry.entry_type === 'CR').length;
+    const outgoingCount = entries.filter((entry) => entry.entry_type === 'DR').length;
 
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6">
-                <PageHeader
-                    title="Transaction History"
-                    description="View your past transactions"
-                />
+            <div className="flex flex-col gap-4 md:gap-5">
+                <MerchantHero
+                    title="Activity Timeline"
+                    description="Search, filter, and inspect every merchant wallet entry with a smoother mobile-first history view."
+                    badge="Merchant statement history"
+                    actions={(
+                        <Button variant="outline" size="sm" className="rounded-xl" onClick={() => void statementQuery.refetch()} disabled={statementQuery.isFetching}>
+                            <RefreshCw className={cn('h-4 w-4', statementQuery.isFetching && 'animate-spin')} />
+                            {statementQuery.isFetching ? 'Refreshing' : 'Refresh'}
+                        </Button>
+                    )}
+                >
+                    <div className="grid gap-2 sm:grid-cols-3">
+                        <TimelineStat label="Entries" value={String(entries.length)} helper="Statement rows loaded" />
+                        <TimelineStat label="Incoming" value={String(incomingCount)} helper="Credits" tone="emerald" />
+                        <TimelineStat label="Outgoing" value={String(outgoingCount)} helper="Debits" tone="rose" />
+                    </div>
+                </MerchantHero>
 
-                <Tabs value={tab} onValueChange={setTab}>
-                    <SectionToolbar
-                        title="History Controls"
-                        description="Filter and search merchant activity across incoming and outgoing postings."
-                        actions={(
-                            <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => void statementQuery.refetch()}
-                                disabled={statementQuery.isFetching}
-                            >
-                                {statementQuery.isFetching ? 'Refreshing…' : 'Refresh'}
-                            </Button>
-                        )}
-                    >
-                        <div className="flex flex-wrap items-center justify-between gap-4">
-                            <TabsList className="h-auto flex-wrap justify-start">
-                                <TabsTrigger value="all">All ({entries.length})</TabsTrigger>
-                                <TabsTrigger value="incoming">
-                                    Incoming ({entries.filter((e) => e.entry_type === 'CR').length})
-                                </TabsTrigger>
-                                <TabsTrigger value="outgoing">
-                                    Outgoing ({entries.filter((e) => e.entry_type === 'DR').length})
-                                </TabsTrigger>
-                            </TabsList>
-                            <div className="relative max-w-sm min-w-[220px] flex-1">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <MerchantSection title="Filters & Search" description="Narrow the timeline by direction, period, and keywords.">
+                    <div className="flex flex-col gap-3">
+                        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                            <MerchantSegmentedFilters<TabFilter>
+                                value={tab}
+                                onChange={setTab}
+                                options={[
+                                    { value: 'all', label: 'All', count: entries.length },
+                                    { value: 'incoming', label: 'Incoming', count: incomingCount },
+                                    { value: 'outgoing', label: 'Outgoing', count: outgoingCount },
+                                ]}
+                            />
+                            <div className="relative w-full xl:max-w-sm">
+                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                 <Input
-                                    placeholder="Search..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="pl-10"
+                                    placeholder="Search description, ref, correlation"
+                                    className="h-10 rounded-xl pl-9"
                                 />
                             </div>
                         </div>
-                    </SectionToolbar>
+                        <MerchantSegmentedFilters<DateFilter>
+                            value={dateFilter}
+                            onChange={setDateFilter}
+                            options={[
+                                { value: 'today', label: 'Today' },
+                                { value: '7d', label: '7 Days' },
+                                { value: '30d', label: '30 Days' },
+                                { value: 'all', label: 'All Time' },
+                            ]}
+                        />
+                    </div>
+                </MerchantSection>
 
-                    {/* Shared content across all tabs */}
-                    {['all', 'incoming', 'outgoing'].map((t) => (
-                        <TabsContent key={t} value={t}>
-                            {statementQuery.isLoading ? (
-                                <div className="flex justify-center py-12">
-                                    <LoadingSpinner />
-                                </div>
-                            ) : filtered.length > 0 ? (
-                                <SectionBlock
-                                    title="Transaction Table"
-                                    description="Merchant wallet statement entries for the selected filters."
-                                    contentClassName="p-0"
-                                >
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead className="w-8"></TableHead>
-                                                    <TableHead>Date</TableHead>
-                                                    <TableHead>Type</TableHead>
-                                                    <TableHead>Description</TableHead>
-                                                    <TableHead>Reference</TableHead>
-                                                    <TableHead className="text-right">Amount</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {filtered.map((entry) => {
-                                                    const isCredit = entry.entry_type === 'CR';
-                                                    const badge = getTxnTypeBadge(entry.txn_type);
-                                                    const amount = entry.amount
-                                                        || ((isCredit ? entry.credit_amount_minor : entry.debit_amount_minor) ?? 0 / 100).toFixed(2);
-                                                    return (
-                                                        <TableRow key={`${entry.journal_id}-${entry.entry_type}`}>
-                                                            <TableCell>
-                                                                {isCredit ? (
-                                                                    <ArrowDownLeft className="h-4 w-4 text-green-500" />
-                                                                ) : (
-                                                                    <ArrowUpRight className="h-4 w-4 text-red-500" />
-                                                                )}
-                                                            </TableCell>
-                                                            <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                                                                {formatDate(entry.posted_at)}
-                                                            </TableCell>
-                                                            <TableCell>
-                                                                <Badge variant={badge.variant}>{badge.label}</Badge>
-                                                            </TableCell>
-                                                            <TableCell className="max-w-[300px] truncate text-sm">
-                                                                {entry.line_description ?? '—'}
-                                                            </TableCell>
-                                                            <TableCell className="font-mono text-xs text-muted-foreground">
-                                                                {entry.journal_id.slice(0, 12)}…
-                                                            </TableCell>
-                                                            <TableCell className={`text-right font-medium ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
-                                                                {isCredit ? '+' : '-'}{formatCurrency(amount, entry.currency || 'BBD')}
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    );
-                                                })}
-                                            </TableBody>
-                                        </Table>
-                                </SectionBlock>
-                            ) : (
-                                <SectionBlock
-                                    title="Transaction Table"
-                                    description="No entries matched the current tab and search filters."
-                                >
-                                        <EmptyState
-                                            icon={<Clock />}
-                                            title="No transactions yet"
-                                            description="Transaction history will appear here once you start receiving or sending payments."
+                <MerchantSection
+                    title="Timeline"
+                    description="Tap any row to expand for reference details and transaction metadata."
+                    actions={<Badge variant="outline" className="rounded-full">{filtered.length} results</Badge>}
+                >
+                    {statementQuery.isLoading ? (
+                        <div className="flex justify-center py-10"><LoadingSpinner /></div>
+                    ) : filtered.length === 0 ? (
+                        <EmptyState
+                            icon={<Clock />}
+                            title="No transactions found"
+                            description="Try broadening your filters or clear the search term to see more history."
+                        />
+                    ) : (
+                        <div className="space-y-2">
+                            <AnimatePresence initial={false}>
+                                {filtered.map((entry) => {
+                                    const rowId = `${entry.journal_id}-${entry.entry_type}`;
+                                    return (
+                                        <TimelineRow
+                                            key={rowId}
+                                            entry={entry}
+                                            expanded={expandedId === rowId}
+                                            onToggle={() => setExpandedId(expandedId === rowId ? null : rowId)}
                                         />
-                                </SectionBlock>
-                            )}
-                        </TabsContent>
-                    ))}
-                </Tabs>
+                                    );
+                                })}
+                            </AnimatePresence>
+                        </div>
+                    )}
+                </MerchantSection>
             </div>
         </PageTransition>
     );
+}
+
+function TimelineRow({
+    entry,
+    expanded,
+    onToggle,
+}: {
+    entry: StatementEntry;
+    expanded: boolean;
+    onToggle: () => void;
+}) {
+    const isCredit = entry.entry_type === 'CR';
+    const parsed = parseMerchantDescription(entry.line_description);
+    const badge = txnTypeBadge(entry.txn_type);
+
+    return (
+        <motion.div
+            layout
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="overflow-hidden rounded-2xl border border-border/70 bg-background/85"
+        >
+            <button
+                type="button"
+                onClick={onToggle}
+                className="flex w-full items-start justify-between gap-3 p-3 text-left hover:bg-accent/20"
+            >
+                <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                        <p className="truncate text-sm font-semibold">{parsed.label}</p>
+                        <Badge variant="outline" className={cn(
+                            'rounded-full text-[11px]',
+                            badge.tone === 'emerald' && 'border-emerald-200 bg-emerald-500/8 text-emerald-700',
+                            badge.tone === 'blue' && 'border-blue-200 bg-blue-500/8 text-blue-700',
+                            badge.tone === 'amber' && 'border-amber-200 bg-amber-500/8 text-amber-700',
+                            badge.tone === 'rose' && 'border-rose-200 bg-rose-500/8 text-rose-700',
+                        )}>{badge.label}</Badge>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>{formatDate(entry.posted_at)}</span>
+                        <span>•</span>
+                        <span>{formatRelativeTime(entry.posted_at)}</span>
+                        <span>•</span>
+                        <span className="font-mono">{entry.journal_id.slice(0, 12)}…</span>
+                    </div>
+                </div>
+                <div className="flex items-center gap-3">
+                    <div className="text-right">
+                        <p className={cn('text-sm font-semibold', isCredit ? 'text-emerald-700' : 'text-rose-700')}>
+                            {isCredit ? '+' : '-'}{formatCurrency(entryDisplayAmount(entry), entry.currency || 'BBD')}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{isCredit ? 'Incoming' : 'Outgoing'}</p>
+                    </div>
+                    <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', expanded && 'rotate-180')} />
+                </div>
+            </button>
+
+            <AnimatePresence initial={false}>
+                {expanded ? (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden"
+                    >
+                        <div className="border-t border-border/70 bg-muted/15 p-3">
+                            <div className="grid gap-2 text-sm sm:grid-cols-2">
+                                <DetailItem label="Transaction Type" value={entry.txn_type} />
+                                <DetailItem label="Direction" value={entry.entry_type === 'CR' ? 'Credit' : 'Debit'} />
+                                <DetailItem label="Reference" value={entry.journal_id} mono />
+                                <DetailItem label="Correlation ID" value={entry.correlation_id || '—'} mono />
+                            </div>
+                            {entry.line_description ? (
+                                <div className="mt-3 rounded-xl border border-dashed border-border/60 bg-background/70 p-3 text-xs text-muted-foreground">
+                                    {entry.line_description}
+                                </div>
+                            ) : null}
+                        </div>
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
+        </motion.div>
+    );
+}
+
+function TimelineStat({ label, value, helper, tone = 'slate' }: { label: string; value: string; helper: string; tone?: 'slate' | 'emerald' | 'rose' }) {
+    return (
+        <div className={cn(
+            'rounded-2xl border p-3',
+            tone === 'emerald' && 'border-emerald-200 bg-emerald-500/8',
+            tone === 'rose' && 'border-rose-200 bg-rose-500/8',
+            tone === 'slate' && 'border-border/70 bg-background/70',
+        )}>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+            <p className="mt-1 text-lg font-semibold">{value}</p>
+            <p className="text-xs text-muted-foreground">{helper}</p>
+        </div>
+    );
+}
+
+function DetailItem({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+    return (
+        <div className="rounded-xl border border-border/60 bg-background/70 p-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+            <p className={cn('mt-1 text-sm', mono && 'font-mono text-xs break-all')}>{value}</p>
+        </div>
+    );
+}
+
+function cn(...values: Array<string | false | null | undefined>) {
+    return values.filter(Boolean).join(' ');
 }
