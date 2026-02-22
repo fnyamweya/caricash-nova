@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { CheckCircle } from 'lucide-react';
+import { CheckCircle, ShieldCheck, FileText, Sparkles, Clock3 } from 'lucide-react';
 import {
     useAuth,
     useApi,
@@ -14,6 +14,7 @@ import {
     Input,
     Label,
     Button,
+    Badge,
     Select,
     SelectTrigger,
     SelectValue,
@@ -66,60 +67,127 @@ export function KycPage() {
             <div className="flex flex-col gap-6">
                 <PageHeader
                     title="KYC Verification"
-                    description="Submit your identity documents for verification"
+                    description="Verify your identity to support safer transfers and smoother payments."
+                    badge="Verification"
                 />
 
-                <Card className="max-w-lg">
-                    <form onSubmit={handleSubmit}>
-                        <CardHeader>
-                            <CardTitle className="text-base">Document Details</CardTitle>
-                        </CardHeader>
-                        <CardContent className="flex flex-col gap-4">
-                            <div className="flex flex-col gap-1.5">
-                                <Label htmlFor="doc-type">Document Type</Label>
-                                <Select value={documentType} onValueChange={setDocumentType}>
-                                    <SelectTrigger id="doc-type">
-                                        <SelectValue placeholder="Select document type" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {DOCUMENT_TYPES.map((dt) => (
-                                            <SelectItem key={dt.value} value={dt.value}>
-                                                {dt.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                    <div className="space-y-4">
+                        <Card>
+                            <CardHeader className="px-6 py-5">
+                                <CardTitle className="flex items-center gap-2 text-base">
+                                    <ShieldCheck className="h-4 w-4 text-primary" />
+                                    Verification Status
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4 px-6 pb-5">
+                                <div className="rounded-2xl border border-dashed bg-muted/25 p-4">
+                                    <div className="mb-2 flex items-center justify-between">
+                                        <p className="text-sm font-semibold">KYC Submission</p>
+                                        <Badge variant="outline">Pending</Badge>
+                                    </div>
+                                    <p className="text-muted-foreground text-sm">
+                                        Submit one valid identity document to begin verification review.
+                                    </p>
+                                </div>
 
-                            <div className="flex flex-col gap-1.5">
-                                <Label htmlFor="doc-number">Document Number</Label>
-                                <Input
-                                    id="doc-number"
-                                    type="text"
-                                    placeholder="Enter document number"
-                                    value={documentNumber}
-                                    onChange={(e) => setDocumentNumber(e.target.value)}
-                                    required
-                                />
-                            </div>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex items-start gap-2">
+                                        <FileText className="mt-0.5 h-4 w-4 text-primary" />
+                                        <span>Use a valid document number exactly as shown on the document.</span>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                        <Clock3 className="mt-0.5 h-4 w-4 text-primary" />
+                                        <span>We’ll review your submission and notify you when it’s complete.</span>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                        <Sparkles className="mt-0.5 h-4 w-4 text-primary" />
+                                        <span>Verified profiles help reduce payment friction and support limits.</span>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
 
-                            {mutation.isError && (
-                                <p className="text-sm text-destructive">
-                                    {mutation.error?.message ?? 'Submission failed. Please try again.'}
+                        <Card>
+                            <CardHeader className="px-6 py-5">
+                                <CardTitle className="text-base">Accepted Documents</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-2 px-6 pb-5 text-sm">
+                                {DOCUMENT_TYPES.map((dt) => (
+                                    <div
+                                        key={dt.value}
+                                        className="flex items-center justify-between rounded-xl border bg-background px-3 py-2.5"
+                                    >
+                                        <span>{dt.label}</span>
+                                        <Badge variant="outline">Accepted</Badge>
+                                    </div>
+                                ))}
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    <Card className="h-fit">
+                        <form onSubmit={handleSubmit}>
+                            <CardHeader className="px-6 py-5">
+                                <CardTitle className="text-base">Submit Document Details</CardTitle>
+                            </CardHeader>
+                            <CardContent className="flex flex-col gap-4 px-6 pb-5">
+                                <div className="rounded-2xl border bg-primary/5 px-4 py-3 text-sm">
+                                    <p className="font-semibold">Secure verification form</p>
+                                    <p className="text-muted-foreground mt-1">
+                                        Your document details are used only for identity verification.
+                                    </p>
+                                </div>
+
+                                <div className="flex flex-col gap-1.5">
+                                    <Label htmlFor="doc-type">Document Type</Label>
+                                    <Select value={documentType} onValueChange={setDocumentType}>
+                                        <SelectTrigger id="doc-type">
+                                            <SelectValue placeholder="Select document type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {DOCUMENT_TYPES.map((dt) => (
+                                                <SelectItem key={dt.value} value={dt.value}>
+                                                    {dt.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="flex flex-col gap-1.5">
+                                    <Label htmlFor="doc-number">Document Number</Label>
+                                    <Input
+                                        id="doc-number"
+                                        type="text"
+                                        placeholder="Enter document number"
+                                        value={documentNumber}
+                                        onChange={(e) => setDocumentNumber(e.target.value)}
+                                        required
+                                    />
+                                </div>
+
+                                {mutation.isError && (
+                                    <p className="text-sm text-destructive">
+                                        {mutation.error?.message ?? 'Submission failed. Please try again.'}
+                                    </p>
+                                )}
+                            </CardContent>
+                            <CardFooter className="flex-col gap-2 px-6 pb-5">
+                                <Button
+                                    type="submit"
+                                    className="w-full"
+                                    disabled={mutation.isPending || !documentType || !documentNumber}
+                                >
+                                    {mutation.isPending ? 'Submitting…' : 'Submit KYC'}
+                                </Button>
+                                <p className="text-muted-foreground text-center text-xs">
+                                    Review usually starts after successful submission.
                                 </p>
-                            )}
-                        </CardContent>
-                        <CardFooter>
-                            <Button
-                                type="submit"
-                                className="w-full"
-                                disabled={mutation.isPending || !documentType || !documentNumber}
-                            >
-                                {mutation.isPending ? 'Submitting…' : 'Submit KYC'}
-                            </Button>
-                        </CardFooter>
-                    </form>
-                </Card>
+                            </CardFooter>
+                        </form>
+                    </Card>
+                </div>
             </div>
 
             {/* Success dialog */}

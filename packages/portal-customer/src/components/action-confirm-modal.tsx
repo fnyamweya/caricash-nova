@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ShieldCheck, Eye, EyeOff } from 'lucide-react';
+import { ShieldCheck, Eye, EyeOff, LockKeyhole, Sparkles } from 'lucide-react';
 import {
     Dialog,
     DialogContent,
@@ -48,6 +48,8 @@ export function ActionConfirmModal({
     const [showPin, setShowPin] = useState(false);
 
     const canConfirm = useMemo(() => pin.trim().length >= 4, [pin]);
+    const primaryAmount =
+        summary.find((item) => /(amount|recipient gets)/i.test(item.label))?.value ?? null;
 
     return (
         <Dialog
@@ -70,28 +72,59 @@ export function ActionConfirmModal({
                     </DialogDescription>
                 </DialogHeader>
 
+                {primaryAmount ? (
+                    <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+                        <div className="mb-2 flex items-center justify-between">
+                            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                                Ready to Confirm
+                            </p>
+                            <Badge variant="outline">Secure Checkout</Badge>
+                        </div>
+                        <p className="text-2xl font-semibold tracking-tight">{primaryAmount}</p>
+                        <p className="text-muted-foreground mt-1 text-xs">
+                            Review details below, then enter your PIN to continue.
+                        </p>
+                    </div>
+                ) : null}
+
                 <div className="rounded-xl border border-border/70 bg-muted/25 p-4">
                     <div className="mb-2 flex items-center justify-between">
                         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                             Transaction Preview
                         </p>
-                        <Badge variant="outline">PIN Protected</Badge>
+                        <Badge variant="outline" className="inline-flex items-center gap-1">
+                            <LockKeyhole className="h-3 w-3" />
+                            PIN Protected
+                        </Badge>
                     </div>
                     <dl className="space-y-1.5">
                         {summary.map((item) => (
                             <div
                                 key={`${item.label}-${item.value}`}
-                                className="flex items-start justify-between gap-4 text-sm"
+                                className="flex items-start justify-between gap-4 rounded-lg px-2 py-1 text-sm"
                             >
                                 <dt className="text-muted-foreground">{item.label}</dt>
-                                <dd className="text-right font-semibold">{item.value}</dd>
+                                <dd className="text-right font-semibold">
+                                    {item.value}
+                                </dd>
                             </div>
                         ))}
                     </dl>
                 </div>
 
-                <div className="space-y-1.5">
-                    <Label htmlFor="confirm-pin">Confirm PIN</Label>
+                <div className="rounded-xl border border-dashed border-border/70 p-4">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                        <div>
+                            <Label htmlFor="confirm-pin">Confirm PIN</Label>
+                            <p className="text-muted-foreground mt-1 text-xs">
+                                Your PIN authorizes this transaction securely.
+                            </p>
+                        </div>
+                        <Badge variant="outline" className="inline-flex items-center gap-1">
+                            <Sparkles className="h-3 w-3 text-primary" />
+                            Secure Step
+                        </Badge>
+                    </div>
                     <div className="relative">
                         <Input
                             id="confirm-pin"
@@ -116,11 +149,16 @@ export function ActionConfirmModal({
                             )}
                         </button>
                     </div>
+                    {!canConfirm ? (
+                        <p className="text-muted-foreground mt-2 text-xs">
+                            Enter at least 4 digits to continue.
+                        </p>
+                    ) : null}
                 </div>
 
                 {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-                <DialogFooter>
+                <DialogFooter className="gap-2 sm:gap-0">
                     <Button
                         type="button"
                         variant="outline"

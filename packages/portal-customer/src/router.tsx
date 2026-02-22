@@ -15,14 +15,15 @@ import {
     Clock,
     ShieldCheck,
 } from 'lucide-react';
-import { AppShell, NotFoundPage, useAuth, type NavItem } from '@caricash/ui';
+import { NotFoundPage, useAuth, type NavItem } from '@caricash/ui';
+import { CustomerAppShell } from './components/customer-app-shell.js';
 import { LoginPage } from './pages/login.js';
 import { RegisterPage } from './pages/register.js';
 import { DashboardPage } from './pages/dashboard.js';
 import { SendMoneyPage } from './pages/send-money.js';
 import { PayMerchantPage } from './pages/pay-merchant.js';
 import { HistoryPage } from './pages/history.js';
-import { KycPage } from './pages/kyc.js';
+import { SettingsPage } from './pages/settings.js';
 
 // ── Root ──────────────────────────────────────────────
 const rootRoute = createRootRoute({
@@ -85,15 +86,15 @@ function AuthLayout() {
             active: location.pathname === '/history',
         },
         {
-            label: 'KYC',
-            href: '/kyc',
+            label: 'Settings',
+            href: '/settings',
             icon: <ShieldCheck className="h-4 w-4" />,
-            active: location.pathname === '/kyc',
+            active: location.pathname === '/settings' || location.pathname === '/kyc',
         },
     ];
 
     return (
-        <AppShell
+        <CustomerAppShell
             navigation={navigation}
             appName="CariCash Customer"
             user={actor ? { name: actor.name, role: 'Customer' } : null}
@@ -103,7 +104,7 @@ function AuthLayout() {
             }}
         >
             <Outlet />
-        </AppShell>
+        </CustomerAppShell>
     );
 }
 
@@ -147,10 +148,18 @@ const historyRoute = createRoute({
     component: HistoryPage,
 });
 
+const settingsRoute = createRoute({
+    getParentRoute: () => authLayoutRoute,
+    path: '/settings',
+    component: SettingsPage,
+});
+
 const kycRoute = createRoute({
     getParentRoute: () => authLayoutRoute,
     path: '/kyc',
-    component: KycPage,
+    beforeLoad: () => {
+        throw redirect({ to: '/settings' });
+    },
 });
 
 // ── Router tree ───────────────────────────────────────
@@ -163,6 +172,7 @@ const routeTree = rootRoute.addChildren([
         sendRoute,
         payRoute,
         historyRoute,
+        settingsRoute,
         kycRoute,
     ]),
 ]);

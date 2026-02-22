@@ -48,6 +48,11 @@ export interface AppShellProps {
     user: { name: string; role: string } | null;
     onLogout: () => void;
     children: React.ReactNode;
+    brandSubtitle?: string;
+    headerSubtitle?: string;
+    navLabel?: string;
+    searchPlaceholder?: string;
+    hideSearch?: boolean;
 }
 
 function UserSidebarMenu({
@@ -124,6 +129,11 @@ export function AppShell({
     user,
     onLogout,
     children,
+    brandSubtitle = 'Digital Wallet Workspace',
+    headerSubtitle,
+    navLabel = 'Navigation',
+    searchPlaceholder = 'Search modules (coming soon)',
+    hideSearch = false,
 }: AppShellProps) {
     const { shellVariant, activeTheme, themes } = useTheme();
     const activeItem = navigation.find((item) => item.active) ?? navigation[0];
@@ -179,7 +189,7 @@ export function AppShell({
                         <div className="min-w-0">
                             <p className="truncate text-sm font-semibold">{appName}</p>
                             <p className="text-sidebar-foreground/70 truncate text-xs">
-                                Admin Workspace
+                                {brandSubtitle}
                             </p>
                         </div>
                     </div>
@@ -189,7 +199,7 @@ export function AppShell({
 
                 <SidebarContent>
                     <SidebarGroup>
-                        <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+                        <SidebarGroupLabel>{navLabel}</SidebarGroupLabel>
                         <SidebarGroupContent>
                             <SidebarMenu>
                                 {navigation.map((item) => (
@@ -233,22 +243,24 @@ export function AppShell({
                                 {activeItem?.label ?? appName}
                             </p>
                             <p className="text-muted-foreground truncate text-xs">
-                                {appName}
+                                {headerSubtitle ?? appName}
                             </p>
                         </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                        <div className="relative hidden w-56 md:block">
-                            <Search className="text-muted-foreground absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2" />
-                            <Input
-                                value=""
-                                readOnly
-                                aria-label="Search placeholder"
-                                className="h-8 pl-8 text-xs"
-                                placeholder="Search modules (coming soon)"
-                            />
-                        </div>
+                        {!hideSearch ? (
+                            <div className="relative hidden w-56 md:block">
+                                <Search className="text-muted-foreground absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2" />
+                                <Input
+                                    value=""
+                                    readOnly
+                                    aria-label="Search placeholder"
+                                    className="h-8 pl-8 text-xs"
+                                    placeholder={searchPlaceholder}
+                                />
+                            </div>
+                        ) : null}
                         <Badge variant="outline" className="hidden md:inline-flex">
                             <CalendarDays className="h-3 w-3" />
                             {todayLabel}

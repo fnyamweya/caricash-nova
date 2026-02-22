@@ -11,8 +11,8 @@ createRoot(document.getElementById('root')!).render(
             <ApiProvider baseUrl={import.meta.env.VITE_API_URL || ''}>
                 <ThemeProvider
                     storageKeyPrefix="caricash_customer"
-                    defaultActiveTheme="claude"
-                    defaultShellVariant="workspace"
+                    defaultActiveTheme="supabase"
+                    defaultShellVariant="framed"
                 >
                     <AuthProvider>
                         <RouterProvider router={router} />

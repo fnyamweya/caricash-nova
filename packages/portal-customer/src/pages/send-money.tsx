@@ -1,19 +1,23 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
     ArrowRightLeft,
-    CheckCircle,
     Clock3,
     Sparkles,
     UserRound,
     Phone,
+    ShieldCheck,
+    ReceiptText,
     ShieldAlert,
     Loader2,
+    Zap,
+    ChevronRight,
 } from 'lucide-react';
 import {
     useAuth,
     useApi,
-    PageHeader,
     PageTransition,
     Card,
     CardContent,
@@ -25,15 +29,20 @@ import {
     Label,
     Button,
     Badge,
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogDescription,
-    DialogFooter,
-    DialogClose,
+    Avatar,
+    AvatarFallback,
+    cn,
+    getInitials,
 } from '@caricash/ui';
 import { ActionConfirmModal } from '../components/action-confirm-modal.js';
+import {
+    CustomerSuccessDialog,
+    CustomerFlowStepPills,
+    CustomerStickyActionBar,
+    QuickAmountGrid,
+    VerificationSuccessNotice,
+} from '../components/customer-flow-ui.js';
+import { consumeSendFlowPrefill } from '../lib/customer-prefill.js';
 
 interface PostingReceipt {
     posting_id: string;
@@ -94,6 +103,7 @@ function persistRecentRecipient(msisdn: string): string[] {
 export function SendMoneyPage() {
     const { actor } = useAuth();
     const api = useApi();
+    const navigate = useNavigate();
 
     const [receiverMsisdn, setReceiverMsisdn] = useState('');
     const [amount, setAmount] = useState('');
@@ -108,6 +118,14 @@ export function SendMoneyPage() {
     const [verifiedRecipient, setVerifiedRecipient] = useState<ActorLookupResult['actor'] | null>(null);
     const [verifyLoading, setVerifyLoading] = useState(false);
     const [verifyError, setVerifyError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const prefill = consumeSendFlowPrefill();
+        if (!prefill) return;
+        if (prefill.receiverMsisdn) setReceiverMsisdn(prefill.receiverMsisdn);
+        if (prefill.amount) setAmount(prefill.amount);
+        if (prefill.contactName) setSelectedContactName(prefill.contactName);
+    }, []);
 
     const numericAmount = useMemo(() => Number(amount), [amount]);
     const normalizedAmount = Number.isFinite(numericAmount) && numericAmount > 0 ? numericAmount.toFixed(2) : '0.00';
@@ -134,8 +152,7 @@ export function SendMoneyPage() {
         },
     });
 
-    async function handleReviewSubmit(e: React.FormEvent) {
-        e.preventDefault();
+    async function beginReview() {
         if (!canReview) return;
 
         // Look up recipient before showing PIN modal
@@ -155,6 +172,11 @@ export function SendMoneyPage() {
         } finally {
             setVerifyLoading(false);
         }
+    }
+
+    async function handleReviewSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        await beginReview();
     }
 
     function getRecipientDisplayName(): string {
@@ -190,194 +212,406 @@ export function SendMoneyPage() {
         }
     }
 
+    const stepItems = [
+        {
+            key: 'recipient',
+            label: 'Recipient',
+            state: (receiverMsisdn.trim().length >= 7 ? 'done' : 'active') as 'done' | 'active',
+        },
+        {
+            key: 'amount',
+            label: 'Amount',
+            state: (
+                Number.isFinite(numericAmount) && numericAmount > 0
+                    ? 'done'
+                    : receiverMsisdn.trim().length >= 7
+                        ? 'active'
+                        : 'upcoming'
+            ) as 'upcoming' | 'active' | 'done',
+        },
+        {
+            key: 'review',
+            label: 'Review & PIN',
+            state: (
+                confirmOpen || verifiedRecipient
+                    ? 'done'
+                    : canReview
+                        ? 'active'
+                        : 'upcoming'
+            ) as 'upcoming' | 'active' | 'done',
+        },
+    ];
+
     return (
         <PageTransition>
-            <div className="flex flex-col gap-6">
-                <PageHeader
-                    title="Send Money"
-                    description="Fast customer-to-customer transfers with secure PIN confirmation."
-                    badge="Customer Payments"
-                />
-
-                <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-                    <Card>
-                        <form onSubmit={handleReviewSubmit}>
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2 text-base">
-                                    <ArrowRightLeft className="h-4 w-4 text-primary" />
-                                    Transfer Details
-                                </CardTitle>
-                                <CardDescription>
-                                    Add recipient and amount, then review before authorizing.
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="flex flex-col gap-4">
-                                <div className="flex flex-col gap-1.5">
-                                    <Label htmlFor="receiver">Send to</Label>
-                                    <div className="relative">
-                                        <Input
-                                            id="receiver"
-                                            type="tel"
-                                            placeholder="e.g. +1246XXXXXXX"
-                                            value={receiverMsisdn}
-                                            onChange={(e) => setReceiverMsisdn(e.target.value)}
-                                            className="pr-12"
-                                            required
-                                        />
-                                        <button
-                                            type="button"
-                                            className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                            onClick={handlePickFromContacts}
-                                            aria-label="Pick from contacts"
-                                            title="Pick from contacts"
-                                        >
-                                            <Phone className="h-4 w-4" />
-                                        </button>
-                                    </div>
-                                    {selectedContactName ? (
-                                        <p className="text-xs text-muted-foreground">
-                                            Selected contact: {selectedContactName}
-                                        </p>
-                                    ) : null}
-                                    {contactPickerError ? (
-                                        <p className="text-xs text-destructive">{contactPickerError}</p>
-                                    ) : null}
+            <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.22 }}
+                className="space-y-4 sm:space-y-5"
+            >
+                <Card className="overflow-hidden rounded-3xl border-border/70 bg-background/88">
+                    <CardHeader className="space-y-4 border-b border-border/60 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent px-4 py-4 sm:px-5">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                    <Badge variant="outline" className="rounded-xl">Send Money</Badge>
+                                    <Badge variant="outline" className="rounded-xl inline-flex items-center gap-1">
+                                        <Zap className="h-3 w-3 text-primary" />
+                                        Instant
+                                    </Badge>
+                                    <Badge variant="outline" className="rounded-xl">BBD 0.00 fee</Badge>
                                 </div>
+                                <CardTitle className="text-lg tracking-tight sm:text-xl">
+                                    Move money in three quick steps
+                                </CardTitle>
+                                <CardDescription className="mt-1 text-sm">
+                                    Choose a recipient, set an amount, then review and confirm with your PIN.
+                                </CardDescription>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="rounded-xl"
+                                    onClick={() => navigate({ to: '/history' })}
+                                >
+                                    <ReceiptText className="h-4 w-4" />
+                                    Activity
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="rounded-xl"
+                                    onClick={() => navigate({ to: '/pay' })}
+                                >
+                                    <ChevronRight className="h-4 w-4" />
+                                    Pay instead
+                                </Button>
+                            </div>
+                        </div>
 
-                                {recentRecipients.length > 0 ? (
-                                    <div className="flex flex-col gap-2">
-                                        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                                            Recent Recipients
+                        <CustomerFlowStepPills steps={stepItems} />
+                    </CardHeader>
+                </Card>
+
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]">
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.03 }}
+                    >
+                        <Card className="rounded-3xl border-border/70 bg-background/88">
+                            <form onSubmit={handleReviewSubmit}>
+                                <CardHeader className="space-y-2 px-4 py-4 sm:px-5">
+                                    <CardTitle className="flex items-center gap-2 text-base">
+                                        <ArrowRightLeft className="h-4 w-4 text-primary" />
+                                        Transfer Details
+                                    </CardTitle>
+                                    <CardDescription className="text-sm">
+                                        Recipient verification is required before PIN confirmation.
+                                    </CardDescription>
+                                </CardHeader>
+
+                                <CardContent className="space-y-4 px-4 pb-4 sm:px-5">
+                                    <motion.div
+                                        layout
+                                        className="rounded-2xl border border-primary/15 bg-primary/5 p-4"
+                                    >
+                                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                            <p className="text-sm font-semibold">Wallet to Wallet Transfer</p>
+                                            <Badge variant="outline" className="rounded-xl">Real time</Badge>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            The recipient name is checked before you enter your PIN.
                                         </p>
-                                        <div className="flex flex-wrap gap-2">
-                                            {recentRecipients.map((recipient) => (
-                                                <button
-                                                    key={recipient}
-                                                    type="button"
-                                                    className="rounded-full border border-border/80 bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-accent/45"
-                                                    onClick={() => setReceiverMsisdn(recipient)}
-                                                >
-                                                    {recipient}
-                                                </button>
-                                            ))}
+                                    </motion.div>
+
+                                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)]">
+                                        <div className="space-y-4 rounded-2xl border border-border/70 bg-background/70 p-4">
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="receiver">Recipient phone</Label>
+                                                <div className="relative">
+                                                    <Input
+                                                        id="receiver"
+                                                        type="tel"
+                                                        placeholder="e.g. +12465551234"
+                                                        value={receiverMsisdn}
+                                                        onChange={(e) => setReceiverMsisdn(e.target.value)}
+                                                        className="h-11 rounded-xl border-border/70 pr-12"
+                                                        required
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                                        onClick={handlePickFromContacts}
+                                                        aria-label="Pick from contacts"
+                                                        title="Pick from contacts"
+                                                    >
+                                                        <Phone className="h-4 w-4" />
+                                                    </button>
+                                                </div>
+                                                <AnimatePresence initial={false}>
+                                                    {selectedContactName ? (
+                                                        <motion.p
+                                                            key="selected-contact"
+                                                            initial={{ opacity: 0, y: -4 }}
+                                                            animate={{ opacity: 1, y: 0 }}
+                                                            exit={{ opacity: 0, y: -4 }}
+                                                            className="text-xs text-muted-foreground"
+                                                        >
+                                                            Selected contact: {selectedContactName}
+                                                        </motion.p>
+                                                    ) : null}
+                                                </AnimatePresence>
+                                                <AnimatePresence initial={false}>
+                                                    {contactPickerError ? (
+                                                        <motion.p
+                                                            key="contact-error"
+                                                            initial={{ opacity: 0, y: -4 }}
+                                                            animate={{ opacity: 1, y: 0 }}
+                                                            exit={{ opacity: 0, y: -4 }}
+                                                            className="text-xs text-destructive"
+                                                        >
+                                                            {contactPickerError}
+                                                        </motion.p>
+                                                    ) : null}
+                                                </AnimatePresence>
+                                            </div>
+
+                                            {recentRecipients.length > 0 ? (
+                                                <div className="space-y-2">
+                                                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                                                        Recent Recipients
+                                                    </p>
+                                                    <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                                        {recentRecipients.map((recipient) => (
+                                                            <motion.button
+                                                                key={recipient}
+                                                                type="button"
+                                                                whileHover={{ y: -1 }}
+                                                                whileTap={{ scale: 0.98 }}
+                                                                onClick={() => {
+                                                                    setReceiverMsisdn(recipient);
+                                                                    setSelectedContactName(null);
+                                                                }}
+                                                                className={cn(
+                                                                    'min-w-[140px] shrink-0 rounded-2xl border p-3 text-left transition-colors',
+                                                                    receiverMsisdn.trim() === recipient
+                                                                        ? 'border-primary/25 bg-primary/10'
+                                                                        : 'border-border/70 bg-background/80 hover:border-primary/20 hover:bg-primary/5',
+                                                                )}
+                                                            >
+                                                                <div className="mb-2 flex items-center justify-between gap-2">
+                                                                    <Avatar className="h-7 w-7 rounded-xl border bg-background">
+                                                                        <AvatarFallback className="rounded-xl text-[10px]">
+                                                                            {getInitials(recipient)}
+                                                                        </AvatarFallback>
+                                                                    </Avatar>
+                                                                    <Badge variant="outline" className="rounded-lg px-2 py-0.5 text-[10px]">
+                                                                        Send
+                                                                    </Badge>
+                                                                </div>
+                                                                <p className="truncate text-xs font-semibold">{recipient}</p>
+                                                                <p className="mt-1 text-[11px] text-muted-foreground">Recent recipient</p>
+                                                            </motion.button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ) : null}
+                                        </div>
+
+                                        <div className="space-y-4 rounded-2xl border border-border/70 bg-background/70 p-4">
+                                            <div className="space-y-1.5">
+                                                <Label htmlFor="amount">Amount (BBD)</Label>
+                                                <Input
+                                                    id="amount"
+                                                    type="number"
+                                                    min="0.01"
+                                                    step="0.01"
+                                                    placeholder="0.00"
+                                                    value={amount}
+                                                    onChange={(e) => setAmount(e.target.value)}
+                                                    className="h-11 rounded-xl border-border/70 text-base"
+                                                    required
+                                                />
+                                                <p className="text-xs text-muted-foreground">
+                                                    Recipient receives the full amount. No transfer fee.
+                                                </p>
+                                            </div>
+
+                                            <QuickAmountGrid amounts={QUICK_AMOUNTS} onSelect={setAmount} />
+
+                                            <div className="rounded-2xl border border-border/70 bg-background/80 p-3">
+                                                <div className="mb-2 flex items-center justify-between">
+                                                    <p className="text-sm font-semibold">Transfer preview</p>
+                                                    <Badge variant="outline" className="rounded-xl">
+                                                        <ShieldCheck className="h-3 w-3 text-primary" />
+                                                        PIN secure
+                                                    </Badge>
+                                                </div>
+                                                <p className="text-2xl font-semibold tracking-tight">
+                                                    BBD {normalizedAmount}
+                                                </p>
+                                                <p className="mt-1 text-xs text-muted-foreground">
+                                                    Posted instantly after confirmation.
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
-                                ) : null}
 
-                                <div className="flex flex-col gap-1.5">
-                                    <Label htmlFor="amount">Amount (BBD)</Label>
-                                    <Input
-                                        id="amount"
-                                        type="number"
-                                        min="0.01"
-                                        step="0.01"
-                                        placeholder="0.00"
-                                        value={amount}
-                                        onChange={(e) => setAmount(e.target.value)}
-                                        required
-                                    />
-                                </div>
+                                    <AnimatePresence initial={false}>
+                                        {verifiedRecipient ? (
+                                            <motion.div
+                                                key="verified-recipient"
+                                                initial={{ opacity: 0, y: 6 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                exit={{ opacity: 0, y: 6 }}
+                                            >
+                                                <VerificationSuccessNotice
+                                                    title="Recipient verified"
+                                                    description={`${getRecipientDisplayName()} is ready to receive this transfer.`}
+                                                />
+                                            </motion.div>
+                                        ) : null}
+                                    </AnimatePresence>
 
-                                <div className="flex flex-wrap gap-2">
-                                    {QUICK_AMOUNTS.map((quick) => (
-                                        <button
-                                            key={quick}
-                                            type="button"
-                                            className="rounded-full border border-border/80 bg-background px-3 py-1.5 text-xs font-semibold transition-colors hover:border-primary/40 hover:bg-accent/45"
-                                            onClick={() => setAmount(quick)}
-                                        >
-                                            BBD {quick}
-                                        </button>
-                                    ))}
-                                </div>
+                                    <AnimatePresence initial={false}>
+                                        {verifyError ? (
+                                            <motion.div
+                                                key="verify-error"
+                                                initial={{ opacity: 0, y: 6 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                exit={{ opacity: 0, y: 6 }}
+                                                className="flex items-start gap-2 rounded-2xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive"
+                                            >
+                                                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                                                <span>{verifyError}</span>
+                                            </motion.div>
+                                        ) : null}
+                                    </AnimatePresence>
 
-                                {mutation.isError ? (
-                                    <p className="text-sm text-destructive">
-                                        {mutation.error?.message ?? 'Transfer failed. Please try again.'}
+                                    <AnimatePresence initial={false}>
+                                        {mutation.isError ? (
+                                            <motion.p
+                                                key="mutation-error"
+                                                initial={{ opacity: 0, y: 6 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                exit={{ opacity: 0, y: 6 }}
+                                                className="text-sm text-destructive"
+                                            >
+                                                {mutation.error?.message ?? 'Transfer failed. Please try again.'}
+                                            </motion.p>
+                                        ) : null}
+                                    </AnimatePresence>
+                                </CardContent>
+
+                                <CardFooter className="hidden flex-col gap-2 px-4 pb-5 sm:px-5 lg:flex">
+                                    <Button type="submit" className="w-full rounded-xl" disabled={!canReview || verifyLoading}>
+                                        {verifyLoading ? (
+                                            <>
+                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                Verifying recipient...
+                                            </>
+                                        ) : (
+                                            'Review Transfer'
+                                        )}
+                                    </Button>
+                                    <p className="text-center text-xs text-muted-foreground">
+                                        You’ll review the recipient and amount one more time before entering your PIN.
                                     </p>
-                                ) : null}
+                                </CardFooter>
+                            </form>
+                        </Card>
+                    </motion.div>
 
-                                {verifyError ? (
-                                    <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                                        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                                        <span>{verifyError}</span>
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.06 }}
+                        className="space-y-4 lg:sticky lg:top-6 lg:self-start"
+                    >
+                        <Card className="rounded-3xl border-border/70 bg-background/88">
+                            <CardHeader className="space-y-2 px-4 py-4 sm:px-5">
+                                <CardTitle className="text-base">Transfer Snapshot</CardTitle>
+                                <CardDescription className="text-sm">
+                                    Live summary as you build the transfer.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4 px-4 pb-5 sm:px-5">
+                                <div className="rounded-2xl border border-border/70 bg-gradient-to-br from-primary/8 to-transparent p-4">
+                                    <div className="mb-2 flex items-center justify-between">
+                                        <p className="text-sm font-semibold">You are sending</p>
+                                        <Badge variant="outline" className="rounded-xl">No fee</Badge>
                                     </div>
-                                ) : null}
-                            </CardContent>
-                            <CardFooter>
-                                <Button type="submit" className="w-full" disabled={!canReview || verifyLoading}>
-                                    {verifyLoading ? (
-                                        <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                            Verifying recipient...
-                                        </>
-                                    ) : (
-                                        'Review Transfer'
-                                    )}
-                                </Button>
-                            </CardFooter>
-                        </form>
-                    </Card>
-
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="text-base">Transfer Snapshot</CardTitle>
-                            <CardDescription>
-                                Customer-centered breakdown before you confirm.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="rounded-xl border border-border/70 bg-muted/25 p-4">
-                                <div className="mb-2 flex items-center justify-between">
-                                    <p className="text-sm font-semibold">You are sending</p>
-                                    <Badge variant="outline">Instant</Badge>
+                                    <p className="text-2xl font-semibold tracking-tight">BBD {normalizedAmount}</p>
+                                    <p className="mt-1 text-xs text-muted-foreground">Real-time wallet transfer</p>
                                 </div>
-                                <p className="text-2xl font-bold tracking-tight">BBD {normalizedAmount}</p>
-                            </div>
 
-                            <div className="rounded-xl border border-border/70 p-4 text-sm">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-muted-foreground">Receiver</span>
-                                    <span className="font-semibold">
-                                        {receiverMsisdn.trim() || 'Not set'}
-                                    </span>
-                                </div>
-                                {verifiedRecipient ? (
-                                    <div className="mt-2 flex items-center justify-between">
-                                        <span className="text-muted-foreground">Recipient name</span>
-                                        <span className="font-semibold text-green-600 dark:text-green-400">
-                                            {getRecipientDisplayName()}
+                                <div className="space-y-2 rounded-2xl border border-border/70 bg-background/75 p-4 text-sm">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-muted-foreground">Recipient</span>
+                                        <span className="max-w-[60%] truncate font-semibold">
+                                            {receiverMsisdn.trim() || 'Not set'}
                                         </span>
                                     </div>
-                                ) : null}
-                                <div className="mt-2 flex items-center justify-between">
-                                    <span className="text-muted-foreground">Transfer fee</span>
-                                    <span className="font-semibold">BBD 0.00</span>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-muted-foreground">Name</span>
+                                        <span className="max-w-[60%] truncate font-semibold">
+                                            {verifiedRecipient ? getRecipientDisplayName() : 'Pending verification'}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-muted-foreground">Delivery</span>
+                                        <span className="font-semibold">Instant</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-muted-foreground">Fee</span>
+                                        <span className="font-semibold">BBD 0.00</span>
+                                    </div>
                                 </div>
-                                <div className="mt-2 flex items-center justify-between">
-                                    <span className="text-muted-foreground">Delivery speed</span>
-                                    <span className="font-semibold">Real time</span>
-                                </div>
-                            </div>
+                            </CardContent>
+                        </Card>
 
-                            <div className="rounded-xl border border-dashed border-border/70 bg-background/60 p-4 text-sm text-muted-foreground">
-                                <p className="mb-2 flex items-center gap-2 font-semibold text-foreground">
-                                    <Sparkles className="h-4 w-4 text-primary" />
-                                    Pro Tips
-                                </p>
-                                <p className="mb-1 flex items-start gap-2">
-                                    <UserRound className="mt-0.5 h-3.5 w-3.5 text-primary" />
-                                    Save frequent recipients for 1-tap transfers.
-                                </p>
-                                <p className="flex items-start gap-2">
-                                    <Clock3 className="mt-0.5 h-3.5 w-3.5 text-primary" />
-                                    Transfers are posted instantly when authorized.
-                                </p>
-                            </div>
-                        </CardContent>
-                    </Card>
+                        <Card className="rounded-3xl border-border/70 bg-background/88">
+                            <CardHeader className="space-y-2 px-4 py-4 sm:px-5">
+                                <CardTitle className="text-base">Smart transfer tips</CardTitle>
+                                <CardDescription className="text-sm">
+                                    Small safeguards that make transfers faster and safer.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-2.5 px-4 pb-5 sm:px-5">
+                                <div className="flex items-start gap-2 rounded-xl border border-border/70 bg-background/70 px-3 py-2.5 text-sm">
+                                    <UserRound className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                    <span>Tap a recent recipient to prefill and move faster.</span>
+                                </div>
+                                <div className="flex items-start gap-2 rounded-xl border border-border/70 bg-background/70 px-3 py-2.5 text-sm">
+                                    <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                    <span>Transfers post immediately after you confirm with your PIN.</span>
+                                </div>
+                                <div className="flex items-start gap-2 rounded-xl border border-border/70 bg-background/70 px-3 py-2.5 text-sm">
+                                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                    <span>Verification helps reduce mistakes before money moves.</span>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </motion.div>
                 </div>
-            </div>
+            </motion.div>
+
+            <CustomerStickyActionBar
+                title={`BBD ${normalizedAmount}`}
+                subtitle={receiverMsisdn.trim() ? `To ${receiverMsisdn.trim()}` : 'Add recipient and amount to continue'}
+                actionLabel={verifyLoading ? 'Verifying...' : 'Review'}
+                onAction={() => {
+                    void beginReview();
+                }}
+                disabled={!canReview || verifyLoading}
+                loading={verifyLoading}
+                icon={<ArrowRightLeft className="h-4 w-4" />}
+            />
 
             <ActionConfirmModal
                 open={confirmOpen}
@@ -403,36 +637,25 @@ export function SendMoneyPage() {
                 error={mutation.isError ? mutation.error?.message ?? 'Transfer failed.' : null}
             />
 
-            <Dialog open={!!receipt} onOpenChange={() => setReceipt(null)}>
-                <DialogContent>
-                    <DialogHeader>
-                        <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10">
-                            <CheckCircle className="h-6 w-6 text-green-500" />
-                        </div>
-                        <DialogTitle className="text-center">Transfer Successful</DialogTitle>
-                        <DialogDescription className="text-center">
-                            Your transfer has been processed.
-                        </DialogDescription>
-                    </DialogHeader>
-                    {receipt ? (
-                        <div className="rounded-md bg-muted p-4 text-sm">
-                            <p>
-                                <span className="font-medium">Posting ID:</span> {receipt.posting_id}
-                            </p>
-                            <p>
-                                <span className="font-medium">State:</span> {receipt.state}
-                            </p>
-                        </div>
-                    ) : null}
-                    <DialogFooter>
-                        <DialogClose asChild>
-                            <Button variant="outline" className="w-full">
-                                Done
-                            </Button>
-                        </DialogClose>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            <CustomerSuccessDialog
+                open={!!receipt}
+                onOpenChange={(open) => {
+                    if (!open) setReceipt(null);
+                }}
+                title="Transfer Successful"
+                description="Your transfer has been processed."
+            >
+                {receipt ? (
+                    <div className="rounded-md bg-muted p-4 text-sm">
+                        <p>
+                            <span className="font-medium">Posting ID:</span> {receipt.posting_id}
+                        </p>
+                        <p>
+                            <span className="font-medium">State:</span> {receipt.state}
+                        </p>
+                    </div>
+                ) : null}
+            </CustomerSuccessDialog>
         </PageTransition>
     );
 }
