@@ -177,3 +177,150 @@ export const PreferredNameSource = {
   CUSTOM: 'CUSTOM',
 } as const;
 export type PreferredNameSource = typeof PreferredNameSource[keyof typeof PreferredNameSource];
+
+// ---------------------------------------------------------------------------
+// Phase 4: External Rails, Fraud, Settlement Enums
+// ---------------------------------------------------------------------------
+
+export const BankAccountPurpose = {
+  CUSTOMER_DEPOSITS_HOLDING: 'CUSTOMER_DEPOSITS_HOLDING',
+  MERCHANT_PAYOUTS_CLEARING: 'MERCHANT_PAYOUTS_CLEARING',
+  AGENT_FLOAT_FUNDING_CLEARING: 'AGENT_FLOAT_FUNDING_CLEARING',
+  FEES_REVENUE: 'FEES_REVENUE',
+  TAX_PAYABLE_HOLDING: 'TAX_PAYABLE_HOLDING',
+  COMMISSION_POOL: 'COMMISSION_POOL',
+  OVERDRAFT_POOL: 'OVERDRAFT_POOL',
+  SUSPENSE: 'SUSPENSE',
+  OPERATIONS: 'OPERATIONS',
+} as const;
+export type BankAccountPurpose = typeof BankAccountPurpose[keyof typeof BankAccountPurpose];
+
+export const ExternalTransferDirection = {
+  INBOUND: 'INBOUND',
+  OUTBOUND: 'OUTBOUND',
+} as const;
+export type ExternalTransferDirection = typeof ExternalTransferDirection[keyof typeof ExternalTransferDirection];
+
+export const ExternalTransferType = {
+  CUSTOMER_BANK_DEPOSIT: 'CUSTOMER_BANK_DEPOSIT',
+  MERCHANT_PAYOUT: 'MERCHANT_PAYOUT',
+  AGENT_FLOAT_FUND: 'AGENT_FLOAT_FUND',
+  SWEEP: 'SWEEP',
+  MANUAL_DISBURSEMENT: 'MANUAL_DISBURSEMENT',
+} as const;
+export type ExternalTransferType = typeof ExternalTransferType[keyof typeof ExternalTransferType];
+
+export const ExternalTransferStatus = {
+  CREATED: 'CREATED',
+  PENDING: 'PENDING',
+  SETTLED: 'SETTLED',
+  FAILED: 'FAILED',
+  CANCELLED: 'CANCELLED',
+  REVERSED: 'REVERSED',
+} as const;
+export type ExternalTransferStatus = typeof ExternalTransferStatus[keyof typeof ExternalTransferStatus];
+
+export const SettlementSchedule = {
+  T0: 'T0',
+  T1: 'T1',
+  T2: 'T2',
+} as const;
+export type SettlementSchedule = typeof SettlementSchedule[keyof typeof SettlementSchedule];
+
+export const SettlementMode = {
+  AUTO: 'AUTO',
+  MANUAL: 'MANUAL',
+} as const;
+export type SettlementMode = typeof SettlementMode[keyof typeof SettlementMode];
+
+export const SettlementBatchStatus = {
+  CREATED: 'CREATED',
+  READY: 'READY',
+  REQUESTED: 'REQUESTED',
+  PROCESSING: 'PROCESSING',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED',
+} as const;
+export type SettlementBatchStatus = typeof SettlementBatchStatus[keyof typeof SettlementBatchStatus];
+
+export const PayoutStatus = {
+  REQUESTED: 'REQUESTED',
+  APPROVED: 'APPROVED',
+  PENDING: 'PENDING',
+  SETTLED: 'SETTLED',
+  FAILED: 'FAILED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type PayoutStatus = typeof PayoutStatus[keyof typeof PayoutStatus];
+
+export const FraudDecision = {
+  ALLOW: 'ALLOW',
+  BLOCK: 'BLOCK',
+  STEP_UP: 'STEP_UP',
+  HOLD: 'HOLD',
+  FREEZE: 'FREEZE',
+} as const;
+export type FraudDecision = typeof FraudDecision[keyof typeof FraudDecision];
+
+export const FraudSignalType = {
+  NEW_DEVICE: 'NEW_DEVICE',
+  DEVICE_MISMATCH: 'DEVICE_MISMATCH',
+  MULTI_ACCOUNT_DEVICE: 'MULTI_ACCOUNT_DEVICE',
+  RAPID_CASH_IN_OUT: 'RAPID_CASH_IN_OUT',
+  HIGH_PAYOUT_FREQUENCY: 'HIGH_PAYOUT_FREQUENCY',
+  BENEFICIARY_CHANGE_PRE_PAYOUT: 'BENEFICIARY_CHANGE_PRE_PAYOUT',
+  REPEATED_PAYOUT_FAILURE: 'REPEATED_PAYOUT_FAILURE',
+  UNUSUAL_HOUR: 'UNUSUAL_HOUR',
+  VELOCITY_SPIKE: 'VELOCITY_SPIKE',
+  LARGE_SINGLE_TXN: 'LARGE_SINGLE_TXN',
+  DORMANT_REACTIVATION: 'DORMANT_REACTIVATION',
+  GEO_ANOMALY: 'GEO_ANOMALY',
+  RAPID_BENEFICIARY_ADD: 'RAPID_BENEFICIARY_ADD',
+  ROUND_AMOUNT_PATTERN: 'ROUND_AMOUNT_PATTERN',
+  SPLIT_TXN_PATTERN: 'SPLIT_TXN_PATTERN',
+} as const;
+export type FraudSignalType = typeof FraudSignalType[keyof typeof FraudSignalType];
+
+export const FraudContextType = {
+  TXN: 'TXN',
+  PAYOUT: 'PAYOUT',
+  BANK_DEPOSIT: 'BANK_DEPOSIT',
+} as const;
+export type FraudContextType = typeof FraudContextType[keyof typeof FraudContextType];
+
+export const FraudSeverity = {
+  INFO: 'INFO',
+  WARN: 'WARN',
+  CRITICAL: 'CRITICAL',
+} as const;
+export type FraudSeverity = typeof FraudSeverity[keyof typeof FraudSeverity];
+
+export const FraudRuleVersionStatus = {
+  DRAFT: 'DRAFT',
+  PENDING_APPROVAL: 'PENDING_APPROVAL',
+  ACTIVE: 'ACTIVE',
+  INACTIVE: 'INACTIVE',
+} as const;
+export type FraudRuleVersionStatus = typeof FraudRuleVersionStatus[keyof typeof FraudRuleVersionStatus];
+
+export const WebhookDeliveryStatus = {
+  RECEIVED: 'RECEIVED',
+  PROCESSED: 'PROCESSED',
+  FAILED: 'FAILED',
+  DLQ: 'DLQ',
+} as const;
+export type WebhookDeliveryStatus = typeof WebhookDeliveryStatus[keyof typeof WebhookDeliveryStatus];
+
+export const BeneficiaryStatus = {
+  ACTIVE: 'ACTIVE',
+  PENDING_APPROVAL: 'PENDING_APPROVAL',
+  REJECTED: 'REJECTED',
+} as const;
+export type BeneficiaryStatus = typeof BeneficiaryStatus[keyof typeof BeneficiaryStatus];
+
+export const CircuitBreakerState = {
+  CLOSED: 'CLOSED',
+  OPEN: 'OPEN',
+  HALF_OPEN: 'HALF_OPEN',
+} as const;
+export type CircuitBreakerState = typeof CircuitBreakerState[keyof typeof CircuitBreakerState];

@@ -651,3 +651,216 @@ export interface ApprovalEndpointBinding {
   created_at: string;
   updated_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4: External Rails, Settlement, Fraud Types
+// ---------------------------------------------------------------------------
+
+export interface BankAccount {
+  id: string;
+  provider: string;
+  provider_account_id: string;
+  purpose: import('./enums.js').BankAccountPurpose;
+  currency: CurrencyCode;
+  status: string;
+  owner_type?: string;
+  owner_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExternalTransfer {
+  id: string;
+  provider: string;
+  provider_transfer_id?: string;
+  client_reference: string;
+  direction: import('./enums.js').ExternalTransferDirection;
+  transfer_type: import('./enums.js').ExternalTransferType;
+  currency: CurrencyCode;
+  amount: string;
+  from_bank_account_id?: string;
+  to_bank_account_id?: string;
+  related_owner_type?: string;
+  related_owner_id?: string;
+  status: import('./enums.js').ExternalTransferStatus;
+  idempotency_scope_hash?: string;
+  payload_hash?: string;
+  correlation_id: string;
+  initiated_by_actor_type?: string;
+  initiated_by_actor_id?: string;
+  initiated_at: string;
+  settled_at?: string;
+  failure_reason?: string;
+  journal_id?: string;
+  metadata_json?: string;
+}
+
+export interface MerchantSettlementProfile {
+  id: string;
+  merchant_id: string;
+  currency: CurrencyCode;
+  bank_account_id: string;
+  schedule: import('./enums.js').SettlementSchedule;
+  mode: import('./enums.js').SettlementMode;
+  min_payout_amount: string;
+  max_payout_amount: string;
+  daily_cap: string;
+  require_maker_checker: boolean;
+  require_two_approvals_above: string;
+  status: string;
+  effective_from: string;
+  effective_to?: string;
+  created_by_staff_id?: string;
+  approved_by_staff_id?: string;
+  created_at: string;
+  approved_at?: string;
+}
+
+export interface SettlementBatch {
+  id: string;
+  merchant_id: string;
+  currency: CurrencyCode;
+  period_start: string;
+  period_end: string;
+  schedule: import('./enums.js').SettlementSchedule;
+  mode: import('./enums.js').SettlementMode;
+  status: import('./enums.js').SettlementBatchStatus;
+  total_amount: string;
+  total_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SettlementItem {
+  id: string;
+  batch_id: string;
+  journal_id: string;
+  amount: string;
+  created_at: string;
+}
+
+export interface MerchantPayout {
+  id: string;
+  batch_id?: string;
+  merchant_id: string;
+  currency: CurrencyCode;
+  amount: string;
+  bank_account_id: string;
+  status: import('./enums.js').PayoutStatus;
+  external_transfer_id?: string;
+  approvals_required: number;
+  created_by_staff_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MerchantBeneficiary {
+  id: string;
+  merchant_id: string;
+  bank_account_id: string;
+  nickname?: string;
+  status: import('./enums.js').BeneficiaryStatus;
+  created_by_staff_id?: string;
+  approved_by_staff_id?: string;
+  created_at: string;
+  approved_at?: string;
+}
+
+export interface FraudSignal {
+  id: string;
+  actor_type: string;
+  actor_id: string;
+  signal_type: import('./enums.js').FraudSignalType;
+  severity: import('./enums.js').FraudSeverity;
+  evidence_ref?: string;
+  payload_json?: string;
+  created_at: string;
+}
+
+export interface FraudDecisionRecord {
+  id: string;
+  context_type: import('./enums.js').FraudContextType;
+  context_id: string;
+  decision: import('./enums.js').FraudDecision;
+  reasons_json?: string;
+  rules_version_id?: string;
+  created_at: string;
+}
+
+export interface FraudRulesVersion {
+  id: string;
+  status: import('./enums.js').FraudRuleVersionStatus;
+  effective_from: string;
+  created_by_staff_id?: string;
+  approved_by_staff_id?: string;
+  created_at: string;
+  approved_at?: string;
+}
+
+export interface FraudRule {
+  id: string;
+  version_id: string;
+  name: string;
+  applies_to_context: string;
+  severity: import('./enums.js').FraudSeverity;
+  action: import('./enums.js').FraudDecision;
+  conditions_json: string;
+  priority: number;
+  enabled: boolean;
+}
+
+export interface BankWebhookDelivery {
+  id: string;
+  provider: string;
+  event_id: string;
+  transfer_id?: string;
+  received_at: string;
+  status: import('./enums.js').WebhookDeliveryStatus;
+  payload_hash?: string;
+  error_message?: string;
+}
+
+export interface CitibankTransferRequest {
+  client_reference: string;
+  amount: string;
+  currency: string;
+  from_account_id: string;
+  to_account_id: string;
+  description?: string;
+  metadata?: Record<string, string>;
+}
+
+export interface CitibankTransferResponse {
+  bank_transfer_id: string;
+  client_reference: string;
+  status: string;
+  amount: string;
+  currency: string;
+  from_account_id: string;
+  to_account_id: string;
+  created_at: string;
+}
+
+export interface CitibankWebhookPayload {
+  bank_transfer_id: string;
+  client_reference: string;
+  status: string;
+  amount: string;
+  currency: string;
+  from_account_id: string;
+  to_account_id: string;
+  occurred_at: string;
+}
+
+export interface CircuitBreakerConfig {
+  failure_threshold: number;
+  reset_timeout_ms: number;
+  half_open_max_attempts: number;
+}
+
+export interface RetryConfig {
+  max_attempts: number;
+  base_delay_ms: number;
+  max_delay_ms: number;
+  backoff_multiplier: number;
+}
