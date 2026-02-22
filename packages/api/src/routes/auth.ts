@@ -7,7 +7,7 @@ import {
   ActorType,
 } from '@caricash/shared';
 import {
-  getActorByMsisdn,
+  getActorByMsisdnAndType,
   getActorByAgentCode,
   getActorByStoreCode,
   getActorByStaffCode,
@@ -41,7 +41,7 @@ authRoutes.post('/customer/login', async (c) => {
   if (!msisdn || !pin) {
     return c.json({ error: 'msisdn and pin are required' }, 400);
   }
-  const actor = await getActorByMsisdn(c.env.DB, msisdn);
+  const actor = await getActorByMsisdnAndType(c.env.DB, msisdn, ActorType.CUSTOMER);
   return handleLogin(c, msisdn, pin, actor, ActorType.CUSTOMER);
 });
 
@@ -71,8 +71,8 @@ authRoutes.post('/merchant/login', async (c) => {
 
   // Default merchant login path: merchant actor by msisdn + pin
   if (!store_code) {
-    const actor = await getActorByMsisdn(c.env.DB, msisdn);
-    if (!actor || actor.type !== ActorType.MERCHANT) {
+    const actor = await getActorByMsisdnAndType(c.env.DB, msisdn, ActorType.MERCHANT);
+    if (!actor) {
       return c.json({ error: 'Invalid credentials' }, 401);
     }
     return handleLogin(c, msisdn, pin, actor, ActorType.MERCHANT);

@@ -14,7 +14,7 @@ import {
 } from '@caricash/shared';
 import type { PostTransactionCommand, CurrencyCode } from '@caricash/shared';
 import {
-  getActorByMsisdn,
+  getActorByMsisdnAndType,
   getActorByAgentCode,
   getActorByStoreCode,
   getJournalById,
@@ -301,7 +301,7 @@ txRoutes.post('/deposit', async (c) => {
     }
 
     // Look up customer
-    const customer = await getActorByMsisdn(c.env.DB, customer_msisdn);
+    const customer = await getActorByMsisdnAndType(c.env.DB, customer_msisdn, ActorType.CUSTOMER);
     if (!customer) {
       return c.json({ error: 'Customer not found', correlation_id: correlationId }, 404);
     }
@@ -436,7 +436,7 @@ txRoutes.post('/withdrawal', async (c) => {
     const cur = currency as CurrencyCode;
     const now = nowISO();
 
-    const customer = await getActorByMsisdn(c.env.DB, customer_msisdn);
+    const customer = await getActorByMsisdnAndType(c.env.DB, customer_msisdn, ActorType.CUSTOMER);
     if (!customer) {
       return c.json({ error: 'Customer not found', correlation_id: correlationId }, 404);
     }
@@ -519,10 +519,10 @@ txRoutes.post('/p2p', async (c) => {
     const cur = currency as CurrencyCode;
     const now = nowISO();
 
-    const sender = await getActorByMsisdn(c.env.DB, sender_msisdn);
+    const sender = await getActorByMsisdnAndType(c.env.DB, sender_msisdn, ActorType.CUSTOMER);
     if (!sender) return c.json({ error: 'Sender not found', correlation_id: correlationId }, 404);
 
-    const receiver = await getActorByMsisdn(c.env.DB, receiver_msisdn);
+    const receiver = await getActorByMsisdnAndType(c.env.DB, receiver_msisdn, ActorType.CUSTOMER);
     if (!receiver) return c.json({ error: 'Receiver not found', correlation_id: correlationId }, 404);
 
     const senderWallet = await getLedgerAccount(c.env.DB, ActorType.CUSTOMER, sender.id, AccountType.WALLET, cur);
@@ -584,7 +584,7 @@ txRoutes.post('/payment', async (c) => {
     const cur = currency as CurrencyCode;
     const now = nowISO();
 
-    const customer = await getActorByMsisdn(c.env.DB, customer_msisdn);
+    const customer = await getActorByMsisdnAndType(c.env.DB, customer_msisdn, ActorType.CUSTOMER);
     if (!customer) return c.json({ error: 'Customer not found', correlation_id: correlationId }, 404);
 
     const merchant = await getActorByStoreCode(c.env.DB, store_code);

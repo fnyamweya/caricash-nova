@@ -18,12 +18,14 @@ import { generateId, nowISO, ActorState } from '@caricash/shared';
 
 export const actorRoutes = new Hono<{ Bindings: Env }>();
 
-// GET /actors/lookup?msisdn=X | ?store_code=X | ?agent_code=X
+// GET /actors/lookup?msisdn=X&type=CUSTOMER | ?store_code=X | ?agent_code=X
 // Returns minimal actor data for recipient verification before payment.
+// When looking up by msisdn, an optional `type` query param scopes to that actor type.
 actorRoutes.get('/lookup', async (c) => {
     const msisdn = c.req.query('msisdn');
     const storeCode = c.req.query('store_code');
     const agentCode = c.req.query('agent_code');
+    const actorType = c.req.query('type');
 
     if (!msisdn && !storeCode && !agentCode) {
         return c.json({ error: 'At least one query parameter is required: msisdn, store_code, or agent_code' }, 400);
@@ -33,7 +35,7 @@ actorRoutes.get('/lookup', async (c) => {
         let result = null;
 
         if (msisdn) {
-            result = await lookupActorByMsisdn(c.env.DB, msisdn);
+            result = await lookupActorByMsisdn(c.env.DB, msisdn, actorType || undefined);
         } else if (storeCode) {
             result = await lookupActorByStoreCode(c.env.DB, storeCode);
         } else if (agentCode) {

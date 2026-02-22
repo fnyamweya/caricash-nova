@@ -36,6 +36,55 @@ export interface ActorLookup {
   display_name?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Type-specific profile tables (Phase 1 — actor type separation)
+// ---------------------------------------------------------------------------
+
+export interface CustomerProfile {
+  actor_id: string;
+  first_name?: string;
+  middle_name?: string;
+  last_name?: string;
+  display_name?: string;
+  preferred_name?: 'FIRST_NAME' | 'MIDDLE_NAME' | 'LAST_NAME' | 'FULL_NAME' | 'CUSTOM';
+  email?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MerchantProfile {
+  actor_id: string;
+  store_code?: string;
+  owner_name?: string;
+  owner_first_name?: string;
+  owner_last_name?: string;
+  business_registration_no?: string;
+  tax_id?: string;
+  email?: string;
+  parent_actor_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentProfile {
+  actor_id: string;
+  agent_code: string;
+  agent_type: AgentType;
+  owner_name?: string;
+  parent_actor_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StaffProfile {
+  actor_id: string;
+  staff_code: string;
+  staff_role: StaffRole;
+  email?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MerchantUser {
   id: string;
   actor_id: string;

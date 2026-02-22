@@ -9,6 +9,10 @@ import type {
   ActorLookup,
   AgentUser,
   MerchantUser,
+  CustomerProfile,
+  MerchantProfile,
+  AgentProfile,
+  StaffProfile,
   LedgerAccount,
   LedgerJournal,
   LedgerLine,
@@ -114,7 +118,202 @@ export async function insertActor(db: D1Database, actor: Actor): Promise<void> {
       actor.updated_at,
     )
     .run();
+
+  // Dual-write to type-specific profile table
+  await insertActorProfile(db, actor);
 }
+
+// ---------------------------------------------------------------------------
+// Actor Profiles — type-specific profile CRUD
+// ---------------------------------------------------------------------------
+
+/**
+ * Dual-write helper: inserts a row in the appropriate profile table based on actor type.
+ * Called automatically by insertActor(). Also usable standalone for backfills.
+ */
+async function insertActorProfile(db: D1Database, actor: Actor): Promise<void> {
+  const type = actor.type as string;
+  if (type === 'CUSTOMER') {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO customer_profiles (actor_id, first_name, middle_name, last_name, display_name, email, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      )
+      .bind(
+        actor.id,
+        actor.first_name ?? null,
+        actor.middle_name ?? null,
+        actor.last_name ?? null,
+        actor.display_name ?? null,
+        actor.email ?? null,
+        actor.created_at,
+        actor.updated_at,
+      )
+      .run();
+  } else if (type === 'MERCHANT') {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO merchant_profiles (actor_id, store_code, email, parent_actor_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      )
+      .bind(
+        actor.id,
+        actor.store_code ?? null,
+        actor.email ?? null,
+        actor.parent_actor_id ?? null,
+        actor.created_at,
+        actor.updated_at,
+      )
+      .run();
+  } else if (type === 'AGENT') {
+    if (actor.agent_code) {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO agent_profiles (actor_id, agent_code, agent_type, parent_actor_id, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+        )
+        .bind(
+          actor.id,
+          actor.agent_code,
+          actor.agent_type ?? 'STANDARD',
+          actor.parent_actor_id ?? null,
+          actor.created_at,
+          actor.updated_at,
+        )
+        .run();
+    }
+  } else if (type === 'STAFF') {
+    if (actor.staff_code) {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO staff_profiles (actor_id, staff_code, staff_role, email, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+        )
+        .bind(
+          actor.id,
+          actor.staff_code,
+          actor.staff_role ?? 'SUPPORT',
+          actor.email ?? null,
+          actor.created_at,
+          actor.updated_at,
+        )
+        .run();
+    }
+  }
+}
+
+export async function getCustomerProfile(db: D1Database, actorId: string): Promise<CustomerProfile | null> {
+  return (await db.prepare('SELECT * FROM customer_profiles WHERE actor_id = ?1').bind(actorId).first()) as CustomerProfile | null;
+}
+
+export async function getMerchantProfile(db: D1Database, actorId: string): Promise<MerchantProfile | null> {
+  return (await db.prepare('SELECT * FROM merchant_profiles WHERE actor_id = ?1').bind(actorId).first()) as MerchantProfile | null;
+}
+
+export async function getAgentProfile(db: D1Database, actorId: string): Promise<AgentProfile | null> {
+  return (await db.prepare('SELECT * FROM agent_profiles WHERE actor_id = ?1').bind(actorId).first()) as AgentProfile | null;
+}
+
+export async function getStaffProfile(db: D1Database, actorId: string): Promise<StaffProfile | null> {
+  return (await db.prepare('SELECT * FROM staff_profiles WHERE actor_id = ?1').bind(actorId).first()) as StaffProfile | null;
+}
+
+export async function getMerchantProfileByStoreCode(db: D1Database, storeCode: string): Promise<MerchantProfile | null> {
+  return (await db.prepare('SELECT * FROM merchant_profiles WHERE store_code = ?1').bind(storeCode).first()) as MerchantProfile | null;
+}
+
+export async function getAgentProfileByCode(db: D1Database, agentCode: string): Promise<AgentProfile | null> {
+  return (await db.prepare('SELECT * FROM agent_profiles WHERE agent_code = ?1').bind(agentCode).first()) as AgentProfile | null;
+}
+
+export async function getStaffProfileByCode(db: D1Database, staffCode: string): Promise<StaffProfile | null> {
+  return (await db.prepare('SELECT * FROM staff_profiles WHERE staff_code = ?1').bind(staffCode).first()) as StaffProfile | null;
+}
+
+export async function updateCustomerProfile(
+  db: D1Database,
+  actorId: string,
+  fields: { first_name?: string; middle_name?: string; last_name?: string; display_name?: string; preferred_name?: string; email?: string },
+): Promise<void> {
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+  let paramIdx = 1;
+
+  for (const [key, val] of Object.entries(fields)) {
+    if (val !== undefined) {
+      sets.push(`${key} = ?${paramIdx++}`);
+      values.push(val);
+    }
+  }
+  if (sets.length === 0) return;
+
+  sets.push(`updated_at = ?${paramIdx++}`);
+  values.push(new Date().toISOString());
+  values.push(actorId);
+
+  await db
+    .prepare(`UPDATE customer_profiles SET ${sets.join(', ')} WHERE actor_id = ?${paramIdx}`)
+    .bind(...values)
+    .run();
+}
+
+export async function updateMerchantProfile(
+  db: D1Database,
+  actorId: string,
+  fields: { store_code?: string; owner_name?: string; owner_first_name?: string; owner_last_name?: string; business_registration_no?: string; tax_id?: string; email?: string; parent_actor_id?: string },
+): Promise<void> {
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+  let paramIdx = 1;
+
+  for (const [key, val] of Object.entries(fields)) {
+    if (val !== undefined) {
+      sets.push(`${key} = ?${paramIdx++}`);
+      values.push(val);
+    }
+  }
+  if (sets.length === 0) return;
+
+  sets.push(`updated_at = ?${paramIdx++}`);
+  values.push(new Date().toISOString());
+  values.push(actorId);
+
+  await db
+    .prepare(`UPDATE merchant_profiles SET ${sets.join(', ')} WHERE actor_id = ?${paramIdx}`)
+    .bind(...values)
+    .run();
+}
+
+export async function updateStaffProfile(
+  db: D1Database,
+  actorId: string,
+  fields: { staff_role?: string; email?: string },
+): Promise<void> {
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+  let paramIdx = 1;
+
+  for (const [key, val] of Object.entries(fields)) {
+    if (val !== undefined) {
+      sets.push(`${key} = ?${paramIdx++}`);
+      values.push(val);
+    }
+  }
+  if (sets.length === 0) return;
+
+  sets.push(`updated_at = ?${paramIdx++}`);
+  values.push(new Date().toISOString());
+  values.push(actorId);
+
+  await db
+    .prepare(`UPDATE staff_profiles SET ${sets.join(', ')} WHERE actor_id = ?${paramIdx}`)
+    .bind(...values)
+    .run();
+}
+
+// ---------------------------------------------------------------------------
+// Actor Queries (core actors table)
+// ---------------------------------------------------------------------------
 
 export async function getActorByMsisdn(db: D1Database, msisdn: string): Promise<Actor | null> {
   return (await db.prepare('SELECT * FROM actors WHERE msisdn = ?1').bind(msisdn).first()) as Actor | null;
@@ -252,6 +451,14 @@ export async function updateStaffActor(
     .prepare(`UPDATE actors SET ${sets.join(', ')} WHERE id = ?${paramIdx} AND type = 'STAFF'`)
     .bind(...values)
     .run();
+
+  // Dual-write to staff_profiles
+  const profileFields: { staff_role?: string; email?: string } = {};
+  if (fields.staff_role !== undefined) profileFields.staff_role = fields.staff_role;
+  if (fields.email !== undefined) profileFields.email = fields.email;
+  if (Object.keys(profileFields).length > 0) {
+    await updateStaffProfile(db, staffId, profileFields);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -971,7 +1178,10 @@ export async function getActiveCommissionRules(
 
 const ACTOR_LOOKUP_FIELDS = 'id, type, state, name, first_name, middle_name, last_name, display_name';
 
-export async function lookupActorByMsisdn(db: D1Database, msisdn: string): Promise<ActorLookup | null> {
+export async function lookupActorByMsisdn(db: D1Database, msisdn: string, actorType?: string): Promise<ActorLookup | null> {
+  if (actorType) {
+    return (await db.prepare(`SELECT ${ACTOR_LOOKUP_FIELDS} FROM actors WHERE msisdn = ?1 AND type = ?2`).bind(msisdn, actorType).first()) as ActorLookup | null;
+  }
   return (await db.prepare(`SELECT ${ACTOR_LOOKUP_FIELDS} FROM actors WHERE msisdn = ?1`).bind(msisdn).first()) as ActorLookup | null;
 }
 
@@ -1029,6 +1239,18 @@ export async function updateActorProfile(
     .prepare(`UPDATE actors SET ${sets.join(', ')} WHERE id = ?${paramIdx}`)
     .bind(...values)
     .run();
+
+  // Dual-write customer profile fields if applicable
+  const cpFields: { first_name?: string; middle_name?: string; last_name?: string; display_name?: string; email?: string } = {};
+  if (fields.first_name !== undefined) cpFields.first_name = fields.first_name;
+  if (fields.middle_name !== undefined) cpFields.middle_name = fields.middle_name;
+  if (fields.last_name !== undefined) cpFields.last_name = fields.last_name;
+  if (fields.display_name !== undefined) cpFields.display_name = fields.display_name;
+  if (fields.email !== undefined) cpFields.email = fields.email;
+  if (Object.keys(cpFields).length > 0) {
+    // Best-effort: only writes if a customer_profiles row exists for this actor
+    await updateCustomerProfile(db, actorId, cpFields).catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------------------
