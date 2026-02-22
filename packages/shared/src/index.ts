@@ -12,3 +12,4 @@ export * from './circuit-breaker.js';
 export * from './retry.js';
 export * from './citibank-client.js';
 export * from './citibank-webhook.js';
+export * from './fraud-engine.js';
