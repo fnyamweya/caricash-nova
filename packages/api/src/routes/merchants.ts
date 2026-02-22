@@ -5,6 +5,9 @@ import {
   nowISO,
   createMerchantSchema,
   createStoreSchema,
+  updateStoreSchema,
+  createPaymentNodeSchema,
+  updatePaymentNodeSchema,
   ActorType,
   ActorState,
   KycState,
@@ -13,7 +16,7 @@ import {
   MerchantUserRole,
   MerchantUserState,
 } from '@caricash/shared';
-import type { Actor, MerchantUser } from '@caricash/shared';
+import type { Actor, MerchantUser, MerchantStore, StorePaymentNode } from '@caricash/shared';
 import {
   insertActor,
   insertPin,
@@ -37,6 +40,16 @@ import {
   getMerchantDescendants,
   getLedgerAccount,
   getAccountBalance,
+  insertMerchantStore,
+  getMerchantStoreById,
+  getMerchantStoreByCode,
+  listMerchantStores,
+  updateMerchantStore,
+  insertStorePaymentNode,
+  getStorePaymentNodeById,
+  listStorePaymentNodes,
+  updateStorePaymentNode,
+  deleteStorePaymentNode,
 } from '@caricash/db';
 import { hashPin, generateSalt } from '../lib/pin.js';
 import { generateUniqueStoreCode } from '../lib/code-generator.js';
@@ -176,7 +189,7 @@ merchantRoutes.post('/', async (c) => {
   }
 });
 
-// POST /merchants/:merchantId/stores - create a store branch under a merchant
+// POST /merchants/:merchantId/stores - create a store under a merchant
 merchantRoutes.post('/:merchantId/stores', async (c) => {
   const merchantId = c.req.param('merchantId');
   const body = await c.req.json();
@@ -185,7 +198,7 @@ merchantRoutes.post('/:merchantId/stores', async (c) => {
     return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
   }
 
-  const { store_code, name, msisdn, owner_name, email, pin } = parsed.data;
+  const { store_code, name, legal_name, is_primary, location, status, kyc_profile } = parsed.data;
   const correlationId = (body.correlation_id as string) || generateId();
 
   try {
@@ -195,117 +208,67 @@ merchantRoutes.post('/:merchantId/stores', async (c) => {
     }
 
     const now = nowISO();
-    let selectedReservation: Awaited<ReturnType<typeof getActiveCodeReservation>> | null = null;
 
     let storeCode = store_code;
     if (storeCode) {
-      selectedReservation = await getActiveCodeReservation(c.env.DB, 'STORE', storeCode, now);
-      if (!selectedReservation) {
-        return c.json({ error: 'Selected store code is no longer available. Generate a new code set.', correlation_id: correlationId }, 409);
+      // Check if code is already in use
+      const existingStore = await getMerchantStoreByCode(c.env.DB, storeCode);
+      if (existingStore) {
+        return c.json({ error: 'Store code already in use', correlation_id: correlationId }, 409);
       }
-      if (selectedReservation.reserved_by_actor_id && selectedReservation.reserved_by_actor_id !== parentMerchant.id) {
+      // Check code reservation if available
+      const selectedReservation = await getActiveCodeReservation(c.env.DB, 'STORE', storeCode, now);
+      if (selectedReservation && selectedReservation.reserved_by_actor_id && selectedReservation.reserved_by_actor_id !== parentMerchant.id) {
         return c.json({ error: 'Selected store code is reserved for another merchant', correlation_id: correlationId }, 403);
+      }
+      if (selectedReservation) {
+        await markCodeReservationUsed(c.env.DB, 'STORE', storeCode, parentMerchant.id, now);
       }
     } else {
       storeCode = await generateUniqueStoreCode(c.env.DB);
     }
 
-    const storeActorId = generateId();
+    const storeId = generateId();
 
-    const storeActor: Actor = {
-      id: storeActorId,
-      type: ActorType.MERCHANT,
-      state: ActorState.PENDING,
+    const store: MerchantStore = {
+      id: storeId,
+      merchant_id: merchantId,
       name,
-      msisdn,
-      email,
+      legal_name: legal_name ?? undefined,
       store_code: storeCode,
-      parent_actor_id: parentMerchant.id,
-      kyc_state: KycState.NOT_STARTED,
+      is_primary: is_primary ?? false,
+      location: location ?? null,
+      status: status ?? 'active',
+      kyc_profile: kyc_profile ?? null,
       created_at: now,
       updated_at: now,
     };
-    await insertActor(c.env.DB, storeActor);
+    await insertMerchantStore(c.env.DB, store);
 
-    const salt = generateSalt();
-    const pinHash = await hashPin(pin, salt, c.env.PIN_PEPPER);
-    await insertPin(c.env.DB, {
+    // Emit event
+    const storeEvent = {
       id: generateId(),
-      actor_id: storeActorId,
-      pin_hash: pinHash,
-      salt,
-      failed_attempts: 0,
-      created_at: now,
-      updated_at: now,
-    });
-
-    const walletId = generateId();
-    await insertLedgerAccount(c.env.DB, {
-      id: walletId,
-      owner_type: ActorType.MERCHANT,
-      owner_id: storeActorId,
-      account_type: AccountType.WALLET,
-      currency: 'BBD',
-      created_at: now,
-    });
-    await initAccountBalance(c.env.DB, walletId, 'BBD');
-
-    await initMerchantStoreClosure(c.env.DB, storeActorId);
-    await linkMerchantStoreBranch(c.env.DB, parentMerchant.id, storeActorId);
-
-    await ensureKycProfile(c.env.DB, {
-      id: `kyc_${storeActorId}`,
-      actor_id: storeActorId,
-      actor_type: ActorType.MERCHANT,
-      status: KycState.NOT_STARTED,
-      created_at: now,
-      updated_at: now,
-    });
-
-    const ownerUserId = generateId();
-    const ownerUser: MerchantUser & { pin_hash: string; salt: string } = {
-      id: ownerUserId,
-      actor_id: storeActorId,
-      msisdn,
-      name: owner_name,
-      role: MerchantUserRole.STORE_OWNER,
-      state: MerchantUserState.ACTIVE,
-      pin_hash: pinHash,
-      salt,
-      created_at: now,
-      updated_at: now,
-    };
-    await insertMerchantUser(c.env.DB, ownerUser);
-
-    const branchEvent = {
-      id: generateId(),
-      name: EventName.MERCHANT_BRANCH_LINKED,
-      entity_type: 'actor',
-      entity_id: storeActorId,
+      name: EventName.MERCHANT_STORE_CREATED,
+      entity_type: 'merchant_store',
+      entity_id: storeId,
       correlation_id: correlationId,
       actor_type: ActorType.MERCHANT,
-      actor_id: parentMerchant.id,
+      actor_id: merchantId,
       schema_version: 1,
       payload_json: JSON.stringify({
-        merchant_id: parentMerchant.id,
-        store_actor_id: storeActorId,
+        merchant_id: merchantId,
+        store_id: storeId,
         store_code: storeCode,
-        wallet_id: walletId,
+        name,
       }),
       created_at: now,
     };
-    await insertEvent(c.env.DB, branchEvent);
-
-    if (selectedReservation) {
-      await markCodeReservationUsed(c.env.DB, 'STORE', storeCode, storeActorId, now);
-    }
+    await insertEvent(c.env.DB, storeEvent);
 
     return c.json({
-      merchant_id: parentMerchant.id,
-      store: storeActor,
+      merchant_id: merchantId,
+      store,
       store_code: storeCode,
-      wallet_id: walletId,
-      owner_user_id: ownerUserId,
       correlation_id: correlationId,
     }, 201);
   } catch (err) {
@@ -559,19 +522,238 @@ merchantRoutes.get('/:merchantId/stores', async (c) => {
       return c.json({ error: 'Merchant not found', correlation_id: correlationId }, 404);
     }
 
-    const descendants = await getMerchantDescendants(c.env.DB, merchantId);
+    const statusFilter = c.req.query('status');
+    const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : 100;
+    const offset = c.req.query('offset') ? parseInt(c.req.query('offset')!, 10) : 0;
 
-    const stores = descendants.map((d) => ({
-      id: d.id,
-      name: d.name,
-      store_code: d.store_code,
-      state: d.state,
-      kyc_state: d.kyc_state,
-      parent_actor_id: d.parent_actor_id,
-      created_at: d.created_at,
-    }));
+    const stores = await listMerchantStores(c.env.DB, merchantId, {
+      status: statusFilter,
+      limit: Math.min(limit, 200),
+      offset,
+    });
 
     return c.json({ stores, count: stores.length, merchant_id: merchantId, correlation_id: correlationId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /merchants/:merchantId/stores/:storeId - get a single store
+// ---------------------------------------------------------------------------
+merchantRoutes.get('/:merchantId/stores/:storeId', async (c) => {
+  const merchantId = c.req.param('merchantId');
+  const storeId = c.req.param('storeId');
+  const correlationId = generateId();
+
+  try {
+    const store = await getMerchantStoreById(c.env.DB, storeId);
+    if (!store || store.merchant_id !== merchantId) {
+      return c.json({ error: 'Store not found', correlation_id: correlationId }, 404);
+    }
+    return c.json({ store, correlation_id: correlationId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /merchants/:merchantId/stores/:storeId - update a store
+// ---------------------------------------------------------------------------
+merchantRoutes.put('/:merchantId/stores/:storeId', async (c) => {
+  const merchantId = c.req.param('merchantId');
+  const storeId = c.req.param('storeId');
+  const body = await c.req.json();
+  const parsed = updateStoreSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
+  }
+  const correlationId = (body.correlation_id as string) || generateId();
+
+  try {
+    const store = await getMerchantStoreById(c.env.DB, storeId);
+    if (!store || store.merchant_id !== merchantId) {
+      return c.json({ error: 'Store not found', correlation_id: correlationId }, 404);
+    }
+
+    const updates = parsed.data;
+    if (Object.keys(updates).length === 0) {
+      return c.json({ error: 'No fields to update', correlation_id: correlationId }, 400);
+    }
+
+    const now = nowISO();
+    await updateMerchantStore(c.env.DB, storeId, updates);
+
+    await insertEvent(c.env.DB, {
+      id: generateId(),
+      name: EventName.MERCHANT_STORE_UPDATED,
+      entity_type: 'merchant_store',
+      entity_id: storeId,
+      correlation_id: correlationId,
+      actor_type: ActorType.MERCHANT,
+      actor_id: merchantId,
+      schema_version: 1,
+      payload_json: JSON.stringify(updates),
+      created_at: now,
+    });
+
+    const updated = await getMerchantStoreById(c.env.DB, storeId);
+    return c.json({ store: updated, correlation_id: correlationId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /merchants/:merchantId/stores/:storeId/payment-nodes - create payment node
+// ---------------------------------------------------------------------------
+merchantRoutes.post('/:merchantId/stores/:storeId/payment-nodes', async (c) => {
+  const merchantId = c.req.param('merchantId');
+  const storeId = c.req.param('storeId');
+  const body = await c.req.json();
+  const parsed = createPaymentNodeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
+  }
+  const correlationId = (body.correlation_id as string) || generateId();
+
+  try {
+    const store = await getMerchantStoreById(c.env.DB, storeId);
+    if (!store || store.merchant_id !== merchantId) {
+      return c.json({ error: 'Store not found', correlation_id: correlationId }, 404);
+    }
+
+    const now = nowISO();
+    const nodeId = generateId();
+    const node: StorePaymentNode = {
+      id: nodeId,
+      store_id: storeId,
+      store_node_name: parsed.data.store_node_name,
+      store_node_code: parsed.data.store_node_code,
+      description: parsed.data.description,
+      status: parsed.data.status ?? 'active',
+      is_primary: parsed.data.is_primary ?? false,
+      created_at: now,
+      updated_at: now,
+    };
+    await insertStorePaymentNode(c.env.DB, node);
+
+    await insertEvent(c.env.DB, {
+      id: generateId(),
+      name: EventName.STORE_PAYMENT_NODE_CREATED,
+      entity_type: 'store_payment_node',
+      entity_id: nodeId,
+      correlation_id: correlationId,
+      actor_type: ActorType.MERCHANT,
+      actor_id: merchantId,
+      schema_version: 1,
+      payload_json: JSON.stringify({ store_id: storeId, ...parsed.data }),
+      created_at: now,
+    });
+
+    return c.json({ node, correlation_id: correlationId }, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /merchants/:merchantId/stores/:storeId/payment-nodes - list payment nodes
+// ---------------------------------------------------------------------------
+merchantRoutes.get('/:merchantId/stores/:storeId/payment-nodes', async (c) => {
+  const merchantId = c.req.param('merchantId');
+  const storeId = c.req.param('storeId');
+  const correlationId = generateId();
+
+  try {
+    const store = await getMerchantStoreById(c.env.DB, storeId);
+    if (!store || store.merchant_id !== merchantId) {
+      return c.json({ error: 'Store not found', correlation_id: correlationId }, 404);
+    }
+
+    const statusFilter = c.req.query('status');
+    const nodes = await listStorePaymentNodes(c.env.DB, storeId, { status: statusFilter });
+    return c.json({ nodes, count: nodes.length, store_id: storeId, correlation_id: correlationId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /merchants/:merchantId/stores/:storeId/payment-nodes/:nodeId - update node
+// ---------------------------------------------------------------------------
+merchantRoutes.put('/:merchantId/stores/:storeId/payment-nodes/:nodeId', async (c) => {
+  const merchantId = c.req.param('merchantId');
+  const storeId = c.req.param('storeId');
+  const nodeId = c.req.param('nodeId');
+  const body = await c.req.json();
+  const parsed = updatePaymentNodeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
+  }
+  const correlationId = (body.correlation_id as string) || generateId();
+
+  try {
+    const store = await getMerchantStoreById(c.env.DB, storeId);
+    if (!store || store.merchant_id !== merchantId) {
+      return c.json({ error: 'Store not found', correlation_id: correlationId }, 404);
+    }
+
+    const existing = await getStorePaymentNodeById(c.env.DB, nodeId);
+    if (!existing || existing.store_id !== storeId) {
+      return c.json({ error: 'Payment node not found', correlation_id: correlationId }, 404);
+    }
+
+    await updateStorePaymentNode(c.env.DB, nodeId, parsed.data);
+
+    await insertEvent(c.env.DB, {
+      id: generateId(),
+      name: EventName.STORE_PAYMENT_NODE_UPDATED,
+      entity_type: 'store_payment_node',
+      entity_id: nodeId,
+      correlation_id: correlationId,
+      actor_type: ActorType.MERCHANT,
+      actor_id: merchantId,
+      schema_version: 1,
+      payload_json: JSON.stringify(parsed.data),
+      created_at: nowISO(),
+    });
+
+    const updated = await getStorePaymentNodeById(c.env.DB, nodeId);
+    return c.json({ node: updated, correlation_id: correlationId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    return c.json({ error: message, correlation_id: correlationId }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /merchants/:merchantId/stores/:storeId/payment-nodes/:nodeId
+// ---------------------------------------------------------------------------
+merchantRoutes.delete('/:merchantId/stores/:storeId/payment-nodes/:nodeId', async (c) => {
+  const merchantId = c.req.param('merchantId');
+  const storeId = c.req.param('storeId');
+  const nodeId = c.req.param('nodeId');
+  const correlationId = generateId();
+
+  try {
+    const store = await getMerchantStoreById(c.env.DB, storeId);
+    if (!store || store.merchant_id !== merchantId) {
+      return c.json({ error: 'Store not found', correlation_id: correlationId }, 404);
+    }
+
+    const existing = await getStorePaymentNodeById(c.env.DB, nodeId);
+    if (!existing || existing.store_id !== storeId) {
+      return c.json({ error: 'Payment node not found', correlation_id: correlationId }, 404);
+    }
+
+    await deleteStorePaymentNode(c.env.DB, nodeId);
+    return c.json({ success: true, correlation_id: correlationId });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';
     return c.json({ error: message, correlation_id: correlationId }, 500);

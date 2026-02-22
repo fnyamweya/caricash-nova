@@ -97,9 +97,20 @@ export const StaffRole = {
 export type StaffRole = typeof StaffRole[keyof typeof StaffRole];
 
 export const MerchantUserRole = {
-  STORE_OWNER: 'store_owner', MANAGER: 'manager', CASHIER: 'cashier', VIEWER: 'viewer',
+  STORE_OWNER: 'store_owner', STORE_ADMIN: 'store_admin', STORE_SUPERVISOR: 'store_supervisor',
+  MANAGER: 'manager', CASHIER: 'cashier', VIEWER: 'viewer',
 } as const;
 export type MerchantUserRole = typeof MerchantUserRole[keyof typeof MerchantUserRole];
+
+export const MerchantStoreStatus = {
+  ACTIVE: 'active', SUSPENDED: 'suspended', CLOSED: 'closed',
+} as const;
+export type MerchantStoreStatus = typeof MerchantStoreStatus[keyof typeof MerchantStoreStatus];
+
+export const StorePaymentNodeStatus = {
+  ACTIVE: 'active', SUSPENDED: 'suspended', CLOSED: 'closed',
+} as const;
+export type StorePaymentNodeStatus = typeof StorePaymentNodeStatus[keyof typeof StorePaymentNodeStatus];
 
 export const AgentUserRole = {
   AGENT_OWNER: 'agent_owner', MANAGER: 'manager', CASHIER: 'cashier', VIEWER: 'viewer',

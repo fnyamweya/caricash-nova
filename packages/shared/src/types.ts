@@ -124,6 +124,36 @@ export interface MerchantStoreClosure {
   created_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Merchant Store (new first-class table)
+// ---------------------------------------------------------------------------
+
+export interface MerchantStore {
+  id: string;
+  merchant_id: string;
+  name: string;
+  legal_name?: string;
+  store_code: string;
+  is_primary: boolean;
+  location?: Record<string, unknown> | null;
+  status: 'active' | 'suspended' | 'closed';
+  kyc_profile?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StorePaymentNode {
+  id: string;
+  store_id: string;
+  store_node_name: string;
+  store_node_code: string;
+  description?: string;
+  status: 'active' | 'suspended' | 'closed';
+  is_primary: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface LedgerAccount {
   id: string;
   owner_type: ActorType;

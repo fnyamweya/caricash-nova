@@ -8,13 +8,21 @@ const STORE_EVENT_NAME = 'caricash:merchant-store-change';
 
 export interface MerchantStoreRecord {
     id: string;
+    merchant_id?: string;
     name: string;
+    legal_name?: string;
     store_code: string;
+    is_primary?: boolean;
+    location?: Record<string, unknown> | null;
+    status?: string;
+    kyc_profile?: string | null;
+    created_at?: string;
+    updated_at?: string;
+    source?: 'api' | 'local';
+    /** @deprecated kept for backward compat with old actor-based store shape */
     state?: string;
     kyc_state?: string;
     parent_actor_id?: string | null;
-    created_at?: string;
-    source?: 'api' | 'local';
 }
 
 interface MerchantStoresResponse {

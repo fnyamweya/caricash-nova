@@ -28,18 +28,18 @@ export function MerchantHero({
 }) {
     return (
         <Card className={cn(
-            'overflow-hidden border-white/40 bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(248,255,252,0.9))] shadow-[0_22px_55px_-38px_rgba(1,32,23,0.45)] backdrop-blur-md',
+            'overflow-hidden border-border/70 bg-card/95 shadow-[0_22px_55px_-38px_rgba(15,23,42,0.22)] backdrop-blur-md',
             className,
         )}
         >
             <div className="pointer-events-none absolute inset-0">
-                <div className="absolute -left-12 top-2 h-32 w-32 rounded-full bg-emerald-500/12 blur-2xl" />
-                <div className="absolute right-4 top-4 h-24 w-24 rounded-full bg-cyan-400/10 blur-2xl" />
+                <div className="absolute -left-12 top-2 h-32 w-32 rounded-full bg-primary/8 blur-2xl" />
+                <div className="absolute right-4 top-4 h-24 w-24 rounded-full bg-accent/70 blur-2xl" />
             </div>
             <CardHeader className="relative gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                        {badge ? <Badge className="rounded-full bg-emerald-500/12 px-3 py-1 text-emerald-700 hover:bg-emerald-500/12">{badge}</Badge> : null}
+                        {badge ? <Badge className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-primary hover:bg-primary/10">{badge}</Badge> : null}
                         <Badge variant="outline" className="rounded-full border-border/70 bg-background/70 px-3 py-1 text-xs">
                             Merchant Workspace
                         </Badge>
@@ -76,7 +76,7 @@ export function MerchantSection({
     contentClassName?: string;
 }) {
     return (
-        <Card className={cn('border-white/50 bg-background/85 shadow-[0_20px_45px_-40px_rgba(2,24,18,0.8)] backdrop-blur-md', className)}>
+        <Card className={cn('border-border/70 bg-card/90 shadow-[0_20px_45px_-40px_rgba(15,23,42,0.28)] backdrop-blur-md', className)}>
             <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <CardTitle className="text-base">{title}</CardTitle>
@@ -103,11 +103,11 @@ export function MerchantMetricCard({
     tone?: 'emerald' | 'blue' | 'amber' | 'rose' | 'slate';
 }) {
     const toneMap: Record<typeof tone, string> = {
-        emerald: 'from-emerald-500/12 to-green-500/5 border-emerald-200/60',
-        blue: 'from-blue-500/12 to-cyan-500/5 border-blue-200/60',
-        amber: 'from-amber-500/12 to-yellow-500/5 border-amber-200/60',
-        rose: 'from-rose-500/12 to-pink-500/5 border-rose-200/60',
-        slate: 'from-slate-500/8 to-slate-400/4 border-border/60',
+        emerald: 'from-primary/10 to-background border-primary/20',
+        blue: 'from-accent/70 to-background border-border/60',
+        amber: 'from-accent/70 to-background border-border/60',
+        rose: 'from-accent/70 to-background border-border/60',
+        slate: 'from-muted/40 to-background border-border/60',
     };
 
     return (
@@ -145,10 +145,10 @@ export function MerchantActionTile({
     tone?: 'emerald' | 'blue' | 'orange' | 'violet';
 }) {
     const toneClasses: Record<typeof tone, string> = {
-        emerald: 'from-emerald-500/12 to-green-400/8 border-emerald-200/60',
-        blue: 'from-blue-500/12 to-cyan-400/8 border-blue-200/60',
-        orange: 'from-orange-500/12 to-amber-400/8 border-orange-200/60',
-        violet: 'from-violet-500/12 to-purple-400/8 border-violet-200/60',
+        emerald: 'from-accent/70 to-background border-border/60',
+        blue: 'from-accent/70 to-background border-border/60',
+        orange: 'from-accent/70 to-background border-border/60',
+        violet: 'from-accent/70 to-background border-border/60',
     };
 
     return (
@@ -201,14 +201,14 @@ export function MerchantStepChips({
                         className={cn(
                             'relative overflow-hidden rounded-2xl border px-3 py-2 text-left transition-colors',
                             isActive
-                                ? 'border-emerald-300 bg-emerald-500/10 text-emerald-800'
+                                ? 'border-primary/25 bg-primary/10 text-foreground'
                                 : 'border-border/70 bg-background/70 hover:bg-accent/40',
                         )}
                     >
                         {isActive ? (
                             <motion.span
                                 layoutId="merchant-active-step-chip"
-                                className="absolute inset-0 rounded-2xl border border-emerald-300/70"
+                                className="absolute inset-0 rounded-2xl border border-primary/30"
                             />
                         ) : null}
                         <span className="relative block text-[11px] font-semibold uppercase tracking-[0.12em] opacity-70">
@@ -250,7 +250,7 @@ export function MerchantQuickAmountGrid({
                         className={cn(
                             'rounded-xl border px-3 py-2 text-left text-sm transition-colors',
                             isActive
-                                ? 'border-emerald-300 bg-emerald-500/10 text-emerald-700'
+                                ? 'border-primary/25 bg-primary/10 text-foreground'
                                 : 'border-border/70 bg-background/80 hover:bg-accent/40',
                         )}
                     >
@@ -275,7 +275,7 @@ export function MerchantStickyActionBar({
     secondary?: ReactNode;
 }) {
     return (
-        <div className="sticky bottom-20 z-20 rounded-2xl border border-white/50 bg-background/92 p-3 shadow-[0_18px_40px_-30px_rgba(3,18,14,0.85)] backdrop-blur md:bottom-4">
+        <div className="sticky bottom-20 z-20 rounded-2xl border border-border/70 bg-background/92 p-3 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.35)] backdrop-blur md:bottom-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                     <p className="text-sm font-semibold truncate">{title}</p>
@@ -311,13 +311,13 @@ export function MerchantSegmentedFilters<T extends string>({
                         size="sm"
                         className={cn(
                             'rounded-xl px-3',
-                            active ? 'bg-emerald-600 text-white hover:bg-emerald-600' : 'text-muted-foreground',
+                            active ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'text-muted-foreground',
                         )}
                         onClick={() => onChange(option.value)}
                     >
                         {option.label}
                         {typeof option.count === 'number' ? (
-                            <span className={cn('ml-1.5 text-[11px]', active ? 'text-white/90' : 'text-muted-foreground')}>
+                            <span className={cn('ml-1.5 text-[11px]', active ? 'text-primary-foreground/90' : 'text-muted-foreground')}>
                                 {option.count}
                             </span>
                         ) : null}
