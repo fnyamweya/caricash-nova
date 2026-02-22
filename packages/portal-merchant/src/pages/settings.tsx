@@ -71,10 +71,13 @@ interface MerchantKycResponse {
 interface CreateStoreResponse {
     store: {
         id: string;
+        merchant_id: string;
         name: string;
+        legal_name?: string;
         store_code: string;
-        state?: string;
-        kyc_state?: string;
+        is_primary: boolean;
+        location?: Record<string, unknown> | null;
+        status?: string;
     };
     store_code: string;
 }
@@ -121,10 +124,11 @@ export function SettingsPage() {
     const [storeForm, setStoreForm] = useState({
         store_code: '',
         name: '',
-        msisdn: '',
-        owner_name: '',
-        email: '',
-        pin: '',
+        legal_name: '',
+        is_primary: false,
+        location_address: '',
+        location_city: '',
+        location_country: '',
     });
     const [settlementForm, setSettlementForm] = useState({
         settlementBankName: preferences?.settlementBankName ?? '',
@@ -191,15 +195,16 @@ export function SettingsPage() {
         mutationFn: async () => api.post(`/merchants/${actor!.id}/stores`, {
             store_code: storeForm.store_code.trim() || undefined,
             name: storeForm.name.trim(),
-            msisdn: storeForm.msisdn.trim(),
-            owner_name: storeForm.owner_name.trim(),
-            email: storeForm.email.trim() || undefined,
-            pin: storeForm.pin,
+            legal_name: storeForm.legal_name.trim() || undefined,
+            is_primary: storeForm.is_primary,
+            location: (storeForm.location_address.trim() || storeForm.location_city.trim() || storeForm.location_country.trim())
+                ? { address: storeForm.location_address.trim(), city: storeForm.location_city.trim(), country: storeForm.location_country.trim() }
+                : undefined,
         }),
         onSuccess: (result) => {
             rememberStore(result.store);
             setActiveStoreCode(result.store.store_code || result.store_code);
-            setStoreForm({ store_code: '', name: '', msisdn: '', owner_name: '', email: '', pin: '' });
+            setStoreForm({ store_code: '', name: '', legal_name: '', is_primary: false, location_address: '', location_city: '', location_country: '' });
             void queryClient.invalidateQueries({ queryKey: ['merchant-stores-workspace', actor?.id] });
         },
     });
@@ -217,7 +222,7 @@ export function SettingsPage() {
     }, [profileForm, profileQuery.data?.merchant]);
 
     const settlementDirty = true;
-    const canCreateStore = !!storeForm.name.trim() && !!storeForm.msisdn.trim() && !!storeForm.owner_name.trim() && storeForm.pin.trim().length >= 4;
+    const canCreateStore = !!storeForm.name.trim();
     const canSubmitKyc = !!kycForm.document_type && !!kycForm.document_number.trim();
 
     return (
@@ -320,15 +325,14 @@ export function SettingsPage() {
                                                         <Store className="h-4 w-4" />
                                                     </span>
                                                     <span className="min-w-0">
-                                                        <span className="block truncate text-sm font-semibold">{store.name}</span>
-                                                        <span className="block truncate text-xs text-muted-foreground">{store.store_code}</span>
+                                                        <span className="block truncate text-sm font-semibold">{store.name}{store.is_primary ? ' ★' : ''}</span>
+                                                        <span className="block truncate text-xs text-muted-foreground">{store.store_code}{store.legal_name ? ` · ${store.legal_name}` : ''}</span>
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <Badge variant={activeStoreCode === store.store_code ? 'default' : 'outline'} className={cn(activeStoreCode === store.store_code ? 'bg-emerald-600 hover:bg-emerald-600' : '', 'rounded-full')}>
-                                                        {activeStoreCode === store.store_code ? 'Active' : (store.state || 'Store')}
+                                                        {activeStoreCode === store.store_code ? 'Active' : (store.status || store.state || 'Store')}
                                                     </Badge>
-                                                    <Badge variant="outline" className="rounded-full">{store.kyc_state || 'KYC'}</Badge>
                                                 </div>
                                             </button>
                                         ))}
@@ -338,30 +342,33 @@ export function SettingsPage() {
                                 )}
                             </MerchantSection>
 
-                            <MerchantSection title="Add Branch Store" description="Create a new merchant store branch and owner credentials in one guided form.">
+                            <MerchantSection title="Add Branch Store" description="Create a new merchant store in one guided form.">
                                 <div className="space-y-3">
                                     <Field label="Store Name" htmlFor="store-name">
                                         <Input id="store-name" value={storeForm.name} onChange={(e) => setStoreForm((p) => ({ ...p, name: e.target.value }))} className="h-11 rounded-xl" placeholder="Sunset Mall Branch" />
                                     </Field>
                                     <div className="grid gap-3 sm:grid-cols-2">
                                         <Field label="Store Code (optional)" htmlFor="store-code" hint="Leave blank to auto-generate.">
-                                            <Input id="store-code" value={storeForm.store_code} onChange={(e) => setStoreForm((p) => ({ ...p, store_code: e.target.value.toUpperCase() }))} className="h-11 rounded-xl" placeholder="STORE-002" />
+                                            <Input id="store-code" value={storeForm.store_code} onChange={(e) => setStoreForm((p) => ({ ...p, store_code: e.target.value.toUpperCase() }))} className="h-11 rounded-xl" placeholder="123456" />
                                         </Field>
-                                        <Field label="Store Phone (MSISDN)" htmlFor="store-msisdn">
-                                            <Input id="store-msisdn" value={storeForm.msisdn} onChange={(e) => setStoreForm((p) => ({ ...p, msisdn: e.target.value }))} className="h-11 rounded-xl" placeholder="+1246..." />
-                                        </Field>
-                                    </div>
-                                    <div className="grid gap-3 sm:grid-cols-2">
-                                        <Field label="Store Owner Name" htmlFor="store-owner-name">
-                                            <Input id="store-owner-name" value={storeForm.owner_name} onChange={(e) => setStoreForm((p) => ({ ...p, owner_name: e.target.value }))} className="h-11 rounded-xl" placeholder="Branch Manager" />
-                                        </Field>
-                                        <Field label="Store Email (optional)" htmlFor="store-email">
-                                            <Input id="store-email" type="email" value={storeForm.email} onChange={(e) => setStoreForm((p) => ({ ...p, email: e.target.value }))} className="h-11 rounded-xl" placeholder="branch@example.com" />
+                                        <Field label="Legal Name (optional)" htmlFor="store-legal-name">
+                                            <Input id="store-legal-name" value={storeForm.legal_name} onChange={(e) => setStoreForm((p) => ({ ...p, legal_name: e.target.value }))} className="h-11 rounded-xl" placeholder="Registered business name" />
                                         </Field>
                                     </div>
-                                    <Field label="Store PIN (4-6 digits)" htmlFor="store-pin" hint="Used for store-level authentication and user setup.">
-                                        <Input id="store-pin" type="password" inputMode="numeric" maxLength={6} value={storeForm.pin} onChange={(e) => setStoreForm((p) => ({ ...p, pin: e.target.value }))} className="h-11 rounded-xl" placeholder="Enter PIN" />
-                                    </Field>
+
+                                    <div className="rounded-2xl border border-border/70 bg-muted/20 p-3">
+                                        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Location (optional)</p>
+                                        <div className="grid gap-3 sm:grid-cols-3">
+                                            <Input value={storeForm.location_address} onChange={(e) => setStoreForm((p) => ({ ...p, location_address: e.target.value }))} className="h-10 rounded-xl" placeholder="Street address" />
+                                            <Input value={storeForm.location_city} onChange={(e) => setStoreForm((p) => ({ ...p, location_city: e.target.value }))} className="h-10 rounded-xl" placeholder="City" />
+                                            <Input value={storeForm.location_country} onChange={(e) => setStoreForm((p) => ({ ...p, location_country: e.target.value }))} className="h-10 rounded-xl" placeholder="Country" />
+                                        </div>
+                                    </div>
+
+                                    <label className="flex items-center gap-2 text-sm">
+                                        <input type="checkbox" checked={storeForm.is_primary} onChange={(e) => setStoreForm((p) => ({ ...p, is_primary: e.target.checked }))} className="rounded" />
+                                        Set as primary store
+                                    </label>
 
                                     {createStoreMutation.isError ? (
                                         <div className="rounded-2xl border border-rose-200 bg-rose-500/8 p-3 text-sm text-rose-700">

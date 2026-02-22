@@ -16,6 +16,7 @@ import {
     QrCode,
     Users,
     Settings,
+    Store,
 } from 'lucide-react';
 import { NotFoundPage, useAuth, type NavItem } from '@caricash/ui';
 import { MerchantAppShell } from './components/merchant-app-shell.js';
@@ -27,6 +28,7 @@ import { TransferPage } from './pages/transfer.js';
 import { HistoryPage } from './pages/history.js';
 import { QrCodePage } from './pages/qr-code.js';
 import { TeamPage } from './pages/team.js';
+import { StoresPage } from './pages/stores.js';
 import { SettingsPage } from './pages/settings.js';
 
 const rootRoute = createRootRoute({
@@ -98,6 +100,12 @@ function AuthLayout() {
             active: location.pathname === '/team',
         },
         {
+            label: 'Stores',
+            href: '/stores',
+            icon: <Store className="h-4 w-4" />,
+            active: location.pathname === '/stores',
+        },
+        {
             label: 'Settings',
             href: '/settings',
             icon: <Settings className="h-4 w-4" />,
@@ -140,6 +148,7 @@ const transferRoute = createRoute({ getParentRoute: () => authLayoutRoute, path:
 const historyRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/history', component: HistoryPage });
 const qrCodeRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/qr-code', component: QrCodePage });
 const teamRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/team', component: TeamPage });
+const storesRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/stores', component: StoresPage });
 const settingsRoute = createRoute({ getParentRoute: () => authLayoutRoute, path: '/settings', component: SettingsPage });
 
 const routeTree = rootRoute.addChildren([
@@ -153,6 +162,7 @@ const routeTree = rootRoute.addChildren([
         historyRoute,
         qrCodeRoute,
         teamRoute,
+        storesRoute,
         settingsRoute,
     ]),
 ]);

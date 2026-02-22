@@ -187,4 +187,41 @@ describe('D1 migration smoke tests', () => {
     expect(sql).toContain('DROP COLUMN display_name');
     expect(sql).toContain('DROP COLUMN email');
   });
+
+  // --- 0021: merchant_stores + store_payment_nodes + expanded roles ---
+
+  it('merchant_stores migration creates merchant_stores table', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0021_merchant_stores.sql'), 'utf-8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS merchant_stores');
+    expect(sql).toContain('merchant_id');
+    expect(sql).toContain('store_code');
+    expect(sql).toContain('is_primary');
+    expect(sql).toContain('legal_name');
+    expect(sql).toContain('location');
+    expect(sql).toContain("status IN ('active','suspended','closed')");
+    expect(sql).toContain('kyc_profile');
+  });
+
+  it('merchant_stores migration creates store_payment_nodes table', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0021_merchant_stores.sql'), 'utf-8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS store_payment_nodes');
+    expect(sql).toContain('REFERENCES merchant_stores(id)');
+    expect(sql).toContain('store_node_name');
+    expect(sql).toContain('store_node_code');
+    expect(sql).toContain('is_primary');
+  });
+
+  it('merchant_stores migration adds new merchant_user roles', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0021_merchant_stores.sql'), 'utf-8');
+    expect(sql).toContain('store_admin');
+    expect(sql).toContain('store_supervisor');
+    expect(sql).toContain('store_id');
+    expect(sql).toContain('merchant_users_new');
+  });
+
+  it('merchant_stores migration backfills existing store actors', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0021_merchant_stores.sql'), 'utf-8');
+    expect(sql).toContain('INSERT OR IGNORE INTO merchant_stores');
+    expect(sql).toContain("type = 'MERCHANT' AND a.store_code IS NOT NULL");
+  });
 });
