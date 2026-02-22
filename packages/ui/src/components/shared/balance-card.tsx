@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, Wallet } from 'lucide-react';
 
 import { cn, formatCurrency } from '../../lib/utils.js';
@@ -22,12 +21,12 @@ export function BalanceCard({
 }: BalanceCardProps) {
     if (loading) {
         return (
-            <Card className="overflow-hidden">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <Card>
+                <CardHeader className="grid grid-cols-[1fr_auto] items-center gap-2 pb-0">
                     <Skeleton className="h-4 w-24" />
                     <Skeleton className="h-5 w-5 rounded-full" />
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-4">
                     <Skeleton className="h-8 w-32" />
                     {trend !== undefined && <Skeleton className="mt-2 h-3 w-20" />}
                 </CardContent>
@@ -36,43 +35,40 @@ export function BalanceCard({
     }
 
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, ease: 'easeOut' }}
-        >
-            <Card className="relative overflow-hidden border-primary/20">
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_0%_0%,color-mix(in_oklab,var(--primary)_18%,transparent),transparent_55%)]" />
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">
-                        {label ?? 'Balance'}
-                    </CardTitle>
-                    <Wallet className="h-4 w-4 text-primary" />
-                </CardHeader>
-                <CardContent>
-                    <div className="text-2xl font-bold tracking-tight md:text-3xl">
-                        {formatCurrency(balance, currency)}
+        <Card>
+            <CardHeader className="grid grid-cols-[1fr_auto] items-center gap-2 pb-0">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                    {label ?? 'Balance'}
+                </CardTitle>
+                <div className="flex size-8 items-center justify-center rounded-md border bg-muted/50 text-primary">
+                    <Wallet className="h-4 w-4" />
+                </div>
+            </CardHeader>
+            <CardContent className="pt-4">
+                <div className="text-2xl font-semibold tracking-tight md:text-3xl">
+                    {formatCurrency(balance, currency)}
+                </div>
+                {trend ? (
+                    <div
+                        className={cn(
+                            'mt-2 flex items-center gap-1 text-xs',
+                            trend.value >= 0
+                                ? 'text-green-700 dark:text-green-300'
+                                : 'text-red-700 dark:text-red-300',
+                        )}
+                    >
+                        {trend.value >= 0 ? (
+                            <TrendingUp className="h-3 w-3" />
+                        ) : (
+                            <TrendingDown className="h-3 w-3" />
+                        )}
+                        <span>
+                            {trend.value >= 0 ? '+' : ''}
+                            {trend.value}% {trend.label}
+                        </span>
                     </div>
-                    {trend && (
-                        <div
-                            className={cn(
-                                'mt-1 flex items-center gap-1 text-xs',
-                                trend.value >= 0 ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300',
-                            )}
-                        >
-                            {trend.value >= 0 ? (
-                                <TrendingUp className="h-3 w-3" />
-                            ) : (
-                                <TrendingDown className="h-3 w-3" />
-                            )}
-                            <span>
-                                {trend.value >= 0 ? '+' : ''}
-                                {trend.value}% {trend.label}
-                            </span>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-        </motion.div>
+                ) : null}
+            </CardContent>
+        </Card>
     );
 }

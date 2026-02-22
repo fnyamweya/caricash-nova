@@ -11,8 +11,9 @@ const TabsList = React.forwardRef<
 >(({ className, ...props }, ref) => (
     <TabsPrimitive.List
         ref={ref}
+        data-slot="tabs-list"
         className={cn(
-            'inline-flex h-11 items-center justify-center rounded-xl border border-border/70 bg-muted/45 p-1 text-muted-foreground',
+            'bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-lg p-[3px]',
             className,
         )}
         {...props}
@@ -26,8 +27,9 @@ const TabsTrigger = React.forwardRef<
 >(({ className, ...props }, ref) => (
     <TabsPrimitive.Trigger
         ref={ref}
+        data-slot="tabs-trigger"
         className={cn(
-            'inline-flex items-center justify-center whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-semibold ring-offset-background transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm',
+            'text-foreground dark:text-muted-foreground dark:data-[state=active]:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:outline-1 focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:shadow-sm',
             className,
         )}
         {...props}
@@ -41,8 +43,9 @@ const TabsContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
     <TabsPrimitive.Content
         ref={ref}
+        data-slot="tabs-content"
         className={cn(
-            'mt-3 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+            'mt-4 flex-1 outline-none',
             className,
         )}
         {...props}

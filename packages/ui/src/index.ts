@@ -3,7 +3,7 @@ export { Button, buttonVariants } from './components/ui/button.js';
 export { Input } from './components/ui/input.js';
 export { Label } from './components/ui/label.js';
 export {
-    Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter,
+    Card, CardHeader, CardTitle, CardAction, CardDescription, CardContent, CardFooter,
 } from './components/ui/card.js';
 export { Badge, badgeVariants } from './components/ui/badge.js';
 export {
@@ -30,6 +30,32 @@ export {
     Sheet, SheetTrigger, SheetContent, SheetHeader,
     SheetTitle, SheetDescription, SheetFooter, SheetClose,
 } from './components/ui/sheet.js';
+export {
+    Sidebar,
+    SidebarContent,
+    SidebarFooter,
+    SidebarGroup,
+    SidebarGroupAction,
+    SidebarGroupContent,
+    SidebarGroupLabel,
+    SidebarHeader,
+    SidebarInput,
+    SidebarInset,
+    SidebarMenu,
+    SidebarMenuAction,
+    SidebarMenuBadge,
+    SidebarMenuButton,
+    SidebarMenuItem,
+    SidebarMenuSkeleton,
+    SidebarMenuSub,
+    SidebarMenuSubButton,
+    SidebarMenuSubItem,
+    SidebarProvider,
+    SidebarRail,
+    SidebarSeparator,
+    SidebarTrigger,
+    useSidebar,
+} from './components/ui/sidebar.js';
 
 // === Layout ===
 export { AppShell } from './components/layout/app-shell.js';
@@ -45,6 +71,9 @@ export { LoadingSpinner, PageLoader } from './components/shared/loading-spinner.
 export { DataTable } from './components/shared/data-table.js';
 export { TransactionTable } from './components/shared/transaction-table.js';
 export type { Transaction } from './components/shared/transaction-table.js';
+export { AppearanceMenu } from './components/shared/appearance-menu.js';
+export { SectionBlock } from './components/shared/section-block.js';
+export { SectionToolbar } from './components/shared/section-toolbar.js';
 export { LoginForm } from './components/shared/login-form.js';
 export { MerchantRegisterForm } from './components/shared/merchant-register-form.js';
 export type { MerchantRegisterData } from './components/shared/merchant-register-form.js';
@@ -63,6 +92,7 @@ export { useIsMobile } from './hooks/use-mobile.js';
 export { AuthProvider, useAuth } from './providers/auth-provider.js';
 export { QueryProvider } from './providers/query-provider.js';
 export { ApiProvider, useApi } from './providers/api-provider.js';
+export { ThemeProvider } from './providers/theme-provider.js';
 
 // === Lib ===
 export { cn, formatCurrency, formatDate, formatRelativeTime, getInitials } from './lib/utils.js';

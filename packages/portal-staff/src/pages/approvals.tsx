@@ -24,6 +24,14 @@ import {
     TabsList,
     TabsTrigger,
     TabsContent,
+    SectionBlock,
+    SectionToolbar,
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
 } from '@caricash/ui';
 import { ModulePage } from '../components/module-page.js';
 
@@ -111,6 +119,15 @@ interface CreatePolicyPayload {
     description?: string;
     approval_type?: string;
     priority?: number;
+    valid_from?: string;
+    valid_to?: string;
+    time_constraints?: Record<string, unknown>;
+    expiry_minutes?: number;
+    escalation_minutes?: number;
+    escalation_group?: Record<string, unknown>;
+    conditions?: Array<Record<string, unknown>>;
+    stages?: Array<Record<string, unknown>>;
+    bindings?: Array<Record<string, unknown>>;
     staff_id: string;
 }
 
@@ -120,7 +137,25 @@ interface UpdatePolicyPayload {
     description?: string;
     approval_type?: string;
     priority?: number;
+    valid_from?: string;
+    valid_to?: string;
+    time_constraints?: Record<string, unknown>;
+    expiry_minutes?: number;
+    escalation_minutes?: number;
+    escalation_group?: Record<string, unknown>;
+    conditions?: Array<Record<string, unknown>>;
+    stages?: Array<Record<string, unknown>>;
+    bindings?: Array<Record<string, unknown>>;
     staff_id: string;
+}
+
+interface ConfirmAction {
+    type: 'create' | 'update' | 'activate' | 'deactivate' | 'delete';
+    title: string;
+    description: string;
+    confirmLabel: string;
+    policyId?: string;
+    payload?: CreatePolicyPayload | UpdatePolicyPayload;
 }
 
 interface ApprovalPolicyActionResponse {
@@ -142,6 +177,19 @@ interface ApprovalDelegation {
 
 interface ApprovalDelegationsResponse {
     items: ApprovalDelegation[];
+    count: number;
+}
+
+interface StaffActor {
+    id: string;
+    name?: string;
+    staff_code?: string;
+    staff_role?: string;
+    state?: string;
+}
+
+interface StaffListResponse {
+    items: StaffActor[];
     count: number;
 }
 
@@ -190,12 +238,32 @@ export function ApprovalsPage() {
     const [policyDescription, setPolicyDescription] = useState('');
     const [policyApprovalType, setPolicyApprovalType] = useState('');
     const [policyPriority, setPolicyPriority] = useState('100');
+    const [policyValidFrom, setPolicyValidFrom] = useState('');
+    const [policyValidTo, setPolicyValidTo] = useState('');
+    const [policyExpiryMinutes, setPolicyExpiryMinutes] = useState('');
+    const [policyEscalationMinutes, setPolicyEscalationMinutes] = useState('');
+    const [policyTimeConstraintsJson, setPolicyTimeConstraintsJson] = useState('');
+    const [policyEscalationGroupJson, setPolicyEscalationGroupJson] = useState('');
+    const [policyConditionsJson, setPolicyConditionsJson] = useState('');
+    const [policyStagesJson, setPolicyStagesJson] = useState('');
+    const [policyBindingsJson, setPolicyBindingsJson] = useState('');
 
     const [editingPolicyId, setEditingPolicyId] = useState('');
     const [editPolicyName, setEditPolicyName] = useState('');
     const [editPolicyDescription, setEditPolicyDescription] = useState('');
     const [editPolicyApprovalType, setEditPolicyApprovalType] = useState('');
     const [editPolicyPriority, setEditPolicyPriority] = useState('100');
+    const [editPolicyValidFrom, setEditPolicyValidFrom] = useState('');
+    const [editPolicyValidTo, setEditPolicyValidTo] = useState('');
+    const [editPolicyExpiryMinutes, setEditPolicyExpiryMinutes] = useState('');
+    const [editPolicyEscalationMinutes, setEditPolicyEscalationMinutes] = useState('');
+    const [editPolicyTimeConstraintsJson, setEditPolicyTimeConstraintsJson] = useState('');
+    const [editPolicyEscalationGroupJson, setEditPolicyEscalationGroupJson] = useState('');
+    const [editPolicyConditionsJson, setEditPolicyConditionsJson] = useState('');
+    const [editPolicyStagesJson, setEditPolicyStagesJson] = useState('');
+    const [editPolicyBindingsJson, setEditPolicyBindingsJson] = useState('');
+
+    const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
     const approvalTypesQuery = useQuery({
         queryKey: ['approval-types'],
@@ -237,6 +305,12 @@ export function ApprovalsPage() {
             if (delegationStateFilter) params.set('state', delegationStateFilter);
             return api.get<ApprovalDelegationsResponse>(`/approvals/delegations?${params.toString()}`);
         },
+    });
+
+    const staffListQuery = useQuery({
+        queryKey: ['staff-list-for-delegations'],
+        queryFn: () => api.get<StaffListResponse>('/staff?state=ACTIVE'),
+        enabled: !!staffId,
     });
 
     const policiesEndpointUnavailable =
@@ -398,6 +472,13 @@ export function ApprovalsPage() {
 
     const workingAction = approveMutation.isPending || rejectMutation.isPending;
 
+    const staffOptions = useMemo(() => {
+        return (staffListQuery.data?.items ?? []).map((staff) => ({
+            value: staff.id,
+            label: `${staff.name ?? 'Staff'}${staff.staff_code ? ` (${staff.staff_code})` : ''}${staff.staff_role ? ` • ${staff.staff_role}` : ''}`,
+        }));
+    }, [staffListQuery.data?.items]);
+
     function formatType(value: string): string {
         return value
             .toLowerCase()
@@ -419,19 +500,45 @@ export function ApprovalsPage() {
                 ]}
             >
                 <Tabs value={tab} onValueChange={setTab}>
-                    <TabsList>
-                        <TabsTrigger value="queue">Queue</TabsTrigger>
-                        <TabsTrigger value="policies">Policies</TabsTrigger>
-                        <TabsTrigger value="delegations">Delegations</TabsTrigger>
-                        <TabsTrigger value="funding">Funding</TabsTrigger>
-                    </TabsList>
+                    <SectionToolbar
+                        title="Approval Workbench"
+                        description="Switch between queue operations, policy controls, delegations, and suspense funding workflows."
+                    >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <TabsList className="h-auto flex-wrap justify-start">
+                                <TabsTrigger value="queue">Queue</TabsTrigger>
+                                <TabsTrigger value="policies">Policies</TabsTrigger>
+                                <TabsTrigger value="delegations">Delegations</TabsTrigger>
+                                <TabsTrigger value="funding">Funding</TabsTrigger>
+                            </TabsList>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline">
+                                    {(approvalsQuery.data?.items ?? []).length} queue item{(approvalsQuery.data?.items ?? []).length === 1 ? '' : 's'}
+                                </Badge>
+                                {approvalsQuery.isFetching ? (
+                                    <Badge variant="outline">Refreshing</Badge>
+                                ) : null}
+                            </div>
+                        </div>
+                    </SectionToolbar>
 
                     <TabsContent value="queue" className="mt-4 space-y-6">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="text-base">Approval Queue</CardTitle>
-                            </CardHeader>
-                            <CardContent className="flex flex-col gap-4">
+                        <SectionToolbar
+                            title="Queue Filters"
+                            description="Filter by status and approval type before selecting a request for action."
+                            actions={(
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => void approvalsQuery.refetch()}
+                                    disabled={approvalsQuery.isFetching}
+                                >
+                                    <RefreshCw className="h-4 w-4" />
+                                    {approvalsQuery.isFetching ? 'Refreshing…' : 'Refresh'}
+                                </Button>
+                            )}
+                        >
+                            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-end">
                                 <div className="flex flex-wrap gap-2">
                                     {['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED'].map((status) => (
                                         <Button
@@ -448,7 +555,7 @@ export function ApprovalsPage() {
                                     ))}
                                 </div>
 
-                                <div className="w-full max-w-sm">
+                                <div className="w-full max-w-sm xl:max-w-none">
                                     <Label className="text-xs text-muted-foreground">Approval Type</Label>
                                     <Select
                                         value={typeFilter || '__all__'}
@@ -470,48 +577,54 @@ export function ApprovalsPage() {
                                         </SelectContent>
                                     </Select>
                                 </div>
+                            </div>
+                        </SectionToolbar>
 
-                                {approvalsQuery.isError && (
-                                    <p className="text-sm text-destructive">
-                                        {approvalsQuery.error?.message ?? 'Failed to load approvals.'}
-                                    </p>
-                                )}
+                        <SectionBlock
+                            title="Approval Queue"
+                            description="Select a request to inspect details, stage state, and maker-checker context."
+                            contentClassName="flex flex-col gap-4"
+                        >
+                            {approvalsQuery.isError && (
+                                <p className="text-sm text-destructive">
+                                    {approvalsQuery.error?.message ?? 'Failed to load approvals.'}
+                                </p>
+                            )}
 
-                                {!approvalsQuery.isFetching && (approvalsQuery.data?.items.length ?? 0) === 0 && (
-                                    <EmptyState title="No approvals found for selected filters" />
-                                )}
+                            {!approvalsQuery.isFetching && (approvalsQuery.data?.items.length ?? 0) === 0 && (
+                                <EmptyState title="No approvals found for selected filters" />
+                            )}
 
-                                <div className="flex flex-col gap-3">
-                                    {(approvalsQuery.data?.items ?? []).map((item) => {
-                                        const selected = selectedId === item.id;
-                                        return (
-                                            <button
-                                                key={item.id}
-                                                type="button"
-                                                className={`rounded-md border p-3 text-left transition ${selected ? 'border-primary bg-muted/50' : 'border-border hover:bg-muted/30'}`}
-                                                onClick={() => {
-                                                    setSelectedId(item.id);
-                                                    setActionResult(null);
-                                                }}
-                                            >
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    <Badge variant="outline">{formatType(item.type)}</Badge>
-                                                    <Badge variant={item.state === 'PENDING' ? 'default' : 'secondary'}>{item.state}</Badge>
-                                                    {item.policy_id && (
-                                                        <Badge variant="outline">
-                                                            Stage {item.current_stage ?? 1}/{item.total_stages ?? 1}
-                                                        </Badge>
-                                                    )}
-                                                </div>
-                                                <p className="mt-2 text-sm font-medium">{item.id}</p>
-                                                <p className="text-xs text-muted-foreground">Maker: {item.maker_staff_id}</p>
-                                                <p className="text-xs text-muted-foreground">Created: {item.created_at}</p>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </CardContent>
-                        </Card>
+                            <div className="flex flex-col gap-3">
+                                {(approvalsQuery.data?.items ?? []).map((item) => {
+                                    const selected = selectedId === item.id;
+                                    return (
+                                        <button
+                                            key={item.id}
+                                            type="button"
+                                            className={`rounded-md border p-3 text-left transition ${selected ? 'border-primary bg-muted/50' : 'border-border hover:bg-muted/30'}`}
+                                            onClick={() => {
+                                                setSelectedId(item.id);
+                                                setActionResult(null);
+                                            }}
+                                        >
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Badge variant="outline">{formatType(item.type)}</Badge>
+                                                <Badge variant={item.state === 'PENDING' ? 'default' : 'secondary'}>{item.state}</Badge>
+                                                {item.policy_id && (
+                                                    <Badge variant="outline">
+                                                        Stage {item.current_stage ?? 1}/{item.total_stages ?? 1}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            <p className="mt-2 text-sm font-medium">{item.id}</p>
+                                            <p className="text-xs text-muted-foreground">Maker: {item.maker_staff_id}</p>
+                                            <p className="text-xs text-muted-foreground">Created: {item.created_at}</p>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </SectionBlock>
 
                         <Card className="max-w-4xl">
                             <CardHeader>
@@ -848,11 +961,33 @@ export function ApprovalsPage() {
                                 <CardContent className="grid gap-3 sm:grid-cols-2">
                                     <div className="flex flex-col gap-1.5">
                                         <Label htmlFor="delegator-id">Delegator Staff ID</Label>
-                                        <Input id="delegator-id" value={delegatorId} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDelegatorId(e.target.value)} required />
+                                        <Select value={delegatorId} onValueChange={setDelegatorId}>
+                                            <SelectTrigger id="delegator-id">
+                                                <SelectValue placeholder="Select delegator" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {staffOptions.map((staff) => (
+                                                    <SelectItem key={`delegator-${staff.value}`} value={staff.value}>
+                                                        {staff.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
                                     <div className="flex flex-col gap-1.5">
                                         <Label htmlFor="delegate-id">Delegate Staff ID</Label>
-                                        <Input id="delegate-id" value={delegateId} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDelegateId(e.target.value)} required />
+                                        <Select value={delegateId} onValueChange={setDelegateId}>
+                                            <SelectTrigger id="delegate-id">
+                                                <SelectValue placeholder="Select delegate" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {staffOptions.map((staff) => (
+                                                    <SelectItem key={`delegate-${staff.value}`} value={staff.value}>
+                                                        {staff.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
                                     <div className="flex flex-col gap-1.5">
                                         <Label htmlFor="delegation-type">Approval Type (optional)</Label>
@@ -872,6 +1007,9 @@ export function ApprovalsPage() {
                                     </div>
                                     {createDelegationMutation.isError && (
                                         <p className="text-sm text-destructive sm:col-span-2">{createDelegationMutation.error?.message ?? 'Failed to create delegation.'}</p>
+                                    )}
+                                    {staffListQuery.isError && (
+                                        <p className="text-sm text-destructive sm:col-span-2">{staffListQuery.error?.message ?? 'Failed to load active staff for delegation selectors.'}</p>
                                     )}
                                 </CardContent>
                                 <CardFooter>

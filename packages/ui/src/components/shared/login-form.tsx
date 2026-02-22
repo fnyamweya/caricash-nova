@@ -17,7 +17,9 @@ import { Input } from '../ui/input.js';
 import { Label } from '../ui/label.js';
 import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
+import { AppearanceMenu } from './appearance-menu.js';
 import { LoadingSpinner } from './loading-spinner.js';
+import { useTheme } from '../../hooks/use-theme.js';
 
 type PortalType = 'customer' | 'agent' | 'merchant' | 'staff';
 
@@ -85,6 +87,11 @@ export function LoginForm({
     const [pin, setPin] = useState('');
     const [showPin, setShowPin] = useState(false);
     const config = portalConfig[portalType];
+    const { activeTheme, shellVariant, themes, shellVariants } = useTheme();
+    const activeThemeLabel =
+        themes.find((theme) => theme.value === activeTheme)?.label ?? activeTheme;
+    const shellVariantLabel =
+        shellVariants.find((variant) => variant.value === shellVariant)?.label ?? shellVariant;
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
@@ -94,17 +101,28 @@ export function LoginForm({
     return (
         <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-8 sm:px-6">
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_0%_0%,color-mix(in_oklab,var(--primary)_18%,transparent)_0,transparent_45%),radial-gradient(circle_at_100%_100%,color-mix(in_oklab,var(--accent)_20%,transparent)_0,transparent_42%)]" />
+            <div className="absolute right-4 top-4 z-10 sm:right-6 sm:top-6">
+                <AppearanceMenu />
+            </div>
             <motion.div
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.35, ease: 'easeOut' }}
-                className="relative grid w-full max-w-5xl overflow-hidden rounded-3xl border border-border/70 bg-card/80 shadow-[0_30px_80px_-46px_rgba(2,6,23,0.7)] backdrop-blur-md md:grid-cols-[1.1fr_0.9fr]"
+                className="relative grid w-full max-w-5xl overflow-hidden rounded-3xl border bg-card shadow-sm md:grid-cols-[1.1fr_0.9fr]"
             >
                 <div className="relative hidden flex-col justify-between border-r border-border/70 bg-gradient-to-br from-primary/15 via-accent/5 to-transparent p-8 md:flex">
                     <div>
-                        <Badge variant="outline" className="mb-3 w-fit">
-                            Secure Access
-                        </Badge>
+                        <div className="mb-3 flex flex-wrap gap-2">
+                            <Badge variant="outline" className="w-fit">
+                                Secure Access
+                            </Badge>
+                            <Badge variant="outline" className="w-fit">
+                                {activeThemeLabel}
+                            </Badge>
+                            <Badge variant="outline" className="w-fit">
+                                {shellVariantLabel}
+                            </Badge>
+                        </div>
                         <h1 className="text-3xl font-bold tracking-tight text-foreground">
                             CariCash
                         </h1>

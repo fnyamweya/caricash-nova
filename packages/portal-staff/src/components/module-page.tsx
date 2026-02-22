@@ -21,7 +21,7 @@ export function ModulePage({
     children,
 }: ModulePageProps) {
     return (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 md:gap-7">
             <PageHeader
                 title={title}
                 description={description}
@@ -29,10 +29,10 @@ export function ModulePage({
                 actions={actions}
             />
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-                <div className="min-w-0 space-y-6">{children}</div>
+            <div className="grid gap-6 md:gap-7 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="min-w-0 space-y-6 md:space-y-7">{children}</div>
 
-                <aside className="space-y-4">
+                <aside className="space-y-6">
                     {playbook.length > 0 ? (
                         <Card>
                             <CardHeader>
@@ -40,8 +40,8 @@ export function ModulePage({
                                     Operator Playbook
                                 </CardTitle>
                             </CardHeader>
-                            <CardContent>
-                                <ol className="space-y-2">
+                            <CardContent className="space-y-4">
+                                <ol className="space-y-2.5">
                                     {playbook.map((item) => (
                                         <li
                                             key={item}
@@ -62,7 +62,7 @@ export function ModulePage({
                                 Governance Notes
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-3 text-sm text-muted-foreground">
+                        <CardContent className="space-y-4 text-sm text-muted-foreground">
                             <p className="flex items-start gap-2">
                                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                                 Keep correlation and idempotency values in ticket records for audit traceability.

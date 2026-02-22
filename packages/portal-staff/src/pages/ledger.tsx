@@ -29,6 +29,8 @@ import {
     TabsTrigger,
     TabsContent,
     StatCard,
+    SectionBlock,
+    SectionToolbar,
     formatCurrency,
     formatDate,
 } from '@caricash/ui';
@@ -351,16 +353,31 @@ export function LedgerPage() {
                 ]}
             >
                 <Tabs defaultValue="journal">
-                    <TabsList className="h-auto flex-wrap justify-start">
-                        <TabsTrigger value="journal">Journal Lookup</TabsTrigger>
-                        <TabsTrigger value="integrity">Integrity Check</TabsTrigger>
-                        <TabsTrigger value="trial-balance">Trial Balance</TabsTrigger>
-                        <TabsTrigger value="coa">Chart of Accounts</TabsTrigger>
-                        <TabsTrigger value="periods">Accounting Periods</TabsTrigger>
-                    </TabsList>
+                    <SectionToolbar
+                        title="Ledger Workbench"
+                        description="Switch between journal lookup, integrity verification, and accounting reporting tabs."
+                    >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <TabsList className="h-auto flex-wrap justify-start">
+                                <TabsTrigger value="journal">Journal Lookup</TabsTrigger>
+                                <TabsTrigger value="integrity">Integrity Check</TabsTrigger>
+                                <TabsTrigger value="trial-balance">Trial Balance</TabsTrigger>
+                                <TabsTrigger value="coa">Chart of Accounts</TabsTrigger>
+                                <TabsTrigger value="periods">Accounting Periods</TabsTrigger>
+                            </TabsList>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline">Controls</Badge>
+                                <Badge variant="outline">Accounting</Badge>
+                            </div>
+                        </div>
+                    </SectionToolbar>
 
                     <TabsContent value="journal">
                         <div className="space-y-4">
+                            <SectionToolbar
+                                title="Journal Lookup Controls"
+                                description="Search for a journal ID, inspect posting lines, and validate debit-credit balance."
+                            />
                             <Card>
                                 <form
                                     onSubmit={(e) => {
@@ -544,6 +561,10 @@ export function LedgerPage() {
 
                     <TabsContent value="integrity">
                         <div className="space-y-4">
+                            <SectionToolbar
+                                title="Integrity Check Controls"
+                                description="Run double-entry integrity verification over an explicit date-time window."
+                            />
                             <Card>
                                 <form
                                     onSubmit={(e) => {
@@ -722,11 +743,11 @@ function TrialBalanceTab() {
     return (
         <TabsContent value="trial-balance">
             <div className="space-y-4">
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-base">Trial Balance</CardTitle>
-                    </CardHeader>
-                    <CardContent className="flex items-end gap-4">
+                <SectionToolbar
+                    title="Trial Balance Controls"
+                    description="Select a currency and load a trial balance snapshot for review."
+                >
+                    <div className="flex flex-wrap items-end gap-4">
                         <div className="space-y-1.5">
                             <Label>Currency</Label>
                             <Input value={currency} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCurrency(e.target.value)} className="w-28" />
@@ -734,8 +755,8 @@ function TrialBalanceTab() {
                         <Button onClick={() => refetch()} disabled={isLoading}>
                             {isLoading ? 'Loading…' : 'Load Trial Balance'}
                         </Button>
-                    </CardContent>
-                </Card>
+                    </div>
+                </SectionToolbar>
 
                 <div className="grid gap-4 sm:grid-cols-3">
                     <StatCard title="Total Debits" value={formatCurrency(totalDebit / 100, currency)} icon={<Sigma className="h-4 w-4" />} loading={isLoading} />
@@ -748,11 +769,12 @@ function TrialBalanceTab() {
                     />
                 </div>
 
-                <Card>
-                    <CardContent className="pt-4">
-                        <DataTable data={rows} columns={trialBalanceColumns} emptyMessage="Load a trial balance to view data" />
-                    </CardContent>
-                </Card>
+                <SectionBlock
+                    title="Trial Balance Table"
+                    description="General ledger balances by chart of accounts code."
+                >
+                    <DataTable data={rows} columns={trialBalanceColumns} emptyMessage="Load a trial balance to view data" />
+                </SectionBlock>
             </div>
         </TabsContent>
     );
@@ -773,20 +795,23 @@ function ChartOfAccountsTab() {
     return (
         <TabsContent value="coa">
             <div className="space-y-4">
+                <SectionToolbar
+                    title="Chart of Accounts Overview"
+                    description="Review the active chart structure and account metadata."
+                />
+
                 <div className="grid gap-4 sm:grid-cols-3">
                     <StatCard title="Total Accounts" value={accounts.length} icon={<BookOpen className="h-4 w-4" />} loading={isLoading} />
                     <StatCard title="Header Accounts" value={headers.length} icon={<Layers className="h-4 w-4" />} loading={isLoading} />
                     <StatCard title="Leaf Accounts" value={leaves.length} icon={<FileSearch className="h-4 w-4" />} loading={isLoading} />
                 </div>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-base">Chart of Accounts</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <DataTable data={accounts} columns={coaColumns} emptyMessage="No chart of accounts found" />
-                    </CardContent>
-                </Card>
+                <SectionBlock
+                    title="Chart of Accounts"
+                    description="Ledger account hierarchy and reporting classifications."
+                >
+                    <DataTable data={accounts} columns={coaColumns} emptyMessage="No chart of accounts found" />
+                </SectionBlock>
             </div>
         </TabsContent>
     );
@@ -843,20 +868,23 @@ function AccountingPeriodsTab() {
     return (
         <TabsContent value="periods">
             <div className="space-y-4">
+                <SectionToolbar
+                    title="Accounting Period Controls"
+                    description="Monitor period lifecycle state and execute close/lock transitions."
+                />
+
                 <div className="grid gap-4 sm:grid-cols-3">
                     <StatCard title="Open Periods" value={openCount} icon={<BookOpen className="h-4 w-4" />} loading={isLoading} />
                     <StatCard title="Closed Periods" value={closedCount} icon={<ShieldCheck className="h-4 w-4" />} loading={isLoading} />
                     <StatCard title="Locked Periods" value={lockedCount} icon={<Lock className="h-4 w-4" />} loading={isLoading} />
                 </div>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-base">Accounting Periods</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <DataTable data={periods} columns={periodActionColumns} emptyMessage="No accounting periods found" />
-                    </CardContent>
-                </Card>
+                <SectionBlock
+                    title="Accounting Periods"
+                    description="Current period status, closure progress, and locking actions."
+                >
+                    <DataTable data={periods} columns={periodActionColumns} emptyMessage="No accounting periods found" />
+                </SectionBlock>
             </div>
         </TabsContent>
     );

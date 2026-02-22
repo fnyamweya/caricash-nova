@@ -7,8 +7,10 @@ import {
     PageTransition,
     TransactionTable,
     EmptyState,
-    Card,
-    CardContent,
+    Badge,
+    Button,
+    SectionBlock,
+    SectionToolbar,
     type Transaction,
 } from '@caricash/ui';
 import { ApiError } from '@caricash/ui';
@@ -45,21 +47,54 @@ export function HistoryPage() {
                     description="View your past transactions"
                 />
 
+                <SectionToolbar
+                    title="History Filters"
+                    description="Review customer transaction activity and refresh the latest results."
+                    actions={(
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void txQuery.refetch()}
+                            disabled={txQuery.isFetching}
+                        >
+                            {txQuery.isFetching ? 'Refreshing…' : 'Refresh'}
+                        </Button>
+                    )}
+                >
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">Customer</Badge>
+                        <Badge variant="outline">
+                            {transactions.length} item{transactions.length === 1 ? '' : 's'}
+                        </Badge>
+                        {txQuery.isLoading ? (
+                            <Badge variant="outline">Loading</Badge>
+                        ) : null}
+                    </div>
+                </SectionToolbar>
+
                 {transactions.length > 0 ? (
-                    <TransactionTable
-                        transactions={transactions}
-                        loading={txQuery.isLoading}
-                    />
+                    <SectionBlock
+                        title="Activity Feed"
+                        description="Most recent customer transactions in chronological order."
+                        contentClassName="p-0"
+                    >
+                        <TransactionTable
+                            transactions={transactions}
+                            loading={txQuery.isLoading}
+                        />
+                    </SectionBlock>
                 ) : (
-                    <Card>
-                        <CardContent className="py-8">
-                            <EmptyState
-                                icon={<Clock />}
-                                title="No transactions yet"
-                                description="Transaction history is not available at this time. Check back later."
-                            />
-                        </CardContent>
-                    </Card>
+                    <SectionBlock
+                        title="Activity Feed"
+                        description="Customer transaction activity will appear here once transactions are available."
+                    >
+                        <EmptyState
+                            icon={<Clock />}
+                            title="No transactions yet"
+                            description="Transaction history is not available at this time. Check back later."
+                        />
+                    </SectionBlock>
                 )}
             </div>
         </PageTransition>

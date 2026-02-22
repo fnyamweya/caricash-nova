@@ -1,5 +1,6 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@400;700&family=Outfit:wght@400;500;600;700&family=Architects+Daughter&family=Fira+Code:wght@400;500;600&display=swap");
 @import "tailwindcss";
+@import "./theme.css";
 @source "../**/*.{ts,tsx}";
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -28,6 +29,12 @@
     --color-ring: var(--ring);
     --color-sidebar: var(--sidebar);
     --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
     --color-chart-1: var(--chart-1);
     --color-chart-2: var(--chart-2);
     --color-chart-3: var(--chart-3);
@@ -62,6 +69,12 @@
     --ring: oklch(0.59 0.2 252);
     --sidebar: oklch(0.97 0.014 244 / 0.93);
     --sidebar-foreground: oklch(0.23 0.028 257);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: oklch(0.94 0.02 245);
+    --sidebar-accent-foreground: oklch(0.22 0.028 257);
+    --sidebar-border: oklch(0.9 0.02 246);
+    --sidebar-ring: var(--ring);
     --chart-1: oklch(0.62 0.21 256);
     --chart-2: oklch(0.68 0.16 214);
     --chart-3: oklch(0.59 0.16 158);
@@ -91,6 +104,12 @@
     --ring: oklch(0.72 0.18 248);
     --sidebar: oklch(0.22 0.018 258 / 0.95);
     --sidebar-foreground: oklch(0.94 0.012 248);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: oklch(0.31 0.02 258);
+    --sidebar-accent-foreground: oklch(0.94 0.012 248);
+    --sidebar-border: oklch(0.32 0.02 257);
+    --sidebar-ring: var(--ring);
     --chart-1: oklch(0.74 0.18 248);
     --chart-2: oklch(0.7 0.15 214);
     --chart-3: oklch(0.66 0.14 158);
@@ -114,19 +133,8 @@
         @apply text-foreground;
         font-family: var(--font-sans);
         font-feature-settings: "rlig" 1, "calt" 1;
-        background:
-            radial-gradient(circle at 12% -15%, oklch(0.86 0.08 235 / 0.4), transparent 48%),
-            radial-gradient(circle at 88% 0%, oklch(0.87 0.11 260 / 0.35), transparent 50%),
-            linear-gradient(180deg, oklch(0.988 0.004 248), oklch(0.972 0.012 247));
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
-    }
-
-    .dark body {
-        background:
-            radial-gradient(circle at 10% -20%, oklch(0.48 0.1 250 / 0.35), transparent 55%),
-            radial-gradient(circle at 90% -10%, oklch(0.44 0.11 220 / 0.32), transparent 50%),
-            linear-gradient(180deg, oklch(0.2 0.018 259), oklch(0.17 0.014 257));
     }
 
     h1,
@@ -162,4 +170,129 @@
         background: color-mix(in oklab, var(--muted-foreground) 42%, transparent);
         background-clip: content-box;
     }
+}
+
+html[data-shell-variant='workspace'] body,
+html:not([data-shell-variant]) body {
+    background:
+        radial-gradient(circle at 12% -15%, oklch(0.86 0.08 235 / 0.4), transparent 48%),
+        radial-gradient(circle at 88% 0%, oklch(0.87 0.11 260 / 0.35), transparent 50%),
+        linear-gradient(180deg, oklch(0.988 0.004 248), oklch(0.972 0.012 247));
+}
+
+html.dark[data-shell-variant='workspace'] body,
+html.dark:not([data-shell-variant]) body {
+    background:
+        radial-gradient(circle at 10% -20%, oklch(0.48 0.1 250 / 0.35), transparent 55%),
+        radial-gradient(circle at 90% -10%, oklch(0.44 0.11 220 / 0.32), transparent 50%),
+        linear-gradient(180deg, oklch(0.2 0.018 259), oklch(0.17 0.014 257));
+}
+
+html[data-shell-variant='framed'] body {
+    background:
+        radial-gradient(circle at 15% 10%, color-mix(in oklab, var(--primary) 16%, transparent), transparent 45%),
+        radial-gradient(circle at 90% 0%, color-mix(in oklab, var(--accent) 18%, transparent), transparent 48%),
+        linear-gradient(180deg, color-mix(in oklab, var(--background) 95%, white), var(--background));
+}
+
+html.dark[data-shell-variant='framed'] body {
+    background:
+        radial-gradient(circle at 15% 0%, color-mix(in oklab, var(--primary) 22%, transparent), transparent 50%),
+        radial-gradient(circle at 88% -5%, color-mix(in oklab, var(--accent) 18%, transparent), transparent 55%),
+        linear-gradient(180deg, color-mix(in oklab, var(--background) 90%, black), var(--background));
+}
+
+html[data-shell-variant='compact'] body {
+    background:
+        linear-gradient(180deg, color-mix(in oklab, var(--background) 94%, white), var(--background)),
+        radial-gradient(circle at 82% 8%, color-mix(in oklab, var(--muted) 55%, transparent), transparent 55%);
+}
+
+html.dark[data-shell-variant='compact'] body {
+    background:
+        linear-gradient(180deg, color-mix(in oklab, var(--background) 92%, black), var(--background)),
+        radial-gradient(circle at 80% 0%, color-mix(in oklab, var(--muted) 45%, transparent), transparent 60%);
+}
+
+html[data-shell-variant='contrast'] body {
+    background:
+        radial-gradient(circle at 8% 0%, color-mix(in oklab, var(--secondary) 65%, transparent), transparent 45%),
+        radial-gradient(circle at 92% 0%, color-mix(in oklab, var(--primary) 14%, transparent), transparent 42%),
+        linear-gradient(180deg, var(--background), color-mix(in oklab, var(--background) 88%, var(--muted)));
+}
+
+html.dark[data-shell-variant='contrast'] body {
+    background:
+        radial-gradient(circle at 10% -10%, color-mix(in oklab, var(--secondary) 22%, transparent), transparent 50%),
+        radial-gradient(circle at 90% -10%, color-mix(in oklab, var(--primary) 20%, transparent), transparent 50%),
+        linear-gradient(180deg, var(--background), color-mix(in oklab, var(--background) 82%, black));
+}
+
+.cc-shell-sidebar,
+.cc-shell-header,
+.cc-shell-panel {
+    transition:
+        background-color 180ms ease,
+        border-color 180ms ease,
+        box-shadow 180ms ease,
+        backdrop-filter 180ms ease;
+}
+
+html[data-shell-variant='framed'] .cc-shell-sidebar,
+html[data-shell-variant='framed'] .cc-shell-header {
+    box-shadow: 0 14px 45px -32px color-mix(in oklab, var(--foreground) 35%, transparent);
+}
+
+html[data-shell-variant='framed'] .cc-shell-panel {
+    box-shadow: 0 24px 60px -38px color-mix(in oklab, var(--foreground) 40%, transparent);
+}
+
+html[data-shell-variant='compact'] .cc-shell-panel {
+    border-radius: calc(var(--radius) + 2px);
+}
+
+html[data-shell-variant='contrast'] .cc-shell-sidebar,
+html[data-shell-variant='contrast'] .cc-shell-header,
+html[data-shell-variant='contrast'] .cc-shell-panel {
+    border-width: 2px;
+}
+
+html[data-shell-variant='contrast'] .cc-shell-panel {
+    box-shadow:
+        0 2px 0 0 color-mix(in oklab, var(--foreground) 22%, transparent),
+        0 12px 35px -28px color-mix(in oklab, var(--foreground) 30%, transparent);
+}
+
+/* View-transition theme swap effect inspired by the template */
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+    z-index: 0;
+}
+
+::view-transition-new(root) {
+    z-index: 1;
+}
+
+html[data-shell-variant] body {
+    background: var(--background);
+}
+
+@keyframes cc-reveal-theme {
+    from {
+        clip-path: circle(0% at var(--x, 50%) var(--y, 50%));
+        opacity: 0.72;
+    }
+    to {
+        clip-path: circle(150% at var(--x, 50%) var(--y, 50%));
+        opacity: 1;
+    }
+}
+
+::view-transition-new(root) {
+    animation: cc-reveal-theme 0.4s ease-in-out forwards;
 }

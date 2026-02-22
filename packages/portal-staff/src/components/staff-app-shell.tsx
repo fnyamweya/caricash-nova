@@ -1,36 +1,37 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useLocation, useNavigate } from '@tanstack/react-router';
+import { CalendarDays, LogOut, Search, Sparkles } from 'lucide-react';
 import {
-    ArrowRight,
-    ChevronLeft,
-    Command,
-    LogOut,
-    Menu,
-    Moon,
-    Search,
-    Sparkles,
-    Sun,
-} from 'lucide-react';
-import {
+    AppearanceMenu,
     Avatar,
     AvatarFallback,
     Badge,
-    Button,
     DropdownMenu,
     DropdownMenuContent,
-    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
     Input,
     Separator,
-    Sheet,
-    SheetContent,
-    SheetTrigger,
+    Sidebar,
+    SidebarContent,
+    SidebarFooter,
+    SidebarGroup,
+    SidebarGroupContent,
+    SidebarGroupLabel,
+    SidebarHeader,
+    SidebarInset,
+    SidebarMenu,
+    SidebarMenuButton,
+    SidebarMenuItem,
+    SidebarProvider,
+    SidebarRail,
+    SidebarSeparator,
+    SidebarTrigger,
     cn,
     getInitials,
-    useIsMobile,
+    useSidebar,
     useTheme,
 } from '@caricash/ui';
 import type { StaffNavGroup, StaffNavItem } from '../navigation.js';
@@ -62,6 +63,133 @@ function groupNavigation(navigation: StaffNavItem[]) {
     }));
 }
 
+function StaffUserSidebarMenu({
+    user,
+    onLogout,
+}: {
+    user: { name: string; role: string } | null;
+    onLogout: () => void;
+}) {
+    const { isMobile } = useSidebar();
+
+    if (!user) {
+        return null;
+    }
+
+    return (
+        <SidebarMenu>
+            <SidebarMenuItem>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <SidebarMenuButton
+                            size="lg"
+                            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                        >
+                            <Avatar className="h-8 w-8 rounded-lg border bg-muted/50">
+                                <AvatarFallback className="rounded-lg text-xs">
+                                    {getInitials(user.name)}
+                                </AvatarFallback>
+                            </Avatar>
+                            <div className="grid flex-1 text-left text-sm leading-tight">
+                                <span className="truncate font-semibold">{user.name}</span>
+                                <span className="truncate text-xs text-muted-foreground">
+                                    {user.role}
+                                </span>
+                            </div>
+                        </SidebarMenuButton>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                        className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+                        side={isMobile ? 'bottom' : 'right'}
+                        align="end"
+                        sideOffset={4}
+                    >
+                        <DropdownMenuLabel className="p-0 font-normal">
+                            <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+                                <Avatar className="h-8 w-8 rounded-lg border bg-muted/50">
+                                    <AvatarFallback className="rounded-lg text-xs">
+                                        {getInitials(user.name)}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <div className="grid flex-1 text-left text-sm leading-tight">
+                                    <span className="truncate font-semibold">{user.name}</span>
+                                    <span className="truncate text-xs text-muted-foreground">
+                                        {user.role}
+                                    </span>
+                                </div>
+                            </div>
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={onLogout}>
+                            <LogOut className="mr-2 h-4 w-4" />
+                            Log out
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </SidebarMenuItem>
+        </SidebarMenu>
+    );
+}
+
+function StaffSidebarGroups({
+    groupedNavigation,
+    pathname,
+    onNavigate,
+}: {
+    groupedNavigation: ReturnType<typeof groupNavigation>;
+    pathname: string;
+    onNavigate: (href: StaffNavItem['href']) => void;
+}) {
+    const { setOpenMobile } = useSidebar();
+
+    return (
+        <>
+            {groupedNavigation.map(({ group, items }) => {
+                if (items.length === 0) {
+                    return null;
+                }
+
+                return (
+                    <SidebarGroup key={group}>
+                        <SidebarGroupLabel>{navGroupLabels[group]}</SidebarGroupLabel>
+                        <SidebarGroupContent>
+                            <SidebarMenu>
+                                {items.map((item) => {
+                                    const active = isActivePath(pathname, item.href);
+                                    return (
+                                        <SidebarMenuItem key={item.href}>
+                                            <SidebarMenuButton
+                                                type="button"
+                                                isActive={active}
+                                                tooltip={item.label}
+                                                onClick={() => {
+                                                    onNavigate(item.href);
+                                                    setOpenMobile(false);
+                                                }}
+                                                className="h-auto items-start gap-2 py-2"
+                                            >
+                                                <span className="mt-0.5">{item.icon}</span>
+                                                <span className="min-w-0">
+                                                    <span className="block truncate text-sm font-medium">
+                                                        {item.label}
+                                                    </span>
+                                                    <span className="text-muted-foreground block truncate text-xs group-data-[collapsible=icon]:hidden">
+                                                        {item.description}
+                                                    </span>
+                                                </span>
+                                            </SidebarMenuButton>
+                                        </SidebarMenuItem>
+                                    );
+                                })}
+                            </SidebarMenu>
+                        </SidebarGroupContent>
+                    </SidebarGroup>
+                );
+            })}
+        </>
+    );
+}
+
 export function StaffAppShell({
     navigation,
     appName,
@@ -69,345 +197,135 @@ export function StaffAppShell({
     onLogout,
     children,
 }: StaffAppShellProps) {
-    const [collapsed, setCollapsed] = useState(false);
-    const [quickNavTerm, setQuickNavTerm] = useState('');
-    const [mobileOpen, setMobileOpen] = useState(false);
-    const isMobile = useIsMobile();
-    const { theme, toggleTheme } = useTheme();
-    const navigate = useNavigate();
     const location = useLocation();
+    const navigate = useNavigate();
+    const { shellVariant, activeTheme, themes } = useTheme();
     const groupedNavigation = useMemo(() => groupNavigation(navigation), [navigation]);
     const activeItem =
         navigation.find((item) => isActivePath(location.pathname, item.href)) ?? navigation[0];
-    const quickActions = navigation
-        .filter((item) => item.group === activeItem.group && item.href !== activeItem.href)
-        .slice(0, 3);
-    const quickNavMatches = useMemo(() => {
-        const normalized = quickNavTerm.trim().toLowerCase();
-        if (!normalized) {
-            return [];
-        }
+    const activeThemeLabel =
+        themes.find((themeOption) => themeOption.value === activeTheme)?.label ?? activeTheme;
 
-        return navigation
-            .filter((item) => {
-                return (
-                    item.label.toLowerCase().includes(normalized) ||
-                    item.description.toLowerCase().includes(normalized)
-                );
-            })
-            .slice(0, 6);
-    }, [navigation, quickNavTerm]);
+    const sidebarVariant =
+        shellVariant === 'workspace'
+            ? 'inset'
+            : shellVariant === 'framed'
+                ? 'floating'
+                : shellVariant === 'contrast'
+                    ? 'inset'
+                    : 'sidebar';
+
+    const sidebarSizing = {
+        workspace: { width: '19rem', icon: '3.25rem' },
+        framed: { width: '20rem', icon: '3.25rem' },
+        compact: { width: '17rem', icon: '3rem' },
+        contrast: { width: '19rem', icon: '3.25rem' },
+    }[shellVariant];
+
     const todayLabel = new Intl.DateTimeFormat(undefined, {
         weekday: 'short',
         month: 'short',
         day: 'numeric',
     }).format(new Date());
-    const resolvedTheme =
-        theme === 'system'
-            ? typeof window !== 'undefined' &&
-                window.matchMedia('(prefers-color-scheme: dark)').matches
-                ? 'dark'
-                : 'light'
-            : theme;
-
-    function goTo(href: StaffNavItem['href']) {
-        void navigate({ to: href });
-        setQuickNavTerm('');
-        setMobileOpen(false);
-    }
-
-    function renderNavigationLinks(options: { compact: boolean }) {
-        return groupedNavigation.map(({ group, items }) => {
-            if (items.length === 0) {
-                return null;
-            }
-
-            return (
-                <section key={group} className="space-y-2">
-                    {!options.compact ? (
-                        <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                            {navGroupLabels[group]}
-                        </p>
-                    ) : null}
-                    <div className="space-y-1">
-                        {items.map((item) => {
-                            const active = isActivePath(location.pathname, item.href);
-                            return (
-                                <button
-                                    key={item.href}
-                                    type="button"
-                                    onClick={() => goTo(item.href)}
-                                    className={cn(
-                                        'group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all',
-                                        active
-                                            ? 'border-primary/30 bg-primary/12 text-foreground shadow-sm'
-                                            : 'border-transparent text-muted-foreground hover:border-border/65 hover:bg-accent/45 hover:text-foreground',
-                                        options.compact && 'justify-center px-2.5',
-                                    )}
-                                    title={options.compact ? item.label : undefined}
-                                >
-                                    <span
-                                        className={cn(
-                                            'shrink-0',
-                                            active
-                                                ? 'text-primary'
-                                                : 'text-muted-foreground group-hover:text-foreground',
-                                        )}
-                                    >
-                                        {item.icon}
-                                    </span>
-                                    {!options.compact ? (
-                                        <span className="min-w-0">
-                                            <span className="block truncate text-sm font-semibold">
-                                                {item.label}
-                                            </span>
-                                            <span className="block truncate text-xs text-muted-foreground">
-                                                {item.description}
-                                            </span>
-                                        </span>
-                                    ) : null}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </section>
-            );
-        });
-    }
 
     return (
-        <div className="flex h-screen overflow-hidden bg-transparent">
-            {!isMobile ? (
-                <aside
-                    className={cn(
-                        'hidden shrink-0 flex-col border-r border-border/70 bg-sidebar/85 backdrop-blur md:flex',
-                        collapsed ? 'w-24' : 'w-[320px]',
-                    )}
-                >
-                    <div className={cn('p-4', collapsed ? 'pb-3' : 'pb-4')}>
-                        <div
-                            className={cn(
-                                'flex items-center gap-3 rounded-2xl border border-border/75 bg-card/70 p-3',
-                                collapsed && 'justify-center',
-                            )}
-                        >
-                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
-                                <Sparkles className="h-5 w-5" />
-                            </div>
-                            {!collapsed ? (
-                                <div className="min-w-0">
-                                    <p className="truncate text-sm font-semibold">
-                                        {appName}
-                                    </p>
-                                    <p className="truncate text-xs text-muted-foreground">
-                                        Staff Operations Workspace
-                                    </p>
-                                </div>
-                            ) : null}
+        <SidebarProvider
+            defaultOpen
+            style={{
+                '--sidebar-width': sidebarSizing.width,
+                '--sidebar-width-icon': sidebarSizing.icon,
+            } as React.CSSProperties}
+        >
+            <Sidebar
+                collapsible="icon"
+                variant={sidebarVariant}
+                className={cn(
+                    shellVariant === 'contrast' &&
+                        '[&_[data-slot=sidebar-inner]]:border-2 [&_[data-slot=sidebar-inner]]:shadow-none',
+                )}
+            >
+                <SidebarHeader>
+                    <div className="flex items-center gap-3 rounded-lg border border-sidebar-border/70 bg-sidebar/60 p-2.5">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground shadow-sm">
+                            <Sparkles className="h-5 w-5" />
                         </div>
-                    </div>
-
-                    <div className="flex-1 space-y-4 overflow-y-auto px-3 pb-4">
-                        {renderNavigationLinks({ compact: collapsed })}
-                    </div>
-
-                    <div className="space-y-3 border-t border-border/70 p-3">
-                        {!collapsed && user ? (
-                            <div className="rounded-xl border border-border/70 bg-card/65 p-3">
-                                <p className="text-sm font-semibold">{user.name}</p>
-                                <p className="text-xs text-muted-foreground">{user.role}</p>
-                            </div>
-                        ) : null}
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            className={cn('h-10', collapsed ? 'w-full' : 'w-full')}
-                            onClick={() => setCollapsed((prev) => !prev)}
-                            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                        >
-                            <ChevronLeft
-                                className={cn('h-4 w-4 transition-transform', collapsed && 'rotate-180')}
-                            />
-                        </Button>
-                    </div>
-                </aside>
-            ) : null}
-
-            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                <header className="relative z-20 border-b border-border/70 bg-background/80 px-4 py-3 backdrop-blur md:px-6">
-                    <div className="flex flex-wrap items-center gap-3">
-                        {isMobile ? (
-                            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-                                <SheetTrigger asChild>
-                                    <Button variant="outline" size="icon">
-                                        <Menu className="h-5 w-5" />
-                                        <span className="sr-only">Open navigation</span>
-                                    </Button>
-                                </SheetTrigger>
-                                <SheetContent
-                                    side="left"
-                                    className="w-[92vw] max-w-sm overflow-y-auto p-0"
-                                >
-                                    <div className="space-y-4 px-4 py-4">
-                                        <div>
-                                            <p className="text-sm font-semibold">{appName}</p>
-                                            <p className="text-xs text-muted-foreground">
-                                                Staff Operations Workspace
-                                            </p>
-                                        </div>
-                                        <Separator />
-                                        <div className="space-y-4">
-                                            {renderNavigationLinks({ compact: false })}
-                                        </div>
-                                    </div>
-                                </SheetContent>
-                            </Sheet>
-                        ) : null}
-
-                        <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold">
-                                {activeItem.label}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">
-                                {navGroupLabels[activeItem.group]} • {todayLabel}
+                        <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold">{appName}</p>
+                            <p className="text-sidebar-foreground/70 truncate text-xs">
+                                Control Center
                             </p>
                         </div>
+                    </div>
+                </SidebarHeader>
 
-                        <div className="relative hidden w-full max-w-md lg:block">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <SidebarSeparator />
+                <SidebarContent>
+                    <StaffSidebarGroups
+                        groupedNavigation={groupedNavigation}
+                        pathname={location.pathname}
+                        onNavigate={(href) => void navigate({ to: href })}
+                    />
+                </SidebarContent>
+                <SidebarSeparator />
+                <SidebarFooter>
+                    <StaffUserSidebarMenu user={user} onLogout={onLogout} />
+                </SidebarFooter>
+                <SidebarRail />
+            </Sidebar>
+
+            <SidebarInset
+                className={cn(
+                    'min-h-svh',
+                    shellVariant === 'contrast' && 'md:border md:border-border',
+                )}
+            >
+                <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b bg-background/80 px-4 backdrop-blur-sm md:px-6">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <SidebarTrigger className="-ml-1" />
+                        <Separator orientation="vertical" className="mr-1 h-4" />
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <p className="truncate text-sm font-semibold">{activeItem.label}</p>
+                                <Badge variant="outline" className="hidden sm:inline-flex">
+                                    {activeItem.group}
+                                </Badge>
+                            </div>
+                            <p className="text-muted-foreground truncate text-xs">
+                                {activeItem.description}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <div className="relative hidden w-64 md:block">
+                            <Search className="text-muted-foreground absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2" />
                             <Input
-                                value={quickNavTerm}
-                                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                                    setQuickNavTerm(event.target.value)
-                                }
-                                placeholder="Quick jump to module or function..."
-                                className="pl-9"
-                                aria-label="Quick navigation"
+                                value=""
+                                readOnly
+                                aria-label="Search placeholder"
+                                className="h-8 pl-8 text-xs"
+                                placeholder="Search modules (coming soon)"
                             />
-                            {quickNavMatches.length > 0 ? (
-                                <div className="absolute left-0 right-0 top-[calc(100%+0.45rem)] overflow-hidden rounded-xl border border-border/80 bg-popover/95 shadow-xl">
-                                    {quickNavMatches.map((item) => (
-                                        <button
-                                            key={item.href}
-                                            type="button"
-                                            onClick={() => goTo(item.href)}
-                                            className="flex w-full items-center justify-between gap-3 border-b border-border/50 px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-accent/50"
-                                        >
-                                            <span className="min-w-0">
-                                                <span className="block truncate text-sm font-semibold">
-                                                    {item.label}
-                                                </span>
-                                                <span className="block truncate text-xs text-muted-foreground">
-                                                    {item.description}
-                                                </span>
-                                            </span>
-                                            <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                        </button>
-                                    ))}
-                                </div>
-                            ) : null}
                         </div>
-
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={toggleTheme}
-                            aria-label="Toggle theme"
-                        >
-                            {resolvedTheme === 'dark' ? (
-                                <Sun className="h-4 w-4" />
-                            ) : (
-                                <Moon className="h-4 w-4" />
-                            )}
-                        </Button>
-
-                        {user ? (
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        className="relative h-10 w-10 rounded-full"
-                                    >
-                                        <Avatar className="h-10 w-10">
-                                            <AvatarFallback>
-                                                {getInitials(user.name)}
-                                            </AvatarFallback>
-                                        </Avatar>
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-64">
-                                    <DropdownMenuLabel className="font-normal">
-                                        <div className="space-y-1">
-                                            <p className="text-sm font-semibold leading-none">
-                                                {user.name}
-                                            </p>
-                                            <p className="text-xs leading-none text-muted-foreground">
-                                                {user.role}
-                                            </p>
-                                        </div>
-                                    </DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuGroup>
-                                        <DropdownMenuItem
-                                            onClick={() => setQuickNavTerm('')}
-                                            className="gap-2"
-                                        >
-                                            <Command className="h-4 w-4" />
-                                            Clear quick navigation
-                                        </DropdownMenuItem>
-                                    </DropdownMenuGroup>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={onLogout} className="gap-2">
-                                        <LogOut className="h-4 w-4" />
-                                        Log out
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        ) : null}
+                        <Badge variant="outline" className="hidden md:inline-flex">
+                            <CalendarDays className="h-3 w-3" />
+                            {todayLabel}
+                        </Badge>
+                        <Badge variant="outline" className="hidden lg:inline-flex">
+                            {activeThemeLabel}
+                        </Badge>
+                        <AppearanceMenu compact />
                     </div>
                 </header>
 
-                <main className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-5 lg:px-8 lg:py-6">
-                    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
-                        <section className="rounded-2xl border border-border/75 bg-card/70 p-4 shadow-sm backdrop-blur-sm">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div>
-                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                                        Active Module
-                                    </p>
-                                    <h2 className="mt-1 text-lg font-semibold">
-                                        {activeItem.label}
-                                    </h2>
-                                    <p className="text-sm text-muted-foreground">
-                                        {activeItem.description}
-                                    </p>
-                                </div>
-                                <Badge variant="outline">{navGroupLabels[activeItem.group]}</Badge>
-                            </div>
-                            {quickActions.length > 0 ? (
-                                <div className="mt-4 flex flex-wrap items-center gap-2">
-                                    <span className="text-xs font-medium text-muted-foreground">
-                                        Suggested next:
-                                    </span>
-                                    {quickActions.map((item) => (
-                                        <Button
-                                            key={item.href}
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => goTo(item.href)}
-                                        >
-                                            {item.label}
-                                        </Button>
-                                    ))}
-                                </div>
-                            ) : null}
-                        </section>
-
-                        {children}
+                <div className="flex flex-1 overflow-hidden">
+                    <div className="flex-1 overflow-y-auto">
+                        <div className="mx-auto w-full max-w-7xl space-y-6 p-4 md:space-y-7 md:p-6">
+                            {children}
+                        </div>
                     </div>
-                </main>
-            </div>
-        </div>
+                </div>
+            </SidebarInset>
+        </SidebarProvider>
     );
 }

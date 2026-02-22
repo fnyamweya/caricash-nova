@@ -19,6 +19,8 @@ import {
     LoadingSpinner,
     useAuth,
     useApi,
+    SectionBlock,
+    SectionToolbar,
     formatCurrency,
     formatDate,
 } from '@caricash/ui';
@@ -114,48 +116,63 @@ export function PaymentsPage() {
                     description="Track payments received from customers"
                 />
 
-                {/* Summary cards */}
-                <div className="grid gap-4 sm:grid-cols-3">
-                    <Card>
-                        <CardContent className="pt-6">
-                            <div className="text-sm text-muted-foreground">Total Payments</div>
-                            <div className="text-2xl font-bold">{incomingPayments.length}</div>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardContent className="pt-6">
-                            <div className="text-sm text-muted-foreground">Total Received</div>
-                            <div className="text-2xl font-bold text-green-600">
-                                {formatCurrency(totalAmount.toFixed(2), 'BBD')}
-                            </div>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardContent className="pt-6">
-                            <div className="text-sm text-muted-foreground">Account</div>
-                            <div className="text-sm font-mono truncate">
-                                {statementQuery.data?.account_id ?? '—'}
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
+                <SectionBlock
+                    title="Payment Summary"
+                    description="High-level totals for incoming customer payments."
+                    contentClassName="space-y-0"
+                >
+                    <div className="grid gap-4 sm:grid-cols-3">
+                        <Card className="shadow-none">
+                            <CardContent className="pt-6">
+                                <div className="text-sm text-muted-foreground">Total Payments</div>
+                                <div className="text-2xl font-bold">{incomingPayments.length}</div>
+                            </CardContent>
+                        </Card>
+                        <Card className="shadow-none">
+                            <CardContent className="pt-6">
+                                <div className="text-sm text-muted-foreground">Total Received</div>
+                                <div className="text-2xl font-bold text-green-600">
+                                    {formatCurrency(totalAmount.toFixed(2), 'BBD')}
+                                </div>
+                            </CardContent>
+                        </Card>
+                        <Card className="shadow-none">
+                            <CardContent className="pt-6">
+                                <div className="text-sm text-muted-foreground">Account</div>
+                                <div className="text-sm font-mono truncate">
+                                    {statementQuery.data?.account_id ?? '—'}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </SectionBlock>
 
                 {/* Filters */}
-                <div className="flex items-center gap-3">
-                    <div className="relative flex-1 max-w-sm">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Search transactions..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-10"
-                        />
+                <SectionToolbar
+                    title="Payment Controls"
+                    description="Search incoming payments and prepare exports."
+                    actions={(
+                        <Button variant="outline" size="sm" disabled>
+                            <Download className="mr-1 h-4 w-4" />
+                            Export
+                        </Button>
+                    )}
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="relative flex-1 max-w-sm">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Search transactions..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="pl-10"
+                            />
+                        </div>
+                        <Badge variant="outline">
+                            {filtered.length} result{filtered.length === 1 ? '' : 's'}
+                        </Badge>
                     </div>
-                    <Button variant="outline" size="sm" disabled>
-                        <Download className="h-4 w-4 mr-1" />
-                        Export
-                    </Button>
-                </div>
+                </SectionToolbar>
 
                 {/* Table */}
                 {statementQuery.isLoading ? (
@@ -163,8 +180,11 @@ export function PaymentsPage() {
                         <LoadingSpinner />
                     </div>
                 ) : filtered.length > 0 ? (
-                    <Card>
-                        <CardContent className="p-0">
+                    <SectionBlock
+                        title="Incoming Payment Feed"
+                        description="Credits posted to the merchant wallet."
+                        contentClassName="p-0"
+                    >
                             <Table>
                                 <TableHeader>
                                     <TableRow>
@@ -202,18 +222,18 @@ export function PaymentsPage() {
                                     })}
                                 </TableBody>
                             </Table>
-                        </CardContent>
-                    </Card>
+                    </SectionBlock>
                 ) : (
-                    <Card>
-                        <CardContent className="py-8">
+                    <SectionBlock
+                        title="Incoming Payment Feed"
+                        description="Payment history will populate when customer payments are posted."
+                    >
                             <EmptyState
                                 icon={<CreditCard />}
                                 title="No payments yet"
                                 description="Payment history will appear here once customers start paying at your store."
                             />
-                        </CardContent>
-                    </Card>
+                    </SectionBlock>
                 )}
             </div>
         </PageTransition>

@@ -6,9 +6,8 @@ import {
     useApi,
     PageHeader,
     PageTransition,
+    Button,
     EmptyState,
-    Card,
-    CardContent,
     Badge,
     Input,
     Table,
@@ -22,6 +21,8 @@ import {
     TabsList,
     TabsTrigger,
     TabsContent,
+    SectionBlock,
+    SectionToolbar,
     formatCurrency,
     formatDate,
 } from '@caricash/ui';
@@ -99,26 +100,42 @@ export function HistoryPage() {
                 />
 
                 <Tabs value={tab} onValueChange={setTab}>
-                    <div className="flex items-center justify-between gap-4 flex-wrap">
-                        <TabsList>
-                            <TabsTrigger value="all">All ({entries.length})</TabsTrigger>
-                            <TabsTrigger value="incoming">
-                                Incoming ({entries.filter((e) => e.entry_type === 'CR').length})
-                            </TabsTrigger>
-                            <TabsTrigger value="outgoing">
-                                Outgoing ({entries.filter((e) => e.entry_type === 'DR').length})
-                            </TabsTrigger>
-                        </TabsList>
-                        <div className="relative max-w-sm flex-1">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder="Search..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="pl-10"
-                            />
+                    <SectionToolbar
+                        title="History Controls"
+                        description="Filter and search merchant activity across incoming and outgoing postings."
+                        actions={(
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void statementQuery.refetch()}
+                                disabled={statementQuery.isFetching}
+                            >
+                                {statementQuery.isFetching ? 'Refreshing…' : 'Refresh'}
+                            </Button>
+                        )}
+                    >
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <TabsList className="h-auto flex-wrap justify-start">
+                                <TabsTrigger value="all">All ({entries.length})</TabsTrigger>
+                                <TabsTrigger value="incoming">
+                                    Incoming ({entries.filter((e) => e.entry_type === 'CR').length})
+                                </TabsTrigger>
+                                <TabsTrigger value="outgoing">
+                                    Outgoing ({entries.filter((e) => e.entry_type === 'DR').length})
+                                </TabsTrigger>
+                            </TabsList>
+                            <div className="relative max-w-sm min-w-[220px] flex-1">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Search..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="pl-10"
+                                />
+                            </div>
                         </div>
-                    </div>
+                    </SectionToolbar>
 
                     {/* Shared content across all tabs */}
                     {['all', 'incoming', 'outgoing'].map((t) => (
@@ -128,8 +145,11 @@ export function HistoryPage() {
                                     <LoadingSpinner />
                                 </div>
                             ) : filtered.length > 0 ? (
-                                <Card>
-                                    <CardContent className="p-0">
+                                <SectionBlock
+                                    title="Transaction Table"
+                                    description="Merchant wallet statement entries for the selected filters."
+                                    contentClassName="p-0"
+                                >
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
@@ -176,18 +196,18 @@ export function HistoryPage() {
                                                 })}
                                             </TableBody>
                                         </Table>
-                                    </CardContent>
-                                </Card>
+                                </SectionBlock>
                             ) : (
-                                <Card>
-                                    <CardContent className="py-8">
+                                <SectionBlock
+                                    title="Transaction Table"
+                                    description="No entries matched the current tab and search filters."
+                                >
                                         <EmptyState
                                             icon={<Clock />}
                                             title="No transactions yet"
                                             description="Transaction history will appear here once you start receiving or sending payments."
                                         />
-                                    </CardContent>
-                                </Card>
+                                </SectionBlock>
                             )}
                         </TabsContent>
                     ))}

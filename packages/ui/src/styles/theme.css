@@ -1,0 +1,17 @@
+@import './themes/claude.css';
+@import './themes/neobrutualism.css';
+@import './themes/supabase.css';
+@import './themes/vercel.css';
+@import './themes/mono.css';
+@import './themes/notebook.css';
+
+:root {
+  --header-height: calc(var(--spacing, 0.25rem) * 12 + 1px);
+}
+
+[data-theme] body {
+  --font-sans: initial;
+  --font-mono: initial;
+  --font-serif: initial;
+  font-family: var(--font-sans);
+}
