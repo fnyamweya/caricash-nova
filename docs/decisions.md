@@ -93,3 +93,37 @@ All API requests include:
 - `actor_context`: Actor type and ID of the requester
 - `timestamp`: ISO 8601 timestamp of the request
 - `payload`: The actual request data
+
+## Phase 4 Decisions
+
+### Two-Phase Accounting for External Transfers
+- **Decision**: Use two-phase accounting model for external transfers
+- **Rationale**: Funds are first reserved (DR wallet → CR suspense) when the transfer is initiated, then settled (DR suspense → CR settlement) when the bank confirms. This ensures wallet balances reflect pending obligations and prevents double-spend during bank processing delays.
+
+### Settlement as Wallet Withdrawal
+- **Decision**: Settlement is a withdrawal from the merchant wallet, not collection of an accrued receivable
+- **Rationale**: Merchants own their wallet balance. Settlement pays out what they already hold, which is simpler to reconcile and avoids an accrual/receivable accounting layer. The ledger entry is DR `liability:merchant:wallet` → CR `liability:settlement:outbound`.
+
+### Mock Citibank API Shape
+- **Decision**: Mock Citibank uses the same API shape as the real integration, with chaos configuration
+- **Rationale**: The mock supports configurable failure modes (latency injection, random errors, status stuck in PENDING) via environment variables. Using the identical API contract means switching from mock to production requires only a base URL change — no adapter code changes.
+
+### Deterministic Rule-Based Fraud Engine
+- **Decision**: Fraud engine is deterministic, rule-based, and versioned with maker-checker governance
+- **Rationale**: Deterministic rules are auditable, explainable, and testable. Every rule change is versioned with full before/after state. Maker-checker prevents a single actor from deploying a rule that weakens fraud controls. ML-based scoring may augment this in a future phase.
+
+### Circuit Breaker for Bank Calls
+- **Decision**: Circuit breaker + retry wraps all external bank API calls
+- **Rationale**: Bank APIs are an external dependency with unpredictable availability. The circuit breaker prevents cascading failures: after N consecutive failures, the circuit opens and calls fail fast for a cooldown period. Retries use exponential backoff with jitter. State is tracked per-endpoint.
+
+### Webhook Idempotency
+- **Decision**: Webhook idempotency via `bank_transfer_id` + `status` composite key
+- **Rationale**: Banks may deliver the same webhook multiple times (at-least-once delivery). Using the composite key means processing the same status transition twice is a no-op, while still allowing legitimate status progressions (e.g., PENDING → SETTLED) for the same transfer.
+
+### Settlement Reconciliation Schedule
+- **Decision**: Settlement reconciliation runs daily as a scheduled job
+- **Rationale**: Daily reconciliation balances timeliness against cost. It compares internal payout records with bank statement data, detects mismatches, orphans, and missing entries. Critical findings trigger alerts; non-critical findings are queued for the next business day.
+
+### Default BBD Fraud Thresholds
+- **Decision**: Default BBD thresholds — 50,000 HOLD, 100,000 BLOCK
+- **Rationale**: Initial thresholds based on Barbados market transaction patterns. Single transactions above 50K BBD are held for manual review; above 100K BBD are blocked outright. These are configurable via the fraud rules engine and can be tuned per merchant segment.
