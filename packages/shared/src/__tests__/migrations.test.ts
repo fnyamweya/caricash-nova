@@ -138,4 +138,53 @@ describe('D1 migration smoke tests', () => {
     const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0011_governance_integrity_hardening.sql'), 'utf-8');
     expect(sql).toContain('idx_ledger_journals_created_asc');
   });
+
+  // ---------------------------------------------------------------------------
+  // Actor type separation (0019 + 0020)
+  // ---------------------------------------------------------------------------
+
+  it('actor type separation migration creates profile tables', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0019_actor_type_separation.sql'), 'utf-8');
+    expect(sql).toContain('customer_profiles');
+    expect(sql).toContain('merchant_profiles');
+    expect(sql).toContain('agent_profiles');
+    expect(sql).toContain('staff_profiles');
+  });
+
+  it('actor type separation migration creates composite msisdn index', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0019_actor_type_separation.sql'), 'utf-8');
+    expect(sql).toContain('idx_actors_type_msisdn');
+    expect(sql).toContain('DROP INDEX IF EXISTS idx_actors_msisdn');
+  });
+
+  it('actor type separation profile tables have name fields', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0019_actor_type_separation.sql'), 'utf-8');
+    // All profile tables have first_name, middle_name, last_name, display_name
+    const profileTables = ['customer_profiles', 'merchant_profiles', 'agent_profiles', 'staff_profiles'];
+    for (const table of profileTables) {
+      expect(sql).toContain(table);
+    }
+    // Name fields appear in the DDL
+    expect(sql).toContain('first_name TEXT');
+    expect(sql).toContain('middle_name TEXT');
+    expect(sql).toContain('last_name TEXT');
+    expect(sql).toContain('display_name TEXT');
+  });
+
+  it('actor type separation backfill inserts from actors', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0019_actor_type_separation.sql'), 'utf-8');
+    expect(sql).toContain("INSERT OR IGNORE INTO customer_profiles");
+    expect(sql).toContain("INSERT OR IGNORE INTO merchant_profiles");
+    expect(sql).toContain("INSERT OR IGNORE INTO agent_profiles");
+    expect(sql).toContain("INSERT OR IGNORE INTO staff_profiles");
+  });
+
+  it('drop actor profile columns migration removes name fields', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '0020_drop_actor_profile_columns.sql'), 'utf-8');
+    expect(sql).toContain('DROP COLUMN first_name');
+    expect(sql).toContain('DROP COLUMN middle_name');
+    expect(sql).toContain('DROP COLUMN last_name');
+    expect(sql).toContain('DROP COLUMN display_name');
+    expect(sql).toContain('DROP COLUMN email');
+  });
 });

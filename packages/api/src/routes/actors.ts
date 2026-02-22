@@ -76,7 +76,9 @@ actorRoutes.get('/:id', async (c) => {
                 state: actor.state,
                 name: actor.name,
                 first_name: actor.first_name,
+                middle_name: actor.middle_name,
                 last_name: actor.last_name,
+                display_name: actor.display_name,
             },
         });
     } catch (err) {
@@ -90,12 +92,14 @@ actorRoutes.patch('/:id/profile', async (c) => {
     const actorId = c.req.param('id');
     const body = await c.req.json<{
         first_name?: string;
+        middle_name?: string;
         last_name?: string;
+        display_name?: string;
         email?: string;
         name?: string;
     }>();
 
-    if (!body.first_name && !body.last_name && !body.email && !body.name) {
+    if (!body.first_name && !body.middle_name && !body.last_name && !body.display_name && !body.email && !body.name) {
         return c.json({ error: 'At least one field is required to update' }, 400);
     }
 

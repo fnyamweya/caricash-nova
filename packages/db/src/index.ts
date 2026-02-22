@@ -93,19 +93,14 @@ export interface CodeReservation {
 export async function insertActor(db: D1Database, actor: Actor): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO actors (id, type, state, name, first_name, middle_name, last_name, display_name, email, msisdn, agent_code, agent_type, store_code, staff_code, staff_role, parent_actor_id, kyc_state, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
+      `INSERT INTO actors (id, type, state, name, msisdn, agent_code, agent_type, store_code, staff_code, staff_role, parent_actor_id, kyc_state, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
     )
     .bind(
       actor.id,
       actor.type,
       actor.state,
       actor.name,
-      actor.first_name ?? null,
-      actor.middle_name ?? null,
-      actor.last_name ?? null,
-      actor.display_name ?? null,
-      actor.email ?? null,
       actor.msisdn ?? null,
       actor.agent_code ?? null,
       actor.agent_type ?? null,
@@ -119,7 +114,7 @@ export async function insertActor(db: D1Database, actor: Actor): Promise<void> {
     )
     .run();
 
-  // Dual-write to type-specific profile table
+  // Write profile fields to type-specific profile table
   await insertActorProfile(db, actor);
 }
 
@@ -320,28 +315,138 @@ export async function updateStaffProfile(
     .run();
 }
 
+export async function updateAgentProfile(
+  db: D1Database,
+  actorId: string,
+  fields: { first_name?: string; middle_name?: string; last_name?: string; display_name?: string; owner_name?: string; msisdn?: string; parent_actor_id?: string },
+): Promise<void> {
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+  let paramIdx = 1;
+
+  for (const [key, val] of Object.entries(fields)) {
+    if (val !== undefined) {
+      sets.push(`${key} = ?${paramIdx++}`);
+      values.push(val);
+    }
+  }
+  if (sets.length === 0) return;
+
+  sets.push(`updated_at = ?${paramIdx++}`);
+  values.push(new Date().toISOString());
+  values.push(actorId);
+
+  await db
+    .prepare(`UPDATE agent_profiles SET ${sets.join(', ')} WHERE actor_id = ?${paramIdx}`)
+    .bind(...values)
+    .run();
+}
+
 // ---------------------------------------------------------------------------
 // Actor Queries (core actors table)
 // ---------------------------------------------------------------------------
 
+/**
+ * Enrich a core Actor object with profile data from the appropriate
+ * type-specific profile table. Name fields on the Actor that come from
+ * the actors table are overwritten by profile table values (source of truth).
+ */
+async function enrichActorWithProfile(db: D1Database, actor: Actor): Promise<Actor> {
+  const t = actor.type as string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let profile: any = null;
+  if (t === 'CUSTOMER') profile = await getCustomerProfile(db, actor.id);
+  else if (t === 'MERCHANT') profile = await getMerchantProfile(db, actor.id);
+  else if (t === 'AGENT') profile = await getAgentProfile(db, actor.id);
+  else if (t === 'STAFF') profile = await getStaffProfile(db, actor.id);
+
+  if (profile) {
+    const a = actor as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    for (const key of ['first_name', 'middle_name', 'last_name', 'display_name', 'email'] as const) {
+      if (profile[key] !== undefined && profile[key] !== null) {
+        a[key] = profile[key];
+      }
+    }
+  }
+  return actor;
+}
+
+/**
+ * Batch-enrich a list of actors with profile data.
+ * Groups actors by type and fetches all profiles in one query per type.
+ */
+async function enrichActorsWithProfiles(db: D1Database, actors: Actor[]): Promise<Actor[]> {
+  if (actors.length === 0) return actors;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const profileMap = new Map<string, any>();
+
+  // Group actor IDs by type
+  const byType: Record<string, string[]> = {};
+  for (const a of actors) {
+    const t = a.type as string;
+    (byType[t] ??= []).push(a.id);
+  }
+
+  // Batch fetch profiles per type
+  for (const [type, ids] of Object.entries(byType)) {
+    const table =
+      type === 'CUSTOMER' ? 'customer_profiles' :
+        type === 'MERCHANT' ? 'merchant_profiles' :
+          type === 'AGENT' ? 'agent_profiles' :
+            type === 'STAFF' ? 'staff_profiles' : null;
+    if (!table || ids.length === 0) continue;
+
+    // D1 doesn't support array bind; use IN with individual placeholders
+    const placeholders = ids.map((_, i) => `?${i + 1}`).join(',');
+    const res = await db
+      .prepare(`SELECT * FROM ${table} WHERE actor_id IN (${placeholders})`)
+      .bind(...ids)
+      .all();
+    for (const row of (res.results ?? []) as any[]) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      profileMap.set(row.actor_id as string, row);
+    }
+  }
+
+  // Merge profile data into actors
+  for (const actor of actors) {
+    const profile = profileMap.get(actor.id);
+    if (profile) {
+      const a = actor as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+      for (const key of ['first_name', 'middle_name', 'last_name', 'display_name', 'email'] as const) {
+        if (profile[key] !== undefined && profile[key] !== null) {
+          a[key] = profile[key];
+        }
+      }
+    }
+  }
+  return actors;
+}
+
+/** @deprecated Use getActorByMsisdnAndType instead — untyped lookup doesn't enforce type safety. */
 export async function getActorByMsisdn(db: D1Database, msisdn: string): Promise<Actor | null> {
-  return (await db.prepare('SELECT * FROM actors WHERE msisdn = ?1').bind(msisdn).first()) as Actor | null;
+  const actor = (await db.prepare('SELECT * FROM actors WHERE msisdn = ?1').bind(msisdn).first()) as Actor | null;
+  return actor ? enrichActorWithProfile(db, actor) : null;
 }
 
 export async function getActorByMsisdnAndType(db: D1Database, msisdn: string, actorType: string): Promise<Actor | null> {
-  return (await db.prepare('SELECT * FROM actors WHERE msisdn = ?1 AND type = ?2').bind(msisdn, actorType).first()) as Actor | null;
+  const actor = (await db.prepare('SELECT * FROM actors WHERE msisdn = ?1 AND type = ?2').bind(msisdn, actorType).first()) as Actor | null;
+  return actor ? enrichActorWithProfile(db, actor) : null;
 }
 
 export async function getActorByAgentCode(db: D1Database, code: string): Promise<Actor | null> {
-  return (await db.prepare('SELECT * FROM actors WHERE agent_code = ?1').bind(code).first()) as Actor | null;
+  const actor = (await db.prepare('SELECT * FROM actors WHERE agent_code = ?1').bind(code).first()) as Actor | null;
+  return actor ? enrichActorWithProfile(db, actor) : null;
 }
 
 export async function getActorByStoreCode(db: D1Database, code: string): Promise<Actor | null> {
-  return (await db.prepare('SELECT * FROM actors WHERE store_code = ?1').bind(code).first()) as Actor | null;
+  const actor = (await db.prepare('SELECT * FROM actors WHERE store_code = ?1').bind(code).first()) as Actor | null;
+  return actor ? enrichActorWithProfile(db, actor) : null;
 }
 
 export async function getActorByStaffCode(db: D1Database, code: string): Promise<Actor | null> {
-  return (await db.prepare('SELECT * FROM actors WHERE staff_code = ?1').bind(code).first()) as Actor | null;
+  const actor = (await db.prepare('SELECT * FROM actors WHERE staff_code = ?1').bind(code).first()) as Actor | null;
+  return actor ? enrichActorWithProfile(db, actor) : null;
 }
 
 export async function listActiveStaffByRole(db: D1Database, role: string): Promise<Actor[]> {
@@ -349,7 +454,7 @@ export async function listActiveStaffByRole(db: D1Database, role: string): Promi
     .prepare("SELECT * FROM actors WHERE type = 'STAFF' AND staff_role = ?1 AND state = 'ACTIVE' ORDER BY created_at ASC")
     .bind(role)
     .all();
-  return (res.results ?? []) as Actor[];
+  return enrichActorsWithProfiles(db, (res.results ?? []) as Actor[]);
 }
 
 export async function listStaffActors(
@@ -373,7 +478,7 @@ export async function listStaffActors(
     .prepare(`SELECT * FROM actors WHERE ${where.join(' AND ')} ORDER BY created_at DESC`)
     .bind(...values)
     .all();
-  return (res.results ?? []) as Actor[];
+  return enrichActorsWithProfiles(db, (res.results ?? []) as Actor[]);
 }
 
 export async function listActors(
@@ -416,14 +521,15 @@ export async function listActors(
     .bind(...values)
     .all();
 
-  return (res.results ?? []) as Actor[];
+  return enrichActorsWithProfiles(db, (res.results ?? []) as Actor[]);
 }
 
 export async function getStaffActorById(db: D1Database, id: string): Promise<Actor | null> {
-  return (await db
+  const actor = (await db
     .prepare("SELECT * FROM actors WHERE id = ?1 AND type = 'STAFF'")
     .bind(id)
     .first()) as Actor | null;
+  return actor ? enrichActorWithProfile(db, actor) : null;
 }
 
 export async function updateStaffActor(
@@ -431,6 +537,7 @@ export async function updateStaffActor(
   staffId: string,
   fields: { name?: string; email?: string; staff_role?: string; state?: string; first_name?: string; middle_name?: string; last_name?: string; display_name?: string; msisdn?: string; department?: string },
 ): Promise<void> {
+  // Only core actor fields go to the actors table (email is now in profile only)
   const sets: string[] = [];
   const values: (string | null)[] = [];
   let paramIdx = 1;
@@ -438,10 +545,6 @@ export async function updateStaffActor(
   if (fields.name !== undefined) {
     sets.push(`name = ?${paramIdx++}`);
     values.push(fields.name);
-  }
-  if (fields.email !== undefined) {
-    sets.push(`email = ?${paramIdx++}`);
-    values.push(fields.email);
   }
   if (fields.staff_role !== undefined) {
     sets.push(`staff_role = ?${paramIdx++}`);
@@ -1190,27 +1293,61 @@ export async function getActiveCommissionRules(
 
 // ---------------------------------------------------------------------------
 // Actor Lookup (safe — returns minimal data for recipient verification)
+// Sources name fields from profile tables (source of truth).
 // ---------------------------------------------------------------------------
 
-const ACTOR_LOOKUP_FIELDS = 'id, type, state, name, first_name, middle_name, last_name, display_name';
+const ACTOR_CORE_LOOKUP = 'a.id, a.type, a.state, a.name';
 
 export async function lookupActorByMsisdn(db: D1Database, msisdn: string, actorType?: string): Promise<ActorLookup | null> {
   if (actorType) {
-    return (await db.prepare(`SELECT ${ACTOR_LOOKUP_FIELDS} FROM actors WHERE msisdn = ?1 AND type = ?2`).bind(msisdn, actorType).first()) as ActorLookup | null;
+    const profileTable =
+      actorType === 'CUSTOMER' ? 'customer_profiles' :
+        actorType === 'MERCHANT' ? 'merchant_profiles' :
+          actorType === 'AGENT' ? 'agent_profiles' :
+            actorType === 'STAFF' ? 'staff_profiles' : null;
+    if (profileTable) {
+      return (await db.prepare(
+        `SELECT ${ACTOR_CORE_LOOKUP}, p.first_name, p.middle_name, p.last_name, p.display_name
+         FROM actors a LEFT JOIN ${profileTable} p ON a.id = p.actor_id
+         WHERE a.msisdn = ?1 AND a.type = ?2`,
+      ).bind(msisdn, actorType).first()) as ActorLookup | null;
+    }
   }
-  return (await db.prepare(`SELECT ${ACTOR_LOOKUP_FIELDS} FROM actors WHERE msisdn = ?1`).bind(msisdn).first()) as ActorLookup | null;
+  // No type specified — use COALESCE across all profile tables
+  return (await db.prepare(
+    `SELECT ${ACTOR_CORE_LOOKUP},
+       COALESCE(cp.first_name, mp.first_name, ap.first_name, sp.first_name) as first_name,
+       COALESCE(cp.middle_name, mp.middle_name, ap.middle_name, sp.middle_name) as middle_name,
+       COALESCE(cp.last_name, mp.last_name, ap.last_name, sp.last_name) as last_name,
+       COALESCE(cp.display_name, mp.display_name, ap.display_name, sp.display_name) as display_name
+     FROM actors a
+     LEFT JOIN customer_profiles cp ON a.id = cp.actor_id
+     LEFT JOIN merchant_profiles mp ON a.id = mp.actor_id
+     LEFT JOIN agent_profiles ap ON a.id = ap.actor_id
+     LEFT JOIN staff_profiles sp ON a.id = sp.actor_id
+     WHERE a.msisdn = ?1`,
+  ).bind(msisdn).first()) as ActorLookup | null;
 }
 
 export async function lookupActorByStoreCode(db: D1Database, storeCode: string): Promise<ActorLookup | null> {
-  return (await db.prepare(`SELECT ${ACTOR_LOOKUP_FIELDS} FROM actors WHERE store_code = ?1`).bind(storeCode).first()) as ActorLookup | null;
+  return (await db.prepare(
+    `SELECT ${ACTOR_CORE_LOOKUP}, p.first_name, p.middle_name, p.last_name, p.display_name
+     FROM actors a LEFT JOIN merchant_profiles p ON a.id = p.actor_id
+     WHERE a.store_code = ?1`,
+  ).bind(storeCode).first()) as ActorLookup | null;
 }
 
 export async function lookupActorByAgentCode(db: D1Database, agentCode: string): Promise<ActorLookup | null> {
-  return (await db.prepare(`SELECT ${ACTOR_LOOKUP_FIELDS} FROM actors WHERE agent_code = ?1`).bind(agentCode).first()) as ActorLookup | null;
+  return (await db.prepare(
+    `SELECT ${ACTOR_CORE_LOOKUP}, p.first_name, p.middle_name, p.last_name, p.display_name
+     FROM actors a LEFT JOIN agent_profiles p ON a.id = p.actor_id
+     WHERE a.agent_code = ?1`,
+  ).bind(agentCode).first()) as ActorLookup | null;
 }
 
 export async function getActorById(db: D1Database, id: string): Promise<Actor | null> {
-  return (await db.prepare('SELECT * FROM actors WHERE id = ?1').bind(id).first()) as Actor | null;
+  const actor = (await db.prepare('SELECT * FROM actors WHERE id = ?1').bind(id).first()) as Actor | null;
+  return actor ? enrichActorWithProfile(db, actor) : null;
 }
 
 export async function updateActorProfile(
@@ -1218,45 +1355,16 @@ export async function updateActorProfile(
   actorId: string,
   fields: { first_name?: string; middle_name?: string; last_name?: string; display_name?: string; email?: string; name?: string },
 ): Promise<void> {
-  const sets: string[] = [];
-  const values: (string | null)[] = [];
-  let paramIdx = 1;
-
-  if (fields.first_name !== undefined) {
-    sets.push(`first_name = ?${paramIdx++}`);
-    values.push(fields.first_name);
-  }
-  if (fields.middle_name !== undefined) {
-    sets.push(`middle_name = ?${paramIdx++}`);
-    values.push(fields.middle_name);
-  }
-  if (fields.last_name !== undefined) {
-    sets.push(`last_name = ?${paramIdx++}`);
-    values.push(fields.last_name);
-  }
-  if (fields.display_name !== undefined) {
-    sets.push(`display_name = ?${paramIdx++}`);
-    values.push(fields.display_name);
-  }
-  if (fields.email !== undefined) {
-    sets.push(`email = ?${paramIdx++}`);
-    values.push(fields.email);
-  }
+  // Only `name` lives on the core actors table now; profile fields go to profile tables.
   if (fields.name !== undefined) {
-    sets.push(`name = ?${paramIdx++}`);
-    values.push(fields.name);
+    const now = new Date().toISOString();
+    await db
+      .prepare('UPDATE actors SET name = ?1, updated_at = ?2 WHERE id = ?3')
+      .bind(fields.name, now, actorId)
+      .run();
   }
 
-  sets.push(`updated_at = ?${paramIdx++}`);
-  values.push(new Date().toISOString());
-  values.push(actorId);
-
-  await db
-    .prepare(`UPDATE actors SET ${sets.join(', ')} WHERE id = ?${paramIdx}`)
-    .bind(...values)
-    .run();
-
-  // Dual-write profile fields to type-specific tables (best-effort)
+  // Write profile fields to type-specific tables (best-effort — only the matching profile table has a row)
   const nameFields: { first_name?: string; middle_name?: string; last_name?: string; display_name?: string; email?: string } = {};
   if (fields.first_name !== undefined) nameFields.first_name = fields.first_name;
   if (fields.middle_name !== undefined) nameFields.middle_name = fields.middle_name;
@@ -1264,10 +1372,10 @@ export async function updateActorProfile(
   if (fields.display_name !== undefined) nameFields.display_name = fields.display_name;
   if (fields.email !== undefined) nameFields.email = fields.email;
   if (Object.keys(nameFields).length > 0) {
-    // Best-effort: only writes if a matching profile row exists for this actor
     await Promise.allSettled([
       updateCustomerProfile(db, actorId, nameFields),
       updateMerchantProfile(db, actorId, nameFields),
+      updateAgentProfile(db, actorId, nameFields),
       updateStaffProfile(db, actorId, nameFields),
     ]);
   }
@@ -1482,7 +1590,7 @@ export async function getMerchantDescendants(db: D1Database, actorId: string): P
     )
     .bind(actorId)
     .all();
-  return (res.results ?? []) as Actor[];
+  return enrichActorsWithProfiles(db, (res.results ?? []) as Actor[]);
 }
 
 /** Get all ancestor store actor IDs for a given descendant (excluding self). */
@@ -1496,7 +1604,7 @@ export async function getMerchantAncestors(db: D1Database, actorId: string): Pro
     )
     .bind(actorId)
     .all();
-  return (res.results ?? []) as Actor[];
+  return enrichActorsWithProfiles(db, (res.results ?? []) as Actor[]);
 }
 
 // ---------------------------------------------------------------------------
