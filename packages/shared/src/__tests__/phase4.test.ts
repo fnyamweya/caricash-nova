@@ -403,15 +403,16 @@ describe('Enum Completeness', () => {
     expect(values).toContain('OPERATIONS');
   });
 
-  it('ExternalTransferStatus has all 6 values', () => {
+  it('ExternalTransferStatus has all 7 values', () => {
     const values = Object.values(ExternalTransferStatus);
-    expect(values).toHaveLength(6);
+    expect(values).toHaveLength(7);
     expect(values).toContain('CREATED');
     expect(values).toContain('PENDING');
     expect(values).toContain('SETTLED');
     expect(values).toContain('FAILED');
     expect(values).toContain('CANCELLED');
     expect(values).toContain('REVERSED');
+    expect(values).toContain('ANOMALY_CURRENCY');
   });
 
   it('FraudDecision has all 5 values', () => {

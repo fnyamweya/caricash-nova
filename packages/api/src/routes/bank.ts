@@ -92,6 +92,20 @@ bank.post('/webhooks/citibank', async (c) => {
 
   // Update transfer status based on webhook
   const now = new Date().toISOString();
+
+  // Section D: Currency anomaly detection
+  if (payload.currency && transfer.currency && payload.currency !== transfer.currency) {
+    await c.env.DB.prepare(
+      'UPDATE external_transfers SET status = ?, failure_reason = ?, provider_transfer_id = ? WHERE id = ?',
+    )
+      .bind('ANOMALY_CURRENCY', `Currency mismatch: expected ${transfer.currency}, got ${payload.currency}`, payload.bank_transfer_id, transfer.id)
+      .run();
+    await c.env.DB.prepare('UPDATE bank_webhook_deliveries SET status = ? WHERE id = ?')
+      .bind('PROCESSED', delivery_id)
+      .run();
+    return c.json({ status: 'currency_anomaly', delivery_id, transfer_id: transfer.id }, 200);
+  }
+
   if (payload.status === 'SETTLED') {
     await c.env.DB.prepare(
       'UPDATE external_transfers SET status = ?, settled_at = ?, provider_transfer_id = ? WHERE id = ?',

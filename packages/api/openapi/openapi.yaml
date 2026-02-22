@@ -2897,6 +2897,67 @@ paths:
                     type: string
                     example: 0.2.0
 
+  /health:
+    get:
+      operationId: getHealth
+      tags: [Ops]
+      summary: Health check
+      description: Returns service health status.
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                  version:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /readiness:
+    get:
+      operationId: getReadiness
+      tags: [Ops]
+      summary: Readiness check (Section N)
+      description: Returns detailed readiness status including DB connectivity, circuit breaker states, queue depth, last reconciliation.
+      responses:
+        '200':
+          description: Service ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ready, degraded]
+                  service:
+                    type: string
+                  version:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+                  checks:
+                    type: object
+                    properties:
+                      db:
+                        type: string
+                      last_reconciliation:
+                        type: string
+                      pending_webhooks:
+                        type: integer
+        '503':
+          description: Service not ready
+
   /docs:
     get:
       operationId: getSwaggerUI

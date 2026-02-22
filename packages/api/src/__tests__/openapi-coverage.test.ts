@@ -193,6 +193,9 @@ describe('OpenAPI Spec Endpoints Inventory', () => {
     { method: 'POST', path: '/ops/overdraft/request' },
     { method: 'POST', path: '/ops/overdraft/{facilityId}/approve' },
     { method: 'POST', path: '/ops/overdraft/{facilityId}/reject' },
+    // Phase 4 Addendum: Health/Readiness
+    { method: 'GET', path: '/health' },
+    { method: 'GET', path: '/readiness' },
     // Phase 4: Bank
     { method: 'POST', path: '/bank/deposits/initiate' },
     { method: 'GET', path: '/bank/deposits/{depositId}' },
@@ -362,6 +365,9 @@ describe('Route-to-Spec Coverage', () => {
     { method: 'GET', path: '/openapi.json' },
     // Root
     { method: 'GET', path: '/' },
+    // Phase 4 Addendum: Health/Readiness
+    { method: 'GET', path: '/health' },
+    { method: 'GET', path: '/readiness' },
   ];
 
   // For each code route, check it has a matching spec entry

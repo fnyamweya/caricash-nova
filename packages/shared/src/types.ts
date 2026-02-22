@@ -714,6 +714,9 @@ export interface MerchantSettlementProfile {
   approved_by_staff_id?: string;
   created_at: string;
   approved_at?: string;
+  netting_mode?: import('./enums.js').SettlementNettingMode;
+  fee_mode?: import('./enums.js').SettlementFeeMode;
+  holdback_percentage?: string;
 }
 
 export interface SettlementBatch {
@@ -784,6 +787,9 @@ export interface FraudDecisionRecord {
   decision: import('./enums.js').FraudDecision;
   reasons_json?: string;
   rules_version_id?: string;
+  score?: number;
+  model_version?: string;
+  explanation_json?: string;
   created_at: string;
 }
 
@@ -807,6 +813,8 @@ export interface FraudRule {
   conditions_json: string;
   priority: number;
   enabled: boolean;
+  reason_code?: string;
+  create_case?: boolean;
 }
 
 export interface BankWebhookDelivery {
@@ -864,4 +872,146 @@ export interface RetryConfig {
   base_delay_ms: number;
   max_delay_ms: number;
   backoff_multiplier: number;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 Addendum: Reconciliation, Fraud Feedback, Hardening Types
+// ---------------------------------------------------------------------------
+
+export interface BankStatement {
+  id: string;
+  provider: string;
+  bank_account_id: string;
+  statement_date: string;
+  currency: CurrencyCode;
+  opening_balance?: string;
+  closing_balance?: string;
+  entry_count: number;
+  raw_payload_json?: string;
+  fetched_at: string;
+  created_at: string;
+}
+
+export interface BankStatementEntry {
+  id: string;
+  statement_id: string;
+  provider: string;
+  bank_account_id: string;
+  entry_reference?: string;
+  direction: import('./enums.js').ExternalTransferDirection;
+  amount: string;
+  currency: CurrencyCode;
+  value_date: string;
+  booking_date?: string;
+  description?: string;
+  counterparty_account?: string;
+  counterparty_name?: string;
+  raw_payload_json?: string;
+  status: import('./enums.js').StatementEntryStatus;
+  matched_transfer_id?: string;
+  matched_batch_id?: string;
+  match_confidence?: string;
+  match_method?: string;
+  suspense_journal_id?: string;
+  case_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReconciliationMatch {
+  id: string;
+  statement_entry_id: string;
+  external_transfer_id?: string;
+  batch_id?: string;
+  match_method: import('./enums.js').ReconciliationMatchMethod;
+  confidence: import('./enums.js').ReconciliationMatchConfidence;
+  amount_difference: string;
+  currency: CurrencyCode;
+  status: string;
+  reviewed_by_staff_id?: string;
+  reviewed_at?: string;
+  created_at: string;
+}
+
+export interface ReconciliationCase {
+  id: string;
+  statement_entry_id?: string;
+  external_transfer_id?: string;
+  case_type: import('./enums.js').ReconciliationCaseType;
+  severity: import('./enums.js').FraudSeverity;
+  status: import('./enums.js').ReconciliationCaseStatus;
+  description?: string;
+  resolution_notes?: string;
+  assigned_to_staff_id?: string;
+  resolved_by_staff_id?: string;
+  resolved_at?: string;
+  correlation_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FraudCaseOutcomeRecord {
+  id: string;
+  fraud_decision_id: string;
+  case_id?: string;
+  outcome: import('./enums.js').FraudCaseOutcome;
+  resolution_notes?: string;
+  resolved_by_staff_id?: string;
+  resolved_at: string;
+  created_at: string;
+}
+
+export interface FraudSignalMetric {
+  id: string;
+  signal_type: string;
+  period_start: string;
+  period_end: string;
+  total_count: number;
+  true_positive_count: number;
+  false_positive_count: number;
+  inconclusive_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** ML/Scoring provider interface (Section H placeholder) */
+export interface FraudScoringProvider {
+  score(context: {
+    context_type: string;
+    context_id: string;
+    actor_type: string;
+    actor_id: string;
+    amount: string;
+    currency: string;
+    signals: { signal_type: string; severity: string }[];
+  }): Promise<{ score: number; model_version: string; explanation_json: string }>;
+}
+
+/** Default stub scoring provider returning score=0.0 */
+export const STUB_FRAUD_SCORING_PROVIDER: FraudScoringProvider = {
+  async score() {
+    return { score: 0.0, model_version: 'stub-v0', explanation_json: '{}' };
+  },
+};
+
+/** Standardized error response envelope (Section S) */
+export interface ErrorResponseEnvelope {
+  error: {
+    code: string;
+    message: string;
+    correlationId: string;
+    details?: Record<string, unknown>;
+    retryable: boolean;
+  };
+}
+
+/** Data retention policy record */
+export interface DataRetentionPolicy {
+  id: string;
+  data_category: import('./enums.js').DataRetentionCategory;
+  hot_retention_days: number;
+  archive_retention_days: number;
+  last_purge_at?: string;
+  created_at: string;
+  updated_at: string;
 }

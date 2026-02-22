@@ -217,6 +217,7 @@ export const ExternalTransferStatus = {
   FAILED: 'FAILED',
   CANCELLED: 'CANCELLED',
   REVERSED: 'REVERSED',
+  ANOMALY_CURRENCY: 'ANOMALY_CURRENCY',
 } as const;
 export type ExternalTransferStatus = typeof ExternalTransferStatus[keyof typeof ExternalTransferStatus];
 
@@ -278,6 +279,18 @@ export const FraudSignalType = {
   RAPID_BENEFICIARY_ADD: 'RAPID_BENEFICIARY_ADD',
   ROUND_AMOUNT_PATTERN: 'ROUND_AMOUNT_PATTERN',
   SPLIT_TXN_PATTERN: 'SPLIT_TXN_PATTERN',
+  // Section G: Deposit fraud signals
+  STRUCTURING_DEPOSITS: 'STRUCTURING_DEPOSITS',
+  DEPOSIT_RAPID_WITHDRAWAL: 'DEPOSIT_RAPID_WITHDRAWAL',
+  NEW_BENEFICIARY_RISK: 'NEW_BENEFICIARY_RISK',
+  REPEATED_FAILED_DEPOSITS: 'REPEATED_FAILED_DEPOSITS',
+  SAME_BANK_SOURCE_MULTI_USER: 'SAME_BANK_SOURCE_MULTI_USER',
+  HIGH_FREQUENCY_DEPOSITS: 'HIGH_FREQUENCY_DEPOSITS',
+  // Payout-specific signals
+  PAYOUT_AMOUNT_SPIKE: 'PAYOUT_AMOUNT_SPIKE',
+  PAYOUT_NEW_BENEFICIARY: 'PAYOUT_NEW_BENEFICIARY',
+  MERCHANT_EXCESSIVE_REFUNDS: 'MERCHANT_EXCESSIVE_REFUNDS',
+  AGENT_SUBTREE_ANOMALY: 'AGENT_SUBTREE_ANOMALY',
 } as const;
 export type FraudSignalType = typeof FraudSignalType[keyof typeof FraudSignalType];
 
@@ -312,9 +325,13 @@ export const WebhookDeliveryStatus = {
 export type WebhookDeliveryStatus = typeof WebhookDeliveryStatus[keyof typeof WebhookDeliveryStatus];
 
 export const BeneficiaryStatus = {
-  ACTIVE: 'ACTIVE',
+  DRAFT: 'DRAFT',
+  PENDING_VERIFICATION: 'PENDING_VERIFICATION',
   PENDING_APPROVAL: 'PENDING_APPROVAL',
+  ACTIVE: 'ACTIVE',
   REJECTED: 'REJECTED',
+  UPDATE_PENDING_VERIFICATION: 'UPDATE_PENDING_VERIFICATION',
+  UPDATE_PENDING_APPROVAL: 'UPDATE_PENDING_APPROVAL',
 } as const;
 export type BeneficiaryStatus = typeof BeneficiaryStatus[keyof typeof BeneficiaryStatus];
 
@@ -324,3 +341,91 @@ export const CircuitBreakerState = {
   HALF_OPEN: 'HALF_OPEN',
 } as const;
 export type CircuitBreakerState = typeof CircuitBreakerState[keyof typeof CircuitBreakerState];
+
+// ---------------------------------------------------------------------------
+// Phase 4 Addendum: Reconciliation, State Machines, Hardening
+// ---------------------------------------------------------------------------
+
+export const StatementEntryStatus = {
+  NEW: 'NEW',
+  CANDIDATE_MATCHED: 'CANDIDATE_MATCHED',
+  MATCHED: 'MATCHED',
+  SETTLED: 'SETTLED',
+  UNMATCHED: 'UNMATCHED',
+  DISPUTED: 'DISPUTED',
+  RESOLVED: 'RESOLVED',
+  PARTIAL_MATCHED: 'PARTIAL_MATCHED',
+  ESCALATED: 'ESCALATED',
+} as const;
+export type StatementEntryStatus = typeof StatementEntryStatus[keyof typeof StatementEntryStatus];
+
+export const ReconciliationMatchMethod = {
+  PROVIDER_ID: 'PROVIDER_ID',
+  CLIENT_REF: 'CLIENT_REF',
+  AMOUNT_TIME: 'AMOUNT_TIME',
+  BATCH: 'BATCH',
+} as const;
+export type ReconciliationMatchMethod = typeof ReconciliationMatchMethod[keyof typeof ReconciliationMatchMethod];
+
+export const ReconciliationMatchConfidence = {
+  HIGH: 'HIGH',
+  MEDIUM: 'MEDIUM',
+  LOW: 'LOW',
+} as const;
+export type ReconciliationMatchConfidence = typeof ReconciliationMatchConfidence[keyof typeof ReconciliationMatchConfidence];
+
+export const ReconciliationCaseType = {
+  UNMATCHED_BANK: 'UNMATCHED_BANK',
+  UNMATCHED_TRANSFER: 'UNMATCHED_TRANSFER',
+  AMOUNT_MISMATCH: 'AMOUNT_MISMATCH',
+  CURRENCY_ANOMALY: 'CURRENCY_ANOMALY',
+  DUPLICATE: 'DUPLICATE',
+  STUCK_TRANSFER: 'STUCK_TRANSFER',
+  PARTIAL_MATCH: 'PARTIAL_MATCH',
+} as const;
+export type ReconciliationCaseType = typeof ReconciliationCaseType[keyof typeof ReconciliationCaseType];
+
+export const ReconciliationCaseStatus = {
+  OPEN: 'OPEN',
+  INVESTIGATING: 'INVESTIGATING',
+  RESOLVED: 'RESOLVED',
+  ESCALATED: 'ESCALATED',
+} as const;
+export type ReconciliationCaseStatus = typeof ReconciliationCaseStatus[keyof typeof ReconciliationCaseStatus];
+
+export const FraudCaseOutcome = {
+  TRUE_POSITIVE: 'TRUE_POSITIVE',
+  FALSE_POSITIVE: 'FALSE_POSITIVE',
+  INCONCLUSIVE: 'INCONCLUSIVE',
+} as const;
+export type FraudCaseOutcome = typeof FraudCaseOutcome[keyof typeof FraudCaseOutcome];
+
+export const SettlementNettingMode = {
+  GROSS: 'GROSS',
+  NET: 'NET',
+} as const;
+export type SettlementNettingMode = typeof SettlementNettingMode[keyof typeof SettlementNettingMode];
+
+export const SettlementFeeMode = {
+  DEDUCT_FROM_PAYOUT: 'DEDUCT_FROM_PAYOUT',
+  CHARGE_SEPARATELY: 'CHARGE_SEPARATELY',
+} as const;
+export type SettlementFeeMode = typeof SettlementFeeMode[keyof typeof SettlementFeeMode];
+
+export const BeneficiaryVerificationStatus = {
+  DRAFT: 'DRAFT',
+  PENDING_VERIFICATION: 'PENDING_VERIFICATION',
+  VERIFIED: 'VERIFIED',
+  FAILED: 'FAILED',
+} as const;
+export type BeneficiaryVerificationStatus = typeof BeneficiaryVerificationStatus[keyof typeof BeneficiaryVerificationStatus];
+
+export const DataRetentionCategory = {
+  LEDGER: 'LEDGER',
+  AUDIT: 'AUDIT',
+  WEBHOOKS: 'WEBHOOKS',
+  FRAUD: 'FRAUD',
+  RECONCILIATION: 'RECONCILIATION',
+  IDEMPOTENCY: 'IDEMPOTENCY',
+} as const;
+export type DataRetentionCategory = typeof DataRetentionCategory[keyof typeof DataRetentionCategory];

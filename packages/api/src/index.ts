@@ -81,6 +81,44 @@ app.get('/health', (c) =>
   c.json({ status: 'ok', service: 'CariCash Nova API', version: '0.2.0', timestamp: new Date().toISOString() }),
 );
 
+// Section N: Readiness endpoint
+app.get('/readiness', async (c) => {
+  const checks: Record<string, unknown> = {};
+  // DB connectivity check
+  try {
+    await c.env.DB.prepare('SELECT 1').first();
+    checks.db = 'ok';
+  } catch {
+    checks.db = 'error';
+  }
+  // Last reconciliation check
+  try {
+    const lastRecon = await c.env.DB.prepare(
+      'SELECT id, created_at FROM reconciliation_runs ORDER BY created_at DESC LIMIT 1',
+    ).first();
+    checks.last_reconciliation = lastRecon ? lastRecon.created_at : 'never';
+  } catch {
+    checks.last_reconciliation = 'unknown';
+  }
+  // Pending webhooks (queue depth proxy)
+  try {
+    const pending = await c.env.DB.prepare(
+      "SELECT COUNT(*) as cnt FROM bank_webhook_deliveries WHERE status = 'RECEIVED'",
+    ).first();
+    checks.pending_webhooks = pending?.cnt ?? 0;
+  } catch {
+    checks.pending_webhooks = 'unknown';
+  }
+  const allOk = checks.db === 'ok';
+  return c.json({
+    status: allOk ? 'ready' : 'degraded',
+    service: 'CariCash Nova API',
+    version: '0.2.0',
+    timestamp: new Date().toISOString(),
+    checks,
+  }, allOk ? 200 : 503);
+});
+
 app.get('/', (c) => c.json({ service: 'CariCash Nova API', version: '0.2.0' }));
 
 export default app;

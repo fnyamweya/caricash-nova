@@ -22,8 +22,10 @@ export interface FraudEvaluationContext {
 
 export interface FraudEvaluationResult {
   decision: string;
-  matched_rules: { rule_id: string; name: string; action: string; severity: string }[];
+  matched_rules: { rule_id: string; name: string; action: string; severity: string; reason_code?: string; create_case?: boolean }[];
   reasons: string[];
+  score?: number;
+  model_version?: string;
 }
 
 interface Condition {
@@ -160,6 +162,8 @@ export function evaluateFraudRules(
         name: rule.name,
         action: rule.action,
         severity: rule.severity,
+        reason_code: rule.reason_code,
+        create_case: rule.create_case,
       });
       reasons.push(`Rule "${rule.name}" matched → ${rule.action}`);
     }
@@ -189,6 +193,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 10,
     enabled: true,
+    reason_code: 'LARGE_TXN',
+    create_case: true,
   },
   {
     name: 'Very large transaction',
@@ -201,6 +207,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 5,
     enabled: true,
+    reason_code: 'VERY_LARGE_TXN',
+    create_case: true,
   },
   {
     name: 'New device detected',
@@ -212,6 +220,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 20,
     enabled: true,
+    reason_code: 'NEW_DEVICE',
+    create_case: false,
   },
   {
     name: 'Device mismatch',
@@ -223,6 +233,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 15,
     enabled: true,
+    reason_code: 'DEVICE_MISMATCH',
+    create_case: true,
   },
   {
     name: 'Multiple accounts on same device',
@@ -234,6 +246,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 1,
     enabled: true,
+    reason_code: 'MULTI_ACCOUNT_DEVICE',
+    create_case: true,
   },
   {
     name: 'Rapid cash-in/out pattern',
@@ -245,6 +259,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 12,
     enabled: true,
+    reason_code: 'RAPID_CASH_IN_OUT',
+    create_case: true,
   },
   {
     name: 'High payout frequency',
@@ -256,6 +272,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 14,
     enabled: true,
+    reason_code: 'HIGH_PAYOUT_FREQUENCY',
+    create_case: true,
   },
   {
     name: 'Beneficiary change before payout',
@@ -267,6 +285,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 13,
     enabled: true,
+    reason_code: 'BENEFICIARY_CHANGE_PRE_PAYOUT',
+    create_case: true,
   },
   {
     name: 'Repeated payout failures',
@@ -278,6 +298,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 6,
     enabled: true,
+    reason_code: 'REPEATED_PAYOUT_FAILURE',
+    create_case: true,
   },
   {
     name: 'Unusual hour activity',
@@ -289,6 +311,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 25,
     enabled: true,
+    reason_code: 'UNUSUAL_HOUR',
+    create_case: false,
   },
   {
     name: 'Velocity spike detected',
@@ -300,6 +324,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 11,
     enabled: true,
+    reason_code: 'VELOCITY_SPIKE',
+    create_case: true,
   },
   {
     name: 'Dormant account reactivation',
@@ -311,6 +337,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 22,
     enabled: true,
+    reason_code: 'DORMANT_REACTIVATION',
+    create_case: false,
   },
   {
     name: 'Split transaction pattern',
@@ -322,6 +350,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 16,
     enabled: true,
+    reason_code: 'SPLIT_TXN',
+    create_case: true,
   },
   {
     name: 'Round amount pattern with high frequency',
@@ -334,6 +364,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 24,
     enabled: true,
+    reason_code: 'ROUND_AMOUNT_PATTERN',
+    create_case: false,
   },
   {
     name: 'Critical severity signal present',
@@ -346,6 +378,8 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 3,
     enabled: true,
+    reason_code: 'CRITICAL_SIGNAL',
+    create_case: true,
   },
   {
     name: 'Geo anomaly detected',
@@ -357,5 +391,169 @@ export const DEFAULT_FRAUD_RULES: Omit<FraudRule, 'id' | 'version_id'>[] = [
     ]),
     priority: 17,
     enabled: true,
+    reason_code: 'GEO_ANOMALY',
+    create_case: true,
+  },
+  // ── Section G: BANK_DEPOSIT fraud rules (6 minimum) ──────────────────────
+  {
+    name: 'Structuring deposits below reporting threshold',
+    applies_to_context: FraudContextType.BANK_DEPOSIT,
+    severity: FraudSeverity.CRITICAL,
+    action: FraudDecision.HOLD,
+    conditions_json: JSON.stringify([
+      { field: 'signals', op: 'contains', value: FraudSignalType.STRUCTURING_DEPOSITS },
+    ]),
+    priority: 7,
+    enabled: true,
+    reason_code: 'STRUCTURING',
+    create_case: true,
+  },
+  {
+    name: 'Deposit followed by rapid withdrawal',
+    applies_to_context: FraudContextType.BANK_DEPOSIT,
+    severity: FraudSeverity.WARN,
+    action: FraudDecision.HOLD,
+    conditions_json: JSON.stringify([
+      { field: 'signals', op: 'contains', value: FraudSignalType.DEPOSIT_RAPID_WITHDRAWAL },
+    ]),
+    priority: 8,
+    enabled: true,
+    reason_code: 'DEPOSIT_RAPID_WITHDRAWAL',
+    create_case: true,
+  },
+  {
+    name: 'Large deposit from new beneficiary',
+    applies_to_context: FraudContextType.BANK_DEPOSIT,
+    severity: FraudSeverity.WARN,
+    action: FraudDecision.STEP_UP,
+    conditions_json: JSON.stringify([
+      { field: 'signals', op: 'contains', value: FraudSignalType.NEW_BENEFICIARY_RISK },
+      { field: 'amount', op: 'gt', value: '10000' },
+    ]),
+    priority: 18,
+    enabled: true,
+    reason_code: 'NEW_BENEFICIARY_LARGE_DEPOSIT',
+    create_case: false,
+  },
+  {
+    name: 'Repeated failed deposits',
+    applies_to_context: FraudContextType.BANK_DEPOSIT,
+    severity: FraudSeverity.WARN,
+    action: FraudDecision.BLOCK,
+    conditions_json: JSON.stringify([
+      { field: 'signals', op: 'contains', value: FraudSignalType.REPEATED_FAILED_DEPOSITS },
+    ]),
+    priority: 9,
+    enabled: true,
+    reason_code: 'REPEATED_FAILED_DEPOSITS',
+    create_case: true,
+  },
+  {
+    name: 'Multiple users funded from same bank source',
+    applies_to_context: FraudContextType.BANK_DEPOSIT,
+    severity: FraudSeverity.CRITICAL,
+    action: FraudDecision.FREEZE,
+    conditions_json: JSON.stringify([
+      { field: 'signals', op: 'contains', value: FraudSignalType.SAME_BANK_SOURCE_MULTI_USER },
+    ]),
+    priority: 2,
+    enabled: true,
+    reason_code: 'SHARED_BANK_SOURCE',
+    create_case: true,
+  },
+  {
+    name: 'High frequency deposits',
+    applies_to_context: FraudContextType.BANK_DEPOSIT,
+    severity: FraudSeverity.WARN,
+    action: FraudDecision.HOLD,
+    conditions_json: JSON.stringify([
+      { field: 'signals', op: 'contains', value: FraudSignalType.HIGH_FREQUENCY_DEPOSITS },
+    ]),
+    priority: 15,
+    enabled: true,
+    reason_code: 'HIGH_FREQ_DEPOSITS',
+    create_case: true,
+  },
+  // ── Additional PAYOUT fraud rules (total 8 minimum) ──────────────────────
+  {
+    name: 'Payout amount spike above historical average',
+    applies_to_context: FraudContextType.PAYOUT,
+    severity: FraudSeverity.WARN,
+    action: FraudDecision.HOLD,
+    conditions_json: JSON.stringify([
+      { field: 'signals', op: 'contains', value: FraudSignalType.PAYOUT_AMOUNT_SPIKE },
+    ]),
+    priority: 10,
+    enabled: true,
+    reason_code: 'PAYOUT_AMOUNT_SPIKE',
+    create_case: true,
+  },
+  {
+    name: 'Payout to new unverified beneficiary',
+    applies_to_context: FraudContextType.PAYOUT,
+    severity: FraudSeverity.WARN,
+    action: FraudDecision.HOLD,
+    conditions_json: JSON.stringify([
+      { field: 'signals', op: 'contains', value: FraudSignalType.PAYOUT_NEW_BENEFICIARY },
+    ]),
+    priority: 11,
+    enabled: true,
+    reason_code: 'PAYOUT_NEW_BENEFICIARY',
+    create_case: true,
+  },
+  {
+    name: 'Merchant with excessive refund ratio',
+    applies_to_context: FraudContextType.PAYOUT,
+    severity: FraudSeverity.CRITICAL,
+    action: FraudDecision.BLOCK,
+    conditions_json: JSON.stringify([
+      { field: 'signals', op: 'contains', value: FraudSignalType.MERCHANT_EXCESSIVE_REFUNDS },
+    ]),
+    priority: 4,
+    enabled: true,
+    reason_code: 'EXCESSIVE_REFUNDS',
+    create_case: true,
+  },
+  {
+    name: 'Large payout above BBD 50K threshold',
+    applies_to_context: FraudContextType.PAYOUT,
+    severity: FraudSeverity.WARN,
+    action: FraudDecision.HOLD,
+    conditions_json: JSON.stringify([
+      { field: 'amount', op: 'gt', value: '50000' },
+      { field: 'currency', op: 'eq', value: 'BBD' },
+    ]),
+    priority: 12,
+    enabled: true,
+    reason_code: 'LARGE_PAYOUT',
+    create_case: true,
+  },
+  {
+    name: 'Payout during unusual hours',
+    applies_to_context: FraudContextType.PAYOUT,
+    severity: FraudSeverity.INFO,
+    action: FraudDecision.STEP_UP,
+    conditions_json: JSON.stringify([
+      { field: 'hour_of_day', op: 'between', value: [0, 5] },
+    ]),
+    priority: 26,
+    enabled: true,
+    reason_code: 'PAYOUT_UNUSUAL_HOUR',
+    create_case: false,
+  },
+  // ── Additional TXN rules ─────────────────────────────────────────────────
+  {
+    name: 'Transaction from dormant customer account',
+    applies_to_context: FraudContextType.TXN,
+    severity: FraudSeverity.WARN,
+    action: FraudDecision.HOLD,
+    conditions_json: JSON.stringify([
+      { field: 'signals', op: 'contains', value: FraudSignalType.DORMANT_REACTIVATION },
+      { field: 'actor_type', op: 'eq', value: 'CUSTOMER' },
+    ]),
+    priority: 19,
+    enabled: true,
+    reason_code: 'DORMANT_CUSTOMER_TXN',
+    create_case: true,
   },
 ];
