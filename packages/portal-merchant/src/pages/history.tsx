@@ -83,11 +83,11 @@ export function HistoryPage() {
     // Search filter
     const filtered = searchTerm
         ? tabFiltered.filter((e) => {
-              const term = searchTerm.toLowerCase();
-              return (e.line_description ?? '').toLowerCase().includes(term)
-                  || e.txn_type.toLowerCase().includes(term)
-                  || e.journal_id.includes(term);
-          })
+            const term = searchTerm.toLowerCase();
+            return (e.line_description ?? '').toLowerCase().includes(term)
+                || e.txn_type.toLowerCase().includes(term)
+                || e.journal_id.includes(term);
+        })
         : tabFiltered;
 
     return (

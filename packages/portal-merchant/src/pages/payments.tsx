@@ -93,11 +93,11 @@ export function PaymentsPage() {
     // Apply search filter
     const filtered = searchTerm
         ? incomingPayments.filter((e) => {
-              const desc = parseDescription(e.line_description).label.toLowerCase();
-              const type = e.txn_type.toLowerCase();
-              const term = searchTerm.toLowerCase();
-              return desc.includes(term) || type.includes(term) || e.journal_id.includes(term);
-          })
+            const desc = parseDescription(e.line_description).label.toLowerCase();
+            const type = e.txn_type.toLowerCase();
+            const term = searchTerm.toLowerCase();
+            return desc.includes(term) || type.includes(term) || e.journal_id.includes(term);
+        })
         : incomingPayments;
 
     // Calculate totals

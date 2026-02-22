@@ -4,13 +4,9 @@ import {
   generateId,
   nowISO,
   ApprovalState,
-  ApprovalType,
   ActorType,
-  StaffRole,
-  TxnType,
   EventName,
 } from '@caricash/shared';
-import type { PostTransactionCommand } from '@caricash/shared';
 import {
   getApprovalRequest,
   listApprovalRequests,
@@ -18,14 +14,11 @@ import {
   insertEvent,
   insertAuditLog,
   getActorById,
-  getOrCreateLedgerAccount,
-  initAccountBalance,
-  getAccountBalance,
-  upsertAccountBalance,
 } from '@caricash/db';
-import { buildReversalEntries } from '@caricash/posting-do';
-import type { Entry } from '@caricash/posting-do';
-import { postTransaction, getBalance } from '../lib/posting-client.js';
+import { approvalRegistry } from '../lib/approval-handlers.js';
+import type { ApprovalContext } from '../lib/approval-handlers.js';
+// Side-effect: registers all concrete handlers into the registry
+import '../lib/approval-handler-impls.js';
 
 export const approvalRoutes = new Hono<{ Bindings: Env }>();
 
@@ -56,6 +49,21 @@ approvalRoutes.get('/', async (c) => {
   }
 });
 
+// GET /approvals/types — list all registered approval types and their metadata
+approvalRoutes.get('/types', (c) => {
+  const types = approvalRegistry.types().map((type) => {
+    const handler = approvalRegistry.get(type)!;
+    return {
+      type,
+      label: handler.label,
+      allowed_checker_roles: handler.allowedCheckerRoles,
+      has_approve_handler: !!handler.onApprove,
+      has_reject_handler: !!handler.onReject,
+    };
+  });
+  return c.json({ types });
+});
+
 // GET /approvals/:id
 approvalRoutes.get('/:id', async (c) => {
   const requestId = c.req.param('id');
@@ -66,9 +74,13 @@ approvalRoutes.get('/:id', async (c) => {
       return c.json({ error: 'Approval request not found' }, 404);
     }
 
+    const handler = approvalRegistry.get(request.type);
+
     return c.json({
       ...request,
       payload: safeParsePayload(request.payload_json),
+      handler_label: handler?.label ?? null,
+      allowed_checker_roles: handler?.allowedCheckerRoles ?? [],
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';
@@ -76,7 +88,9 @@ approvalRoutes.get('/:id', async (c) => {
   }
 });
 
-// POST /approvals/:id/approve
+// ─────────────────────────────────────────────────────────────────────
+// POST /approvals/:id/approve — Generic, registry-dispatched approval
+// ─────────────────────────────────────────────────────────────────────
 approvalRoutes.post('/:id/approve', async (c) => {
   const requestId = c.req.param('id');
   const body = await c.req.json();
@@ -88,6 +102,7 @@ approvalRoutes.post('/:id/approve', async (c) => {
   }
 
   try {
+    // ── Fetch request ────────────────────────────────────────────
     const request = await getApprovalRequest(c.env.DB, requestId);
     if (!request) {
       return c.json({ error: 'Approval request not found', correlation_id: correlationId }, 404);
@@ -97,18 +112,63 @@ approvalRoutes.post('/:id/approve', async (c) => {
       return c.json({ error: `Request is already ${request.state}`, correlation_id: correlationId }, 409);
     }
 
-    // Maker-checker: maker cannot approve their own request
+    // ── Maker-checker: maker cannot approve their own request ────
     if (request.maker_staff_id === staff_id) {
       return c.json({ error: 'Maker cannot approve their own request', correlation_id: correlationId }, 403);
     }
 
+    // ── Resolve handler ──────────────────────────────────────────
+    const handler = approvalRegistry.get(request.type);
+    if (!handler) {
+      return c.json({
+        error: `No approval handler registered for type: ${request.type}`,
+        correlation_id: correlationId,
+      }, 501);
+    }
+
+    // ── Role check ───────────────────────────────────────────────
+    if (handler.allowedCheckerRoles.length > 0) {
+      const staffActor = await getActorById(c.env.DB, staff_id);
+      if (!staffActor || staffActor.type !== ActorType.STAFF) {
+        return c.json({ error: 'Staff actor not found', correlation_id: correlationId }, 404);
+      }
+      if (!handler.allowedCheckerRoles.includes(staffActor.staff_role as string)) {
+        return c.json({
+          error: `Only ${handler.allowedCheckerRoles.join(', ')} can approve ${handler.label} requests`,
+          correlation_id: correlationId,
+        }, 403);
+      }
+    }
+
     const now = nowISO();
+    const payload = JSON.parse(request.payload_json) as Record<string, unknown>;
+
+    // Resolve staff actor (may already have been fetched above for role check)
+    const staffActor = await getActorById(c.env.DB, staff_id);
+    if (!staffActor) {
+      return c.json({ error: 'Staff actor not found', correlation_id: correlationId }, 404);
+    }
+
+    const ctx: ApprovalContext = {
+      c, request, payload, staffId: staff_id, staffActor, correlationId, now,
+    };
+
+    // ── Custom validation ────────────────────────────────────────
+    if (handler.validateApproval) {
+      const validationError = await handler.validateApproval(ctx);
+      if (validationError) {
+        return c.json({ error: validationError, correlation_id: correlationId }, 400);
+      }
+    }
+
+    // ── Update state to APPROVED ─────────────────────────────────
     await updateApprovalRequest(c.env.DB, requestId, ApprovalState.APPROVED, staff_id, now);
 
-    // Audit log
+    // ── Audit log ────────────────────────────────────────────────
+    const auditAction = handler.auditActions?.onApprove ?? 'APPROVAL_APPROVED';
     await insertAuditLog(c.env.DB, {
       id: generateId(),
-      action: 'APPROVAL_APPROVED',
+      action: auditAction,
       actor_type: ActorType.STAFF,
       actor_id: staff_id,
       target_type: 'approval_request',
@@ -119,10 +179,11 @@ approvalRoutes.post('/:id/approve', async (c) => {
       created_at: now,
     });
 
-    // Emit APPROVAL_APPROVED event
-    const approvalEvent = {
+    // ── Emit event ───────────────────────────────────────────────
+    const eventName = (handler.eventNames?.onApprove ?? EventName.APPROVAL_APPROVED) as EventName;
+    const event = {
       id: generateId(),
-      name: EventName.APPROVAL_APPROVED,
+      name: eventName,
       entity_type: 'approval_request',
       entity_id: requestId,
       correlation_id: correlationId,
@@ -132,195 +193,21 @@ approvalRoutes.post('/:id/approve', async (c) => {
       payload_json: JSON.stringify({ request_id: requestId, type: request.type }),
       created_at: now,
     };
-    await insertEvent(c.env.DB, approvalEvent);
-    await c.env.EVENTS_QUEUE.send(approvalEvent);
+    await insertEvent(c.env.DB, event);
+    await c.env.EVENTS_QUEUE.send(event);
 
-    // If reversal, execute the reversal posting
-    let reversalResult;
-    let manualAdjustmentResult;
-    if (request.type === ApprovalType.REVERSAL_REQUESTED) {
-      const payload = JSON.parse(request.payload_json) as {
-        original_journal_id: string;
-        reason: string;
-        idempotency_key: string;
-      };
-
-      // Fetch original journal lines to build reversal entries
-      const linesResult = await c.env.DB
-        .prepare('SELECT account_id, entry_type, amount, description FROM ledger_lines WHERE journal_id = ?1')
-        .bind(payload.original_journal_id)
-        .all();
-
-      const originalEntries: Entry[] = (linesResult.results ?? []).map((l: Record<string, unknown>) => ({
-        account_id: l.account_id as string,
-        entry_type: l.entry_type as 'DR' | 'CR',
-        amount: l.amount as string,
-        description: l.description as string | undefined,
-      }));
-
-      const reversalEntries = buildReversalEntries(originalEntries);
-
-      // Fetch original journal for currency
-      const originalJournal = await c.env.DB
-        .prepare('SELECT * FROM ledger_journals WHERE id = ?1')
-        .bind(payload.original_journal_id)
-        .first() as { currency: string; txn_type: string } | null;
-
-      if (!originalJournal) {
-        return c.json({ error: 'Original journal not found', correlation_id: correlationId }, 404);
-      }
-
-      const reversalCommand: PostTransactionCommand = {
-        idempotency_key: `reversal:${payload.idempotency_key}`,
-        correlation_id: correlationId,
-        txn_type: TxnType.REVERSAL,
-        currency: originalJournal.currency as PostTransactionCommand['currency'],
-        entries: reversalEntries,
-        description: `Reversal of ${payload.original_journal_id}: ${payload.reason}`,
-        actor_type: ActorType.STAFF,
-        actor_id: staff_id,
-      };
-
-      const domainKey = `REVERSAL:${payload.original_journal_id}`;
-      reversalResult = await postTransaction(c.env, domainKey, reversalCommand);
-
-      // Emit REVERSAL_POSTED event
-      const reversalEvent = {
-        id: generateId(),
-        name: EventName.REVERSAL_POSTED,
-        entity_type: 'journal',
-        entity_id: reversalResult.journal_id,
-        correlation_id: correlationId,
-        causation_id: requestId,
-        actor_type: ActorType.STAFF,
-        actor_id: staff_id,
-        schema_version: 1,
-        payload_json: JSON.stringify({
-          original_journal_id: payload.original_journal_id,
-          reversal_journal_id: reversalResult.journal_id,
-        }),
-        created_at: nowISO(),
-      };
-      await insertEvent(c.env.DB, reversalEvent);
-      await c.env.EVENTS_QUEUE.send(reversalEvent);
-    }
-
-    if (request.type === ApprovalType.MANUAL_ADJUSTMENT_REQUESTED) {
-      const payload = JSON.parse(request.payload_json) as {
-        operation?: string;
-        amount: string;
-        currency: string;
-        reason: string;
-        reference?: string | null;
-        idempotency_key: string;
-        correlation_id?: string;
-      };
-
-      if (payload.operation !== 'SUSPENSE_FUNDING') {
-        return c.json({ error: 'Unsupported manual adjustment payload', correlation_id: correlationId }, 400);
-      }
-
-      const adjustmentCurrency = payload.currency as 'BBD' | 'USD';
-
-      const checker = await getActorById(c.env.DB, staff_id);
-      if (!checker || checker.type !== ActorType.STAFF) {
-        return c.json({ error: 'Staff actor not found', correlation_id: correlationId }, 404);
-      }
-      if (checker.staff_role !== StaffRole.FINANCE) {
-        return c.json({ error: 'Only FINANCE staff can approve suspense funding', correlation_id: correlationId }, 403);
-      }
-
-      const sourceAccount = await getOrCreateLedgerAccount(c.env.DB, ActorType.STAFF, 'TREASURY', 'SUSPENSE', adjustmentCurrency);
-      const destinationAccount = await getOrCreateLedgerAccount(c.env.DB, ActorType.STAFF, 'SYSTEM', 'SUSPENSE', adjustmentCurrency);
-
-      await initAccountBalance(c.env.DB, sourceAccount.id, adjustmentCurrency);
-      await initAccountBalance(c.env.DB, destinationAccount.id, adjustmentCurrency);
-
-      const sourceBefore = await getAccountBalance(c.env.DB, sourceAccount.id);
-      const destBefore = await getAccountBalance(c.env.DB, destinationAccount.id);
-
-      const command: PostTransactionCommand = {
-        idempotency_key: `suspense-fund:${requestId}:${payload.idempotency_key}`,
-        correlation_id: correlationId,
-        txn_type: TxnType.MANUAL_ADJUSTMENT,
-        currency: adjustmentCurrency,
-        entries: [
-          {
-            account_id: sourceAccount.id,
-            entry_type: 'DR',
-            amount: payload.amount,
-            description: `Treasury suspense funding source${payload.reference ? ` (${payload.reference})` : ''}`,
-          },
-          {
-            account_id: destinationAccount.id,
-            entry_type: 'CR',
-            amount: payload.amount,
-            description: `System suspense funded: ${payload.reason}`,
-          },
-        ],
-        description: `SUSPENSE_FUNDING ${payload.amount} ${payload.currency} - ${payload.reason}`,
-        actor_type: ActorType.STAFF,
-        actor_id: staff_id,
-      };
-
-      const domainKey = `ops:suspense:${adjustmentCurrency}`;
-      manualAdjustmentResult = await postTransaction(c.env, domainKey, command);
-
-      const sourceAfter = await getBalance(c.env, domainKey, sourceAccount.id);
-      const destAfter = await getBalance(c.env, domainKey, destinationAccount.id);
-
-      await upsertAccountBalance(c.env.DB, {
-        account_id: sourceAccount.id,
-        actual_balance: sourceAfter.balance,
-        available_balance: sourceAfter.balance,
-        hold_amount: sourceBefore?.hold_amount ?? '0.00',
-        pending_credits: sourceBefore?.pending_credits ?? '0.00',
-        last_journal_id: manualAdjustmentResult.journal_id,
-        currency: adjustmentCurrency,
-        updated_at: now,
-      });
-      await upsertAccountBalance(c.env.DB, {
-        account_id: destinationAccount.id,
-        actual_balance: destAfter.balance,
-        available_balance: destAfter.balance,
-        hold_amount: destBefore?.hold_amount ?? '0.00',
-        pending_credits: destBefore?.pending_credits ?? '0.00',
-        last_journal_id: manualAdjustmentResult.journal_id,
-        currency: adjustmentCurrency,
-        updated_at: now,
-      });
-
-      const adjustmentEvent = {
-        id: generateId(),
-        name: EventName.MANUAL_ADJUSTMENT_POSTED,
-        entity_type: 'journal',
-        entity_id: manualAdjustmentResult.journal_id,
-        correlation_id: correlationId,
-        causation_id: requestId,
-        actor_type: ActorType.STAFF,
-        actor_id: staff_id,
-        schema_version: 1,
-        payload_json: JSON.stringify({
-          operation: 'SUSPENSE_FUNDING',
-          amount: payload.amount,
-          currency: adjustmentCurrency,
-          reason: payload.reason,
-          reference: payload.reference ?? null,
-          source_account_id: sourceAccount.id,
-          destination_account_id: destinationAccount.id,
-          journal_id: manualAdjustmentResult.journal_id,
-        }),
-        created_at: now,
-      };
-      await insertEvent(c.env.DB, adjustmentEvent);
-      await c.env.EVENTS_QUEUE.send(adjustmentEvent);
+    // ── Execute handler side-effects ─────────────────────────────
+    let handlerResult = {};
+    if (handler.onApprove) {
+      handlerResult = await handler.onApprove(ctx);
     }
 
     return c.json({
       request_id: requestId,
+      type: request.type,
       state: ApprovalState.APPROVED,
-      reversal: reversalResult ?? null,
-      manual_adjustment: manualAdjustmentResult ?? null,
+      handler: handler.label,
+      result: handlerResult,
       correlation_id: correlationId,
     });
   } catch (err) {
@@ -329,15 +216,9 @@ approvalRoutes.post('/:id/approve', async (c) => {
   }
 });
 
-function safeParsePayload(payloadJson: string): unknown {
-  try {
-    return JSON.parse(payloadJson);
-  } catch {
-    return null;
-  }
-}
-
-// POST /approvals/:id/reject
+// ─────────────────────────────────────────────────────────────────────
+// POST /approvals/:id/reject — Generic, registry-dispatched rejection
+// ─────────────────────────────────────────────────────────────────────
 approvalRoutes.post('/:id/reject', async (c) => {
   const requestId = c.req.param('id');
   const body = await c.req.json();
@@ -358,13 +239,17 @@ approvalRoutes.post('/:id/reject', async (c) => {
       return c.json({ error: `Request is already ${request.state}`, correlation_id: correlationId }, 409);
     }
 
+    // ── Resolve handler ──────────────────────────────────────────
+    const handler = approvalRegistry.get(request.type);
+
     const now = nowISO();
     await updateApprovalRequest(c.env.DB, requestId, ApprovalState.REJECTED, staff_id, now);
 
-    // Audit log
+    // ── Audit log ────────────────────────────────────────────────
+    const auditAction = handler?.auditActions?.onReject ?? 'APPROVAL_REJECTED';
     await insertAuditLog(c.env.DB, {
       id: generateId(),
-      action: 'APPROVAL_REJECTED',
+      action: auditAction,
       actor_type: ActorType.STAFF,
       actor_id: staff_id,
       target_type: 'approval_request',
@@ -375,10 +260,11 @@ approvalRoutes.post('/:id/reject', async (c) => {
       created_at: now,
     });
 
-    // Emit APPROVAL_REJECTED event
+    // ── Emit event ───────────────────────────────────────────────
+    const eventName = (handler?.eventNames?.onReject ?? EventName.APPROVAL_REJECTED) as EventName;
     const event = {
       id: generateId(),
-      name: EventName.APPROVAL_REJECTED,
+      name: eventName,
       entity_type: 'approval_request',
       entity_id: requestId,
       correlation_id: correlationId,
@@ -391,9 +277,24 @@ approvalRoutes.post('/:id/reject', async (c) => {
     await insertEvent(c.env.DB, event);
     await c.env.EVENTS_QUEUE.send(event);
 
+    // ── Execute handler rejection side-effects ───────────────────
+    let handlerResult = {};
+    if (handler?.onReject) {
+      const payload = JSON.parse(request.payload_json) as Record<string, unknown>;
+      const staffActor = await getActorById(c.env.DB, staff_id);
+      if (staffActor) {
+        handlerResult = await handler.onReject({
+          c, request, payload, staffId: staff_id, staffActor, correlationId, now, reason: reason ?? '',
+        });
+      }
+    }
+
     return c.json({
       request_id: requestId,
+      type: request.type,
       state: ApprovalState.REJECTED,
+      handler: handler?.label ?? null,
+      result: handlerResult,
       correlation_id: correlationId,
     });
   } catch (err) {
@@ -401,3 +302,11 @@ approvalRoutes.post('/:id/reject', async (c) => {
     return c.json({ error: message, correlation_id: correlationId }, 500);
   }
 });
+
+function safeParsePayload(payloadJson: string): unknown {
+  try {
+    return JSON.parse(payloadJson);
+  } catch {
+    return null;
+  }
+}

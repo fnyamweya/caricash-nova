@@ -26,7 +26,6 @@ import {
   listApprovalRequests,
   getOverdraftFacility,
   insertOverdraftFacility,
-  updateOverdraftFacility,
   getReconciliationFindings,
   getReconciliationRuns,
   insertEvent,
@@ -53,6 +52,9 @@ import {
   getSubledgerRollup,
   getSubledgerAccountsByParent,
 } from '@caricash/db';
+import { approvalRegistry } from '../lib/approval-handlers.js';
+// Side-effect: registers all handlers (may already be loaded by approvals.ts)
+import '../lib/approval-handler-impls.js';
 
 export const opsRoutes = new Hono<{ Bindings: Env }>();
 
@@ -439,6 +441,8 @@ opsRoutes.post('/overdraft/request', async (c) => {
 
 // ---------------------------------------------------------------------------
 // POST /ops/overdraft/:id/approve
+// Delegates to the generic approval registry via POST /approvals/:id/approve.
+// Kept for backwards compatibility; prefer using /approvals/:id/approve directly.
 // ---------------------------------------------------------------------------
 opsRoutes.post('/overdraft/:id/approve', async (c) => {
   const staffId = await requireStaff(c);
@@ -459,55 +463,65 @@ opsRoutes.post('/overdraft/:id/approve', async (c) => {
     return c.json({ error: `Request is already ${request.state}`, code: ErrorCode.APPROVAL_ALREADY_DECIDED }, 409);
   }
 
-  // Maker-checker enforcement — maker cannot approve their own request
   if (request.maker_staff_id === staffId) {
     return c.json({ error: 'Maker cannot approve their own request', code: ErrorCode.MAKER_CHECKER_VIOLATION }, 403);
   }
 
+  const handler = approvalRegistry.get(request.type);
+  if (!handler) {
+    return c.json({ error: `No handler for type: ${request.type}`, correlation_id: correlationId }, 501);
+  }
+
   const now = nowISO();
+  const payload = JSON.parse(request.payload_json) as Record<string, unknown>;
+  const staffActor = await getActorById(c.env.DB, staffId);
+
   await updateApprovalRequest(c.env.DB, requestId, ApprovalState.APPROVED, staffId, now);
 
-  // Activate the overdraft facility
-  const payload = JSON.parse(request.payload_json) as { facility_id: string };
-  await updateOverdraftFacility(c.env.DB, payload.facility_id, 'ACTIVE', staffId, now);
+  let handlerResult = {};
+  if (handler.onApprove) {
+    handlerResult = await handler.onApprove({
+      c, request, payload, staffId, staffActor: staffActor as any, correlationId, now,
+    });
+  }
 
-  // Audit log with before/after
   await insertAuditLog(c.env.DB, {
     id: generateId(),
-    action: 'OVERDRAFT_APPROVED',
+    action: handler.auditActions?.onApprove ?? 'OVERDRAFT_APPROVED',
     actor_type: ActorType.STAFF,
     actor_id: staffId,
     target_type: 'overdraft_facility',
-    target_id: payload.facility_id,
+    target_id: (payload as any).facility_id ?? requestId,
     before_json: JSON.stringify({ state: 'PENDING' }),
     after_json: JSON.stringify({ state: 'ACTIVE' }),
     correlation_id: correlationId,
     created_at: now,
   });
 
-  // Emit event
   await insertEvent(c.env.DB, {
     id: generateId(),
-    name: EventName.OVERDRAFT_FACILITY_APPROVED,
+    name: (handler.eventNames?.onApprove ?? EventName.OVERDRAFT_FACILITY_APPROVED) as EventName,
     entity_type: 'overdraft_facility',
-    entity_id: payload.facility_id,
+    entity_id: (payload as any).facility_id ?? requestId,
     correlation_id: correlationId,
     actor_type: ActorType.STAFF,
     actor_id: staffId,
     schema_version: 1,
-    payload_json: JSON.stringify({ facility_id: payload.facility_id, request_id: requestId }),
+    payload_json: JSON.stringify({ facility_id: (payload as any).facility_id, request_id: requestId }),
     created_at: now,
   });
 
   return c.json({
     request_id: requestId,
     state: ApprovalState.APPROVED,
+    result: handlerResult,
     correlation_id: correlationId,
   });
 });
 
 // ---------------------------------------------------------------------------
 // POST /ops/overdraft/:id/reject
+// Delegates to the generic approval registry. Prefer /approvals/:id/reject.
 // ---------------------------------------------------------------------------
 opsRoutes.post('/overdraft/:id/reject', async (c) => {
   const staffId = await requireStaff(c);
@@ -529,44 +543,49 @@ opsRoutes.post('/overdraft/:id/reject', async (c) => {
     return c.json({ error: `Request is already ${request.state}`, code: ErrorCode.APPROVAL_ALREADY_DECIDED }, 409);
   }
 
+  const handler = approvalRegistry.get(request.type);
   const now = nowISO();
   await updateApprovalRequest(c.env.DB, requestId, ApprovalState.REJECTED, staffId, now);
 
-  // Reject the overdraft facility
-  const payload = JSON.parse(request.payload_json) as { facility_id: string };
-  await updateOverdraftFacility(c.env.DB, payload.facility_id, 'REJECTED', staffId);
+  let handlerResult = {};
+  if (handler?.onReject) {
+    const payload = JSON.parse(request.payload_json) as Record<string, unknown>;
+    const staffActor = await getActorById(c.env.DB, staffId);
+    handlerResult = await handler.onReject({
+      c, request, payload, staffId, staffActor: staffActor as any, correlationId, now, reason,
+    });
+  }
 
-  // Audit log with before/after
   await insertAuditLog(c.env.DB, {
     id: generateId(),
-    action: 'OVERDRAFT_REJECTED',
+    action: handler?.auditActions?.onReject ?? 'OVERDRAFT_REJECTED',
     actor_type: ActorType.STAFF,
     actor_id: staffId,
-    target_type: 'overdraft_facility',
-    target_id: payload.facility_id,
+    target_type: 'approval_request',
+    target_id: requestId,
     before_json: JSON.stringify({ state: 'PENDING' }),
     after_json: JSON.stringify({ state: 'REJECTED', reason }),
     correlation_id: correlationId,
     created_at: now,
   });
 
-  // Emit rejection event
   await insertEvent(c.env.DB, {
     id: generateId(),
-    name: EventName.OVERDRAFT_FACILITY_REJECTED,
-    entity_type: 'overdraft_facility',
-    entity_id: payload.facility_id,
+    name: (handler?.eventNames?.onReject ?? EventName.OVERDRAFT_FACILITY_REJECTED) as EventName,
+    entity_type: 'approval_request',
+    entity_id: requestId,
     correlation_id: correlationId,
     actor_type: ActorType.STAFF,
     actor_id: staffId,
     schema_version: 1,
-    payload_json: JSON.stringify({ facility_id: payload.facility_id, request_id: requestId, reason }),
+    payload_json: JSON.stringify({ request_id: requestId, reason }),
     created_at: now,
   });
 
   return c.json({
     request_id: requestId,
     state: ApprovalState.REJECTED,
+    result: handlerResult,
     correlation_id: correlationId,
   });
 });
@@ -712,8 +731,7 @@ opsRoutes.post('/merchant-withdrawal/request', async (c) => {
 
 // ---------------------------------------------------------------------------
 // POST /ops/merchant-withdrawal/:id/approve
-// OPERATIONS staff (different from maker) approves the withdrawal.
-// On approval, posts the transaction via PostingDO.
+// Delegates to the approval registry. Prefer /approvals/:id/approve.
 // ---------------------------------------------------------------------------
 opsRoutes.post('/merchant-withdrawal/:id/approve', async (c) => {
   const staffId = await requireStaff(c);
@@ -738,112 +756,73 @@ opsRoutes.post('/merchant-withdrawal/:id/approve', async (c) => {
     return c.json({ error: `Request is already ${request.state}`, code: ErrorCode.APPROVAL_ALREADY_DECIDED }, 409);
   }
 
-  // Maker-checker enforcement
   if (request.maker_staff_id === staffId) {
     return c.json({ error: 'Maker cannot approve their own request', code: ErrorCode.MAKER_CHECKER_VIOLATION }, 403);
   }
 
-  // Verify checker has OPERATIONS role
+  const handler = approvalRegistry.get(request.type);
+  if (!handler) {
+    return c.json({ error: `No handler for type: ${request.type}`, correlation_id: correlationId }, 501);
+  }
+
+  // Role check
   const checker = await getActorById(c.env.DB, staffId);
   if (!checker || checker.type !== ActorType.STAFF) {
     return c.json({ error: 'Staff actor not found', code: ErrorCode.ACTOR_NOT_FOUND }, 404);
   }
-  if (checker.staff_role !== StaffRole.OPERATIONS && checker.staff_role !== StaffRole.SUPER_ADMIN) {
-    return c.json({ error: 'Only OPERATIONS or SUPER_ADMIN can approve merchant withdrawals', code: ErrorCode.FORBIDDEN }, 403);
+  if (handler.allowedCheckerRoles.length > 0 && !handler.allowedCheckerRoles.includes(checker.staff_role as string)) {
+    return c.json({ error: `Only ${handler.allowedCheckerRoles.join(', ')} can approve ${handler.label}`, code: ErrorCode.FORBIDDEN }, 403);
   }
 
   const now = nowISO();
-  const payload = JSON.parse(request.payload_json) as {
-    merchant_id: string;
-    wallet_account_id: string;
-    amount: string;
-    currency: string;
-    idempotency_key: string;
-    correlation_id: string;
-  };
+  const payload = JSON.parse(request.payload_json) as Record<string, unknown>;
 
-  // Approve the request
   await updateApprovalRequest(c.env.DB, requestId, ApprovalState.APPROVED, staffId, now);
 
-  // Post the withdrawal transaction via PostingDO
-  const doId = c.env.POSTING_DO.idFromName('singleton');
-  const stub = c.env.POSTING_DO.get(doId);
-  const postingRes = await stub.fetch('https://do/post', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      idempotency_key: payload.idempotency_key,
-      correlation_id: correlationId,
-      txn_type: 'WITHDRAWAL',
-      currency: payload.currency,
-      entries: [
-        {
-          account_id: payload.wallet_account_id,
-          entry_type: 'DR',
-          amount: payload.amount,
-          description: `Merchant withdrawal - ${payload.merchant_id}`,
-        },
-        {
-          owner_type: ActorType.STAFF,
-          owner_id: 'SETTLEMENT',
-          account_type: 'SUSPENSE',
-          entry_type: 'CR',
-          amount: payload.amount,
-          description: `Merchant withdrawal payout - ${payload.merchant_id}`,
-        },
-      ],
-      description: `Approved merchant withdrawal for ${payload.merchant_id}`,
-      actor_type: ActorType.STAFF,
-      actor_id: staffId,
-    }),
-  });
+  let handlerResult = {};
+  if (handler.onApprove) {
+    handlerResult = await handler.onApprove({
+      c, request, payload, staffId, staffActor: checker as any, correlationId, now,
+    });
+  }
 
-  const postingResult = await postingRes.json() as Record<string, unknown>;
-
-  // Audit log
   await insertAuditLog(c.env.DB, {
     id: generateId(),
-    action: 'MERCHANT_WITHDRAWAL_APPROVED',
+    action: handler.auditActions?.onApprove ?? 'MERCHANT_WITHDRAWAL_APPROVED',
     actor_type: ActorType.STAFF,
     actor_id: staffId,
     target_type: 'actor',
-    target_id: payload.merchant_id,
+    target_id: (payload.merchant_id as string) ?? requestId,
     before_json: JSON.stringify({ state: ApprovalState.PENDING }),
-    after_json: JSON.stringify({ state: ApprovalState.APPROVED, posting: postingResult }),
+    after_json: JSON.stringify({ state: ApprovalState.APPROVED }),
     correlation_id: correlationId,
     created_at: now,
   });
 
-  // Emit event
   await insertEvent(c.env.DB, {
     id: generateId(),
-    name: EventName.MERCHANT_WITHDRAWAL_APPROVED,
+    name: (handler.eventNames?.onApprove ?? EventName.MERCHANT_WITHDRAWAL_APPROVED) as EventName,
     entity_type: 'approval_request',
     entity_id: requestId,
     correlation_id: correlationId,
     actor_type: ActorType.STAFF,
     actor_id: staffId,
     schema_version: 1,
-    payload_json: JSON.stringify({
-      request_id: requestId,
-      merchant_id: payload.merchant_id,
-      amount: payload.amount,
-      currency: payload.currency,
-      posting_result: postingResult,
-    }),
+    payload_json: JSON.stringify({ request_id: requestId, ...handlerResult }),
     created_at: now,
   });
 
   return c.json({
     request_id: requestId,
     state: ApprovalState.APPROVED,
-    posting: postingResult,
+    result: handlerResult,
     correlation_id: correlationId,
   });
 });
 
 // ---------------------------------------------------------------------------
 // POST /ops/merchant-withdrawal/:id/reject
+// Delegates to the approval registry. Prefer /approvals/:id/reject.
 // ---------------------------------------------------------------------------
 opsRoutes.post('/merchant-withdrawal/:id/reject', async (c) => {
   const staffId = await requireStaff(c);
@@ -869,36 +848,43 @@ opsRoutes.post('/merchant-withdrawal/:id/reject', async (c) => {
     return c.json({ error: `Request is already ${request.state}`, code: ErrorCode.APPROVAL_ALREADY_DECIDED }, 409);
   }
 
+  const handler = approvalRegistry.get(request.type);
   const now = nowISO();
   await updateApprovalRequest(c.env.DB, requestId, ApprovalState.REJECTED, staffId, now);
 
-  const payload = JSON.parse(request.payload_json) as { merchant_id: string; amount: string; currency: string };
+  const payload = JSON.parse(request.payload_json) as Record<string, unknown>;
 
-  // Audit log
+  let handlerResult = {};
+  if (handler?.onReject) {
+    const staffActor = await getActorById(c.env.DB, staffId);
+    handlerResult = await handler.onReject({
+      c, request, payload, staffId, staffActor: staffActor as any, correlationId, now, reason,
+    });
+  }
+
   await insertAuditLog(c.env.DB, {
     id: generateId(),
-    action: 'MERCHANT_WITHDRAWAL_REJECTED',
+    action: handler?.auditActions?.onReject ?? 'MERCHANT_WITHDRAWAL_REJECTED',
     actor_type: ActorType.STAFF,
     actor_id: staffId,
     target_type: 'actor',
-    target_id: payload.merchant_id,
+    target_id: (payload.merchant_id as string) ?? requestId,
     before_json: JSON.stringify({ state: ApprovalState.PENDING }),
     after_json: JSON.stringify({ state: ApprovalState.REJECTED, reason }),
     correlation_id: correlationId,
     created_at: now,
   });
 
-  // Emit event
   await insertEvent(c.env.DB, {
     id: generateId(),
-    name: EventName.MERCHANT_WITHDRAWAL_REJECTED,
+    name: (handler?.eventNames?.onReject ?? EventName.MERCHANT_WITHDRAWAL_REJECTED) as EventName,
     entity_type: 'approval_request',
     entity_id: requestId,
     correlation_id: correlationId,
     actor_type: ActorType.STAFF,
     actor_id: staffId,
     schema_version: 1,
-    payload_json: JSON.stringify({ request_id: requestId, merchant_id: payload.merchant_id, reason }),
+    payload_json: JSON.stringify({ request_id: requestId, reason }),
     created_at: now,
   });
 
