@@ -54,12 +54,10 @@ export interface CustomerProfile {
 
 export interface MerchantProfile {
   actor_id: string;
-  store_code?: string;
-  owner_name?: string;
-  owner_first_name?: string;
-  owner_last_name?: string;
-  business_registration_no?: string;
-  tax_id?: string;
+  first_name?: string;
+  middle_name?: string;
+  last_name?: string;
+  display_name?: string;
   email?: string;
   parent_actor_id?: string;
   created_at: string;
@@ -68,9 +66,14 @@ export interface MerchantProfile {
 
 export interface AgentProfile {
   actor_id: string;
+  first_name?: string;
+  middle_name?: string;
+  last_name?: string;
+  display_name?: string;
   agent_code: string;
   agent_type: AgentType;
   owner_name?: string;
+  msisdn?: string;
   parent_actor_id?: string;
   created_at: string;
   updated_at: string;
@@ -78,9 +81,15 @@ export interface AgentProfile {
 
 export interface StaffProfile {
   actor_id: string;
+  first_name?: string;
+  middle_name?: string;
+  last_name?: string;
+  display_name?: string;
   staff_code: string;
   staff_role: StaffRole;
   email?: string;
+  msisdn?: string;
+  department?: string;
   created_at: string;
   updated_at: string;
 }

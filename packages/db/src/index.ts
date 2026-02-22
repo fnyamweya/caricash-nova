@@ -153,12 +153,15 @@ async function insertActorProfile(db: D1Database, actor: Actor): Promise<void> {
   } else if (type === 'MERCHANT') {
     await db
       .prepare(
-        `INSERT OR IGNORE INTO merchant_profiles (actor_id, store_code, email, parent_actor_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+        `INSERT OR IGNORE INTO merchant_profiles (actor_id, first_name, middle_name, last_name, display_name, email, parent_actor_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
       )
       .bind(
         actor.id,
-        actor.store_code ?? null,
+        actor.first_name ?? null,
+        actor.middle_name ?? null,
+        actor.last_name ?? null,
+        actor.display_name ?? null,
         actor.email ?? null,
         actor.parent_actor_id ?? null,
         actor.created_at,
@@ -169,13 +172,18 @@ async function insertActorProfile(db: D1Database, actor: Actor): Promise<void> {
     if (actor.agent_code) {
       await db
         .prepare(
-          `INSERT OR IGNORE INTO agent_profiles (actor_id, agent_code, agent_type, parent_actor_id, created_at, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+          `INSERT OR IGNORE INTO agent_profiles (actor_id, first_name, middle_name, last_name, display_name, agent_code, agent_type, msisdn, parent_actor_id, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
         )
         .bind(
           actor.id,
+          actor.first_name ?? null,
+          actor.middle_name ?? null,
+          actor.last_name ?? null,
+          actor.display_name ?? null,
           actor.agent_code,
           actor.agent_type ?? 'STANDARD',
+          actor.msisdn ?? null,
           actor.parent_actor_id ?? null,
           actor.created_at,
           actor.updated_at,
@@ -186,14 +194,19 @@ async function insertActorProfile(db: D1Database, actor: Actor): Promise<void> {
     if (actor.staff_code) {
       await db
         .prepare(
-          `INSERT OR IGNORE INTO staff_profiles (actor_id, staff_code, staff_role, email, created_at, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+          `INSERT OR IGNORE INTO staff_profiles (actor_id, first_name, middle_name, last_name, display_name, staff_code, staff_role, email, msisdn, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
         )
         .bind(
           actor.id,
+          actor.first_name ?? null,
+          actor.middle_name ?? null,
+          actor.last_name ?? null,
+          actor.display_name ?? null,
           actor.staff_code,
           actor.staff_role ?? 'SUPPORT',
           actor.email ?? null,
+          actor.msisdn ?? null,
           actor.created_at,
           actor.updated_at,
         )
@@ -216,10 +229,6 @@ export async function getAgentProfile(db: D1Database, actorId: string): Promise<
 
 export async function getStaffProfile(db: D1Database, actorId: string): Promise<StaffProfile | null> {
   return (await db.prepare('SELECT * FROM staff_profiles WHERE actor_id = ?1').bind(actorId).first()) as StaffProfile | null;
-}
-
-export async function getMerchantProfileByStoreCode(db: D1Database, storeCode: string): Promise<MerchantProfile | null> {
-  return (await db.prepare('SELECT * FROM merchant_profiles WHERE store_code = ?1').bind(storeCode).first()) as MerchantProfile | null;
 }
 
 export async function getAgentProfileByCode(db: D1Database, agentCode: string): Promise<AgentProfile | null> {
@@ -260,7 +269,7 @@ export async function updateCustomerProfile(
 export async function updateMerchantProfile(
   db: D1Database,
   actorId: string,
-  fields: { store_code?: string; owner_name?: string; owner_first_name?: string; owner_last_name?: string; business_registration_no?: string; tax_id?: string; email?: string; parent_actor_id?: string },
+  fields: { first_name?: string; middle_name?: string; last_name?: string; display_name?: string; email?: string; parent_actor_id?: string },
 ): Promise<void> {
   const sets: string[] = [];
   const values: (string | null)[] = [];
@@ -287,7 +296,7 @@ export async function updateMerchantProfile(
 export async function updateStaffProfile(
   db: D1Database,
   actorId: string,
-  fields: { staff_role?: string; email?: string },
+  fields: { first_name?: string; middle_name?: string; last_name?: string; display_name?: string; staff_role?: string; email?: string; msisdn?: string; department?: string },
 ): Promise<void> {
   const sets: string[] = [];
   const values: (string | null)[] = [];
@@ -420,7 +429,7 @@ export async function getStaffActorById(db: D1Database, id: string): Promise<Act
 export async function updateStaffActor(
   db: D1Database,
   staffId: string,
-  fields: { name?: string; email?: string; staff_role?: string; state?: string },
+  fields: { name?: string; email?: string; staff_role?: string; state?: string; first_name?: string; middle_name?: string; last_name?: string; display_name?: string; msisdn?: string; department?: string },
 ): Promise<void> {
   const sets: string[] = [];
   const values: (string | null)[] = [];
@@ -453,9 +462,16 @@ export async function updateStaffActor(
     .run();
 
   // Dual-write to staff_profiles
-  const profileFields: { staff_role?: string; email?: string } = {};
+  const profileFields: Parameters<typeof updateStaffProfile>[2] = {};
   if (fields.staff_role !== undefined) profileFields.staff_role = fields.staff_role;
   if (fields.email !== undefined) profileFields.email = fields.email;
+  // Forward name fields to the profile table when present
+  if (fields.first_name !== undefined) profileFields.first_name = fields.first_name;
+  if (fields.middle_name !== undefined) profileFields.middle_name = fields.middle_name;
+  if (fields.last_name !== undefined) profileFields.last_name = fields.last_name;
+  if (fields.display_name !== undefined) profileFields.display_name = fields.display_name;
+  if (fields.msisdn !== undefined) profileFields.msisdn = fields.msisdn;
+  if (fields.department !== undefined) profileFields.department = fields.department;
   if (Object.keys(profileFields).length > 0) {
     await updateStaffProfile(db, staffId, profileFields);
   }
@@ -1240,16 +1256,20 @@ export async function updateActorProfile(
     .bind(...values)
     .run();
 
-  // Dual-write customer profile fields if applicable
-  const cpFields: { first_name?: string; middle_name?: string; last_name?: string; display_name?: string; email?: string } = {};
-  if (fields.first_name !== undefined) cpFields.first_name = fields.first_name;
-  if (fields.middle_name !== undefined) cpFields.middle_name = fields.middle_name;
-  if (fields.last_name !== undefined) cpFields.last_name = fields.last_name;
-  if (fields.display_name !== undefined) cpFields.display_name = fields.display_name;
-  if (fields.email !== undefined) cpFields.email = fields.email;
-  if (Object.keys(cpFields).length > 0) {
-    // Best-effort: only writes if a customer_profiles row exists for this actor
-    await updateCustomerProfile(db, actorId, cpFields).catch(() => {});
+  // Dual-write profile fields to type-specific tables (best-effort)
+  const nameFields: { first_name?: string; middle_name?: string; last_name?: string; display_name?: string; email?: string } = {};
+  if (fields.first_name !== undefined) nameFields.first_name = fields.first_name;
+  if (fields.middle_name !== undefined) nameFields.middle_name = fields.middle_name;
+  if (fields.last_name !== undefined) nameFields.last_name = fields.last_name;
+  if (fields.display_name !== undefined) nameFields.display_name = fields.display_name;
+  if (fields.email !== undefined) nameFields.email = fields.email;
+  if (Object.keys(nameFields).length > 0) {
+    // Best-effort: only writes if a matching profile row exists for this actor
+    await Promise.allSettled([
+      updateCustomerProfile(db, actorId, nameFields),
+      updateMerchantProfile(db, actorId, nameFields),
+      updateStaffProfile(db, actorId, nameFields),
+    ]);
   }
 }
 
