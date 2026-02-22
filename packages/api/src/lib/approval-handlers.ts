@@ -121,40 +121,40 @@ export interface ApprovalHandler {
 // ── Registry ─────────────────────────────────────────────────────────
 
 class ApprovalHandlerRegistry {
-  private handlers = new Map<string, ApprovalHandler>();
+    private handlers = new Map<string, ApprovalHandler>();
 
-  /**
-   * Register a handler for an approval type.
-   * If a handler is already registered for this type, it is silently skipped
-   * (idempotent — safe for multiple imports of the impl module).
-   */
-  register(approvalType: string, handler: ApprovalHandler): void {
-    if (this.handlers.has(approvalType)) {
-      return; // already registered — idempotent
+    /**
+     * Register a handler for an approval type.
+     * If a handler is already registered for this type, it is silently skipped
+     * (idempotent — safe for multiple imports of the impl module).
+     */
+    register(approvalType: string, handler: ApprovalHandler): void {
+        if (this.handlers.has(approvalType)) {
+            return; // already registered — idempotent
+        }
+        this.handlers.set(approvalType, handler);
     }
-    this.handlers.set(approvalType, handler);
-  }
 
-  /**
-   * Get the handler for an approval type, or undefined if none registered.
-   */
-  get(approvalType: string): ApprovalHandler | undefined {
-    return this.handlers.get(approvalType);
-  }
+    /**
+     * Get the handler for an approval type, or undefined if none registered.
+     */
+    get(approvalType: string): ApprovalHandler | undefined {
+        return this.handlers.get(approvalType);
+    }
 
-  /**
-   * Check if a handler is registered for the given type.
-   */
-  has(approvalType: string): boolean {
-    return this.handlers.has(approvalType);
-  }
+    /**
+     * Check if a handler is registered for the given type.
+     */
+    has(approvalType: string): boolean {
+        return this.handlers.has(approvalType);
+    }
 
-  /**
-   * List all registered approval types.
-   */
-  types(): string[] {
-    return [...this.handlers.keys()];
-  }
+    /**
+     * List all registered approval types.
+     */
+    types(): string[] {
+        return [...this.handlers.keys()];
+    }
 }
 
 /** Singleton registry — import and register handlers at startup */

@@ -1,4 +1,4 @@
-import type { ActorType, ActorState, KycState, AccountType, TxnType, TxnState, ApprovalType, ApprovalState, MerchantUserRole, MerchantUserState, AgentUserRole, AgentUserState, RegistrationType, RegistrationChannel, FloatOperationType, StaffRole, AgentType, AccountClass, NormalBalance, AccountInstanceStatus, AccountingPeriodStatus, PostingBatchStatus, SubledgerRelationshipType } from './enums.js';
+import type { ActorType, ActorState, KycState, AccountType, TxnType, TxnState, ApprovalType, ApprovalState, MerchantUserRole, MerchantUserState, AgentUserRole, AgentUserState, RegistrationType, RegistrationChannel, FloatOperationType, StaffRole, AgentType, AccountClass, NormalBalance, AccountInstanceStatus, AccountingPeriodStatus, PostingBatchStatus, SubledgerRelationshipType, PolicyState, WorkflowState, StageDecision, DelegationState, PolicyConditionOperator, PolicyBindingType } from './enums.js';
 import type { CurrencyCode } from './currency.js';
 import type { EventName } from './events.js';
 
@@ -497,4 +497,126 @@ export interface KycRequirement {
   config_json?: string;
   created_at: string;
   updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Approval Policies — dynamic maker-checker configuration
+// ---------------------------------------------------------------------------
+
+export interface ApprovalPolicy {
+  id: string;
+  name: string;
+  description?: string;
+  approval_type?: string;
+  priority: number;
+  version: number;
+  state: PolicyState;
+  valid_from?: string;
+  valid_to?: string;
+  time_constraints_json?: string;
+  expiry_minutes?: number;
+  escalation_minutes?: number;
+  escalation_group_json?: string;
+  created_by: string;
+  updated_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApprovalPolicyCondition {
+  id: string;
+  policy_id: string;
+  field: string;
+  operator: PolicyConditionOperator;
+  value_json: string;
+  created_at: string;
+}
+
+export interface ApprovalPolicyStage {
+  id: string;
+  policy_id: string;
+  stage_no: number;
+  min_approvals: number;
+  roles_json?: string;
+  actor_ids_json?: string;
+  exclude_maker: number;
+  exclude_previous_approvers: number;
+  timeout_minutes?: number;
+  escalation_roles_json?: string;
+  escalation_actor_ids_json?: string;
+  created_at: string;
+}
+
+export interface ApprovalPolicyBinding {
+  id: string;
+  policy_id: string;
+  binding_type: PolicyBindingType;
+  binding_value_json: string;
+  created_at: string;
+}
+
+export interface ApprovalStageDecision {
+  id: string;
+  request_id: string;
+  policy_id: string;
+  stage_no: number;
+  decision: StageDecision;
+  decider_id: string;
+  decider_role?: string;
+  reason?: string;
+  decided_at: string;
+  created_at: string;
+}
+
+export interface ApprovalDelegation {
+  id: string;
+  delegator_id: string;
+  delegate_id: string;
+  approval_type?: string;
+  valid_from: string;
+  valid_to: string;
+  reason?: string;
+  state: DelegationState;
+  created_by: string;
+  created_at: string;
+  revoked_at?: string;
+  revoked_by?: string;
+}
+
+export interface ApprovalPolicyDecision {
+  id: string;
+  request_id: string;
+  evaluation_json: string;
+  matched_policy_id?: string;
+  total_stages: number;
+  created_at: string;
+}
+
+/** Full policy with nested conditions, stages, and bindings */
+export interface ApprovalPolicyFull extends ApprovalPolicy {
+  conditions: ApprovalPolicyCondition[];
+  stages: ApprovalPolicyStage[];
+  bindings: ApprovalPolicyBinding[];
+}
+
+/** Policy evaluation result for simulation / explain */
+export interface PolicyEvaluationResult {
+  matched: boolean;
+  policy_id?: string;
+  policy_name?: string;
+  total_stages: number;
+  stages: {
+    stage_no: number;
+    min_approvals: number;
+    allowed_roles: string[];
+    allowed_actors: string[];
+    timeout_minutes?: number;
+  }[];
+  reasons: string[];
+  all_evaluated: {
+    policy_id: string;
+    policy_name: string;
+    matched: boolean;
+    reasons: string[];
+  }[];
 }

@@ -33,6 +33,14 @@ import type {
   GLDetailRow,
   AccountStatementRow,
   SubledgerRollupRow,
+  ApprovalPolicy,
+  ApprovalPolicyCondition,
+  ApprovalPolicyStage,
+  ApprovalPolicyBinding,
+  ApprovalStageDecision,
+  ApprovalDelegation,
+  ApprovalPolicyDecision,
+  ApprovalPolicyFull,
 } from '@caricash/shared';
 
 // D1Database from @cloudflare/workers-types
@@ -1925,5 +1933,305 @@ export async function getSubledgerRollup(db: D1Database, parentActorId: string, 
   const stmt = currency ? db.prepare(sql).bind(parentActorId, currency) : db.prepare(sql).bind(parentActorId);
   const res = await stmt.all();
   return (res.results ?? []) as SubledgerRollupRow[];
+}
+
+// ===========================================================================
+// Approval Policies
+// ===========================================================================
+
+export async function insertApprovalPolicy(db: D1Database, p: ApprovalPolicy): Promise<void> {
+  await db.prepare(
+    `INSERT INTO approval_policies
+       (id, name, description, approval_type, priority, version, state, valid_from, valid_to, time_constraints_json, expiry_minutes, escalation_minutes, escalation_group_json, created_by, updated_by, created_at, updated_at)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`,
+  ).bind(
+    p.id, p.name, p.description ?? null, p.approval_type ?? null, p.priority, p.version, p.state,
+    p.valid_from ?? null, p.valid_to ?? null, p.time_constraints_json ?? null,
+    p.expiry_minutes ?? null, p.escalation_minutes ?? null, p.escalation_group_json ?? null,
+    p.created_by, p.updated_by ?? null, p.created_at, p.updated_at,
+  ).run();
+}
+
+export async function getApprovalPolicy(db: D1Database, id: string): Promise<ApprovalPolicy | null> {
+  return (await db.prepare('SELECT * FROM approval_policies WHERE id = ?1').bind(id).first()) as ApprovalPolicy | null;
+}
+
+export async function listApprovalPolicies(
+  db: D1Database,
+  filters?: { state?: string; approval_type?: string; limit?: number },
+): Promise<ApprovalPolicy[]> {
+  const where: string[] = [];
+  const values: (string | number)[] = [];
+  let idx = 1;
+  if (filters?.state) { where.push(`state = ?${idx++}`); values.push(filters.state); }
+  if (filters?.approval_type) { where.push(`approval_type = ?${idx++}`); values.push(filters.approval_type); }
+  const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
+  values.push(limit);
+  const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  const res = await db.prepare(
+    `SELECT * FROM approval_policies ${whereSql} ORDER BY priority ASC, created_at DESC LIMIT ?${idx}`,
+  ).bind(...values).all();
+  return (res.results ?? []) as ApprovalPolicy[];
+}
+
+export async function updateApprovalPolicy(
+  db: D1Database,
+  id: string,
+  updates: Partial<Pick<ApprovalPolicy, 'name' | 'description' | 'approval_type' | 'priority' | 'state' | 'valid_from' | 'valid_to' | 'time_constraints_json' | 'expiry_minutes' | 'escalation_minutes' | 'escalation_group_json' | 'updated_by' | 'updated_at'>>,
+): Promise<void> {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  let idx = 1;
+  for (const [key, value] of Object.entries(updates)) {
+    sets.push(`${key} = ?${idx++}`);
+    values.push(value ?? null);
+  }
+  if (sets.length === 0) return;
+  values.push(id);
+  await db.prepare(`UPDATE approval_policies SET ${sets.join(', ')} WHERE id = ?${idx}`).bind(...values).run();
+}
+
+export async function deleteApprovalPolicy(db: D1Database, id: string): Promise<void> {
+  await db.prepare('DELETE FROM approval_policies WHERE id = ?1').bind(id).run();
+}
+
+/** Get a full policy with conditions, stages, and bindings */
+export async function getApprovalPolicyFull(db: D1Database, id: string): Promise<ApprovalPolicyFull | null> {
+  const policy = await getApprovalPolicy(db, id);
+  if (!policy) return null;
+  const [conditions, stages, bindings] = await Promise.all([
+    listPolicyConditions(db, id),
+    listPolicyStages(db, id),
+    listPolicyBindings(db, id),
+  ]);
+  return { ...policy, conditions, stages, bindings };
+}
+
+/** List all ACTIVE policies ordered by priority for evaluation */
+export async function listActivePolicies(db: D1Database, approvalType?: string): Promise<ApprovalPolicy[]> {
+  if (approvalType) {
+    const res = await db.prepare(
+      `SELECT * FROM approval_policies WHERE state = 'ACTIVE' AND (approval_type = ?1 OR approval_type IS NULL) ORDER BY priority ASC`,
+    ).bind(approvalType).all();
+    return (res.results ?? []) as ApprovalPolicy[];
+  }
+  const res = await db.prepare(
+    `SELECT * FROM approval_policies WHERE state = 'ACTIVE' ORDER BY priority ASC`,
+  ).all();
+  return (res.results ?? []) as ApprovalPolicy[];
+}
+
+// ===========================================================================
+// Policy Conditions
+// ===========================================================================
+
+export async function insertPolicyCondition(db: D1Database, c: ApprovalPolicyCondition): Promise<void> {
+  await db.prepare(
+    `INSERT INTO approval_policy_conditions (id, policy_id, field, operator, value_json, created_at)
+     VALUES (?1,?2,?3,?4,?5,?6)`,
+  ).bind(c.id, c.policy_id, c.field, c.operator, c.value_json, c.created_at).run();
+}
+
+export async function listPolicyConditions(db: D1Database, policyId: string): Promise<ApprovalPolicyCondition[]> {
+  const res = await db.prepare('SELECT * FROM approval_policy_conditions WHERE policy_id = ?1').bind(policyId).all();
+  return (res.results ?? []) as ApprovalPolicyCondition[];
+}
+
+export async function deletePolicyConditions(db: D1Database, policyId: string): Promise<void> {
+  await db.prepare('DELETE FROM approval_policy_conditions WHERE policy_id = ?1').bind(policyId).run();
+}
+
+// ===========================================================================
+// Policy Stages
+// ===========================================================================
+
+export async function insertPolicyStage(db: D1Database, s: ApprovalPolicyStage): Promise<void> {
+  await db.prepare(
+    `INSERT INTO approval_policy_stages
+       (id, policy_id, stage_no, min_approvals, roles_json, actor_ids_json, exclude_maker, exclude_previous_approvers, timeout_minutes, escalation_roles_json, escalation_actor_ids_json, created_at)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)`,
+  ).bind(
+    s.id, s.policy_id, s.stage_no, s.min_approvals,
+    s.roles_json ?? null, s.actor_ids_json ?? null,
+    s.exclude_maker, s.exclude_previous_approvers,
+    s.timeout_minutes ?? null, s.escalation_roles_json ?? null, s.escalation_actor_ids_json ?? null,
+    s.created_at,
+  ).run();
+}
+
+export async function listPolicyStages(db: D1Database, policyId: string): Promise<ApprovalPolicyStage[]> {
+  const res = await db.prepare('SELECT * FROM approval_policy_stages WHERE policy_id = ?1 ORDER BY stage_no ASC').bind(policyId).all();
+  return (res.results ?? []) as ApprovalPolicyStage[];
+}
+
+export async function deletePolicyStages(db: D1Database, policyId: string): Promise<void> {
+  await db.prepare('DELETE FROM approval_policy_stages WHERE policy_id = ?1').bind(policyId).run();
+}
+
+// ===========================================================================
+// Policy Bindings
+// ===========================================================================
+
+export async function insertPolicyBinding(db: D1Database, b: ApprovalPolicyBinding): Promise<void> {
+  await db.prepare(
+    `INSERT INTO approval_policy_bindings (id, policy_id, binding_type, binding_value_json, created_at)
+     VALUES (?1,?2,?3,?4,?5)`,
+  ).bind(b.id, b.policy_id, b.binding_type, b.binding_value_json, b.created_at).run();
+}
+
+export async function listPolicyBindings(db: D1Database, policyId: string): Promise<ApprovalPolicyBinding[]> {
+  const res = await db.prepare('SELECT * FROM approval_policy_bindings WHERE policy_id = ?1').bind(policyId).all();
+  return (res.results ?? []) as ApprovalPolicyBinding[];
+}
+
+export async function deletePolicyBindings(db: D1Database, policyId: string): Promise<void> {
+  await db.prepare('DELETE FROM approval_policy_bindings WHERE policy_id = ?1').bind(policyId).run();
+}
+
+// ===========================================================================
+// Stage Decisions
+// ===========================================================================
+
+export async function insertStageDecision(db: D1Database, d: ApprovalStageDecision): Promise<void> {
+  await db.prepare(
+    `INSERT INTO approval_stage_decisions (id, request_id, policy_id, stage_no, decision, decider_id, decider_role, reason, decided_at, created_at)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)`,
+  ).bind(
+    d.id, d.request_id, d.policy_id, d.stage_no, d.decision,
+    d.decider_id, d.decider_role ?? null, d.reason ?? null,
+    d.decided_at, d.created_at,
+  ).run();
+}
+
+export async function listStageDecisions(db: D1Database, requestId: string): Promise<ApprovalStageDecision[]> {
+  const res = await db.prepare(
+    'SELECT * FROM approval_stage_decisions WHERE request_id = ?1 ORDER BY stage_no ASC, decided_at ASC',
+  ).bind(requestId).all();
+  return (res.results ?? []) as ApprovalStageDecision[];
+}
+
+export async function countStageDecisions(db: D1Database, requestId: string, stageNo: number, decision?: string): Promise<number> {
+  const sql = decision
+    ? 'SELECT COUNT(*) as cnt FROM approval_stage_decisions WHERE request_id = ?1 AND stage_no = ?2 AND decision = ?3'
+    : 'SELECT COUNT(*) as cnt FROM approval_stage_decisions WHERE request_id = ?1 AND stage_no = ?2';
+  const stmt = decision
+    ? db.prepare(sql).bind(requestId, stageNo, decision)
+    : db.prepare(sql).bind(requestId, stageNo);
+  const row = await stmt.first() as { cnt: number } | null;
+  return row?.cnt ?? 0;
+}
+
+export async function hasDeciderDecidedStage(db: D1Database, requestId: string, stageNo: number, deciderId: string): Promise<boolean> {
+  const row = await db.prepare(
+    'SELECT 1 FROM approval_stage_decisions WHERE request_id = ?1 AND stage_no = ?2 AND decider_id = ?3 LIMIT 1',
+  ).bind(requestId, stageNo, deciderId).first();
+  return !!row;
+}
+
+// ===========================================================================
+// Delegations
+// ===========================================================================
+
+export async function insertDelegation(db: D1Database, d: ApprovalDelegation): Promise<void> {
+  await db.prepare(
+    `INSERT INTO approval_delegations (id, delegator_id, delegate_id, approval_type, valid_from, valid_to, reason, state, created_by, created_at)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)`,
+  ).bind(
+    d.id, d.delegator_id, d.delegate_id, d.approval_type ?? null,
+    d.valid_from, d.valid_to, d.reason ?? null, d.state, d.created_by, d.created_at,
+  ).run();
+}
+
+export async function getDelegation(db: D1Database, id: string): Promise<ApprovalDelegation | null> {
+  return (await db.prepare('SELECT * FROM approval_delegations WHERE id = ?1').bind(id).first()) as ApprovalDelegation | null;
+}
+
+export async function listActiveDelegationsForDelegate(
+  db: D1Database,
+  delegateId: string,
+  approvalType?: string,
+  now?: string,
+): Promise<ApprovalDelegation[]> {
+  const ts = now ?? new Date().toISOString();
+  if (approvalType) {
+    const res = await db.prepare(
+      `SELECT * FROM approval_delegations
+       WHERE delegate_id = ?1 AND state = 'ACTIVE'
+         AND valid_from <= ?2 AND valid_to >= ?2
+         AND (approval_type = ?3 OR approval_type IS NULL)
+       ORDER BY created_at DESC`,
+    ).bind(delegateId, ts, approvalType).all();
+    return (res.results ?? []) as ApprovalDelegation[];
+  }
+  const res = await db.prepare(
+    `SELECT * FROM approval_delegations
+     WHERE delegate_id = ?1 AND state = 'ACTIVE'
+       AND valid_from <= ?2 AND valid_to >= ?2
+     ORDER BY created_at DESC`,
+  ).bind(delegateId, ts).all();
+  return (res.results ?? []) as ApprovalDelegation[];
+}
+
+export async function listDelegations(
+  db: D1Database,
+  filters?: { delegator_id?: string; delegate_id?: string; state?: string; limit?: number },
+): Promise<ApprovalDelegation[]> {
+  const where: string[] = [];
+  const values: (string | number)[] = [];
+  let idx = 1;
+  if (filters?.delegator_id) { where.push(`delegator_id = ?${idx++}`); values.push(filters.delegator_id); }
+  if (filters?.delegate_id) { where.push(`delegate_id = ?${idx++}`); values.push(filters.delegate_id); }
+  if (filters?.state) { where.push(`state = ?${idx++}`); values.push(filters.state); }
+  const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
+  values.push(limit);
+  const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  const res = await db.prepare(
+    `SELECT * FROM approval_delegations ${whereSql} ORDER BY created_at DESC LIMIT ?${idx}`,
+  ).bind(...values).all();
+  return (res.results ?? []) as ApprovalDelegation[];
+}
+
+export async function revokeDelegation(db: D1Database, id: string, revokedBy: string, revokedAt: string): Promise<void> {
+  await db.prepare(
+    `UPDATE approval_delegations SET state = 'REVOKED', revoked_by = ?1, revoked_at = ?2 WHERE id = ?3`,
+  ).bind(revokedBy, revokedAt, id).run();
+}
+
+// ===========================================================================
+// Policy Decisions (audit trail)
+// ===========================================================================
+
+export async function insertPolicyDecision(db: D1Database, d: ApprovalPolicyDecision): Promise<void> {
+  await db.prepare(
+    `INSERT INTO approval_policy_decisions (id, request_id, evaluation_json, matched_policy_id, total_stages, created_at)
+     VALUES (?1,?2,?3,?4,?5,?6)`,
+  ).bind(d.id, d.request_id, d.evaluation_json, d.matched_policy_id ?? null, d.total_stages, d.created_at).run();
+}
+
+export async function getPolicyDecision(db: D1Database, requestId: string): Promise<ApprovalPolicyDecision | null> {
+  return (await db.prepare(
+    'SELECT * FROM approval_policy_decisions WHERE request_id = ?1 ORDER BY created_at DESC LIMIT 1',
+  ).bind(requestId).first()) as ApprovalPolicyDecision | null;
+}
+
+// ===========================================================================
+// Approval request workflow extensions
+// ===========================================================================
+
+export async function updateApprovalRequestWorkflow(
+  db: D1Database,
+  requestId: string,
+  updates: { policy_id?: string; current_stage?: number; total_stages?: number; workflow_state?: string },
+): Promise<void> {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  let idx = 1;
+  for (const [key, value] of Object.entries(updates)) {
+    sets.push(`${key} = ?${idx++}`);
+    values.push(value ?? null);
+  }
+  if (sets.length === 0) return;
+  values.push(requestId);
+  await db.prepare(`UPDATE approval_requests SET ${sets.join(', ')} WHERE id = ?${idx}`).bind(...values).run();
 }
 

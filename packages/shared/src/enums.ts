@@ -31,6 +31,42 @@ export const ApprovalState = {
 } as const;
 export type ApprovalState = typeof ApprovalState[keyof typeof ApprovalState];
 
+export const PolicyState = {
+  DRAFT: 'DRAFT', ACTIVE: 'ACTIVE', INACTIVE: 'INACTIVE', ARCHIVED: 'ARCHIVED',
+} as const;
+export type PolicyState = typeof PolicyState[keyof typeof PolicyState];
+
+export const WorkflowState = {
+  STAGE_PENDING: 'STAGE_PENDING',
+  STAGE_COMPLETE: 'STAGE_COMPLETE',
+  ALL_STAGES_COMPLETE: 'ALL_STAGES_COMPLETE',
+  ESCALATED: 'ESCALATED',
+  EXPIRED: 'EXPIRED',
+} as const;
+export type WorkflowState = typeof WorkflowState[keyof typeof WorkflowState];
+
+export const StageDecision = { APPROVE: 'APPROVE', REJECT: 'REJECT' } as const;
+export type StageDecision = typeof StageDecision[keyof typeof StageDecision];
+
+export const DelegationState = {
+  ACTIVE: 'ACTIVE', REVOKED: 'REVOKED', EXPIRED: 'EXPIRED',
+} as const;
+export type DelegationState = typeof DelegationState[keyof typeof DelegationState];
+
+export const PolicyConditionOperator = {
+  EQ: 'eq', NEQ: 'neq', GT: 'gt', GTE: 'gte', LT: 'lt', LTE: 'lte',
+  IN: 'in', NOT_IN: 'not_in', CONTAINS: 'contains', REGEX: 'regex',
+  BETWEEN: 'between', EXISTS: 'exists',
+} as const;
+export type PolicyConditionOperator = typeof PolicyConditionOperator[keyof typeof PolicyConditionOperator];
+
+export const PolicyBindingType = {
+  ACTOR: 'actor', ACTOR_TYPE: 'actor_type', ROLE: 'role',
+  HIERARCHY: 'hierarchy', BUSINESS_UNIT: 'business_unit',
+  CURRENCY: 'currency', ALL: 'all',
+} as const;
+export type PolicyBindingType = typeof PolicyBindingType[keyof typeof PolicyBindingType];
+
 export const ApprovalType = {
   REVERSAL_REQUESTED: 'REVERSAL_REQUESTED',
   MANUAL_ADJUSTMENT_REQUESTED: 'MANUAL_ADJUSTMENT_REQUESTED',
