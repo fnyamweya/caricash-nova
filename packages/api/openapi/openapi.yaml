@@ -1749,6 +1749,702 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /approvals/types:
+    get:
+      operationId: listApprovalTypes
+      tags: [Approvals]
+      summary: List all approval types
+      description: Returns all registered approval types — both code-level handlers and dynamic type configs.
+      responses:
+        '200':
+          description: Approval types list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  types:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApprovalTypeInfo'
+
+  # ============================================================
+  #  APPROVAL POLICIES
+  # ============================================================
+  /approvals/policies:
+    get:
+      operationId: listApprovalPolicies
+      tags: [Approvals]
+      summary: List approval policies
+      description: List all approval policies with optional filters.
+      parameters:
+        - name: approval_type
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [DRAFT, ACTIVE, INACTIVE, ARCHIVED]
+      responses:
+        '200':
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApprovalPolicyFull'
+    post:
+      operationId: createApprovalPolicy
+      tags: [Approvals]
+      summary: Create approval policy
+      description: Create a new approval policy with conditions, stages, and bindings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApprovalPolicyRequest'
+      responses:
+        '201':
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalPolicyFull'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /approvals/policies/{policyId}:
+    get:
+      operationId: getApprovalPolicy
+      tags: [Approvals]
+      summary: Get approval policy
+      description: Retrieve a specific approval policy with full details.
+      parameters:
+        - $ref: '#/components/parameters/policyId'
+      responses:
+        '200':
+          description: Policy details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalPolicyFull'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateApprovalPolicy
+      tags: [Approvals]
+      summary: Update approval policy
+      description: Update an existing approval policy.
+      parameters:
+        - $ref: '#/components/parameters/policyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id]
+              properties:
+                staff_id:
+                  type: string
+                name:
+                  type: string
+                description:
+                  type: string
+                priority:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/PolicyConditionInput'
+                stages:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/PolicyStageInput'
+                bindings:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/PolicyBindingInput'
+      responses:
+        '200':
+          description: Policy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalPolicyFull'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: deleteApprovalPolicy
+      tags: [Approvals]
+      summary: Delete approval policy
+      description: Delete an approval policy (must be in DRAFT or INACTIVE state).
+      parameters:
+        - $ref: '#/components/parameters/policyId'
+        - name: staff_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Policy deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  policy_id:
+                    type: string
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /approvals/policies/{policyId}/activate:
+    post:
+      operationId: activateApprovalPolicy
+      tags: [Approvals]
+      summary: Activate approval policy
+      description: Set the policy state to ACTIVE.
+      parameters:
+        - $ref: '#/components/parameters/policyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id]
+              properties:
+                staff_id:
+                  type: string
+      responses:
+        '200':
+          description: Policy activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalPolicyFull'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /approvals/policies/{policyId}/deactivate:
+    post:
+      operationId: deactivateApprovalPolicy
+      tags: [Approvals]
+      summary: Deactivate approval policy
+      description: Set the policy state to INACTIVE.
+      parameters:
+        - $ref: '#/components/parameters/policyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id]
+              properties:
+                staff_id:
+                  type: string
+      responses:
+        '200':
+          description: Policy deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalPolicyFull'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /approvals/policies/simulate:
+    post:
+      operationId: simulateApprovalPolicy
+      tags: [Approvals]
+      summary: Simulate policy evaluation
+      description: Dry-run policy matching without creating a request. Returns which policy would match and the resulting stages.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approval_type, payload]
+              properties:
+                approval_type:
+                  type: string
+                maker_id:
+                  type: string
+                payload:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Simulation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyEvaluationResult'
+
+  /approvals/policies/requests/{requestId}/policy-decision:
+    get:
+      operationId: getPolicyDecision
+      tags: [Approvals]
+      summary: Get policy decision for a request
+      description: Retrieve the policy evaluation that was recorded when the request was created.
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Policy decision
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id:
+                    type: string
+                  evaluation:
+                    $ref: '#/components/schemas/PolicyEvaluationResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  #  APPROVAL DELEGATIONS
+  # ============================================================
+  /approvals/delegations:
+    get:
+      operationId: listApprovalDelegations
+      tags: [Approvals]
+      summary: List delegations
+      description: List approval delegations with optional filters.
+      parameters:
+        - name: delegator_id
+          in: query
+          schema:
+            type: string
+        - name: delegate_id
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, REVOKED, EXPIRED]
+      responses:
+        '200':
+          description: Delegation list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApprovalDelegation'
+    post:
+      operationId: createApprovalDelegation
+      tags: [Approvals]
+      summary: Create a delegation
+      description: Delegate approval authority to another staff member for a time window.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDelegationRequest'
+      responses:
+        '201':
+          description: Delegation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalDelegation'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /approvals/delegations/{delegationId}/revoke:
+    post:
+      operationId: revokeApprovalDelegation
+      tags: [Approvals]
+      summary: Revoke a delegation
+      description: Revoke an active delegation.
+      parameters:
+        - name: delegationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id]
+              properties:
+                staff_id:
+                  type: string
+      responses:
+        '200':
+          description: Delegation revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalDelegation'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Delegation is not in ACTIVE state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================
+  #  APPROVAL TYPE CONFIGS
+  # ============================================================
+  /approvals/types/config:
+    get:
+      operationId: listApprovalTypeConfigs
+      tags: [Approvals]
+      summary: List approval type configs
+      description: List all dynamic approval type configurations.
+      parameters:
+        - name: enabled_only
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+      responses:
+        '200':
+          description: Type config list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApprovalTypeConfig'
+    post:
+      operationId: createApprovalTypeConfig
+      tags: [Approvals]
+      summary: Create approval type config
+      description: Define a new approval type at runtime.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTypeConfigRequest'
+      responses:
+        '201':
+          description: Type config created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalTypeConfig'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Type key already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /approvals/types/config/{typeKey}:
+    get:
+      operationId: getApprovalTypeConfig
+      tags: [Approvals]
+      summary: Get approval type config
+      description: Retrieve a specific type config by key.
+      parameters:
+        - $ref: '#/components/parameters/typeKey'
+      responses:
+        '200':
+          description: Type config details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalTypeConfig'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateApprovalTypeConfig
+      tags: [Approvals]
+      summary: Update approval type config
+      description: Update an existing type config.
+      parameters:
+        - $ref: '#/components/parameters/typeKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id]
+              properties:
+                staff_id:
+                  type: string
+                label:
+                  type: string
+                description:
+                  type: string
+                default_checker_roles:
+                  type: array
+                  items:
+                    type: string
+                require_reason:
+                  type: boolean
+                auto_policy_id:
+                  type: string
+                  nullable: true
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Type config updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalTypeConfig'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: deleteApprovalTypeConfig
+      tags: [Approvals]
+      summary: Delete approval type config
+      description: Delete a type config. Cannot delete built-in types with code handlers.
+      parameters:
+        - $ref: '#/components/parameters/typeKey'
+        - name: staff_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Type config deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  type_key:
+                    type: string
+        '400':
+          description: Cannot delete built-in type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  #  APPROVAL ENDPOINT BINDINGS
+  # ============================================================
+  /approvals/endpoint-bindings:
+    get:
+      operationId: listEndpointBindings
+      tags: [Approvals]
+      summary: List endpoint bindings
+      description: List all approval endpoint bindings with optional filters.
+      parameters:
+        - name: approval_type
+          in: query
+          schema:
+            type: string
+        - name: enabled_only
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+      responses:
+        '200':
+          description: Binding list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApprovalEndpointBinding'
+    post:
+      operationId: createEndpointBinding
+      tags: [Approvals]
+      summary: Create endpoint binding
+      description: Bind an approval type to a route pattern and HTTP method.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEndpointBindingRequest'
+      responses:
+        '201':
+          description: Binding created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalEndpointBinding'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Binding already exists for this route/method
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /approvals/endpoint-bindings/lookup:
+    get:
+      operationId: lookupEndpointBinding
+      tags: [Approvals]
+      summary: Lookup endpoint binding
+      description: Check if a specific route/method has an active approval binding.
+      parameters:
+        - name: route
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: method
+          in: query
+          schema:
+            type: string
+            default: POST
+            enum: [GET, POST, PUT, PATCH, DELETE]
+      responses:
+        '200':
+          description: Binding lookup result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bound:
+                    type: boolean
+                  route:
+                    type: string
+                  method:
+                    type: string
+                  approval_type:
+                    type: string
+                  binding_id:
+                    type: string
+
+  /approvals/endpoint-bindings/{bindingId}:
+    get:
+      operationId: getEndpointBinding
+      tags: [Approvals]
+      summary: Get endpoint binding
+      description: Retrieve a specific endpoint binding by ID.
+      parameters:
+        - $ref: '#/components/parameters/bindingId'
+      responses:
+        '200':
+          description: Binding details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalEndpointBinding'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateEndpointBinding
+      tags: [Approvals]
+      summary: Update endpoint binding
+      description: Update an existing endpoint binding.
+      parameters:
+        - $ref: '#/components/parameters/bindingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id]
+              properties:
+                staff_id:
+                  type: string
+                route_pattern:
+                  type: string
+                http_method:
+                  type: string
+                  enum: [GET, POST, PUT, PATCH, DELETE]
+                approval_type:
+                  type: string
+                description:
+                  type: string
+                extract_payload:
+                  type: object
+                  additionalProperties: true
+                  nullable: true
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Binding updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalEndpointBinding'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: deleteEndpointBinding
+      tags: [Approvals]
+      summary: Delete endpoint binding
+      description: Delete an endpoint binding.
+      parameters:
+        - $ref: '#/components/parameters/bindingId'
+        - name: staff_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Binding deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  id:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   # ============================================================
   #  OPS — Staff-Only
   # ============================================================
@@ -2311,6 +3007,27 @@ components:
         minimum: 1
         maximum: 200
       description: Number of items per page
+    policyId:
+      name: policyId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Approval policy ID (ULID)
+    typeKey:
+      name: typeKey
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Approval type key (UPPER_SNAKE_CASE)
+    bindingId:
+      name: bindingId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Endpoint binding ID (ULID)
 
   responses:
     ValidationError:
@@ -2396,7 +3113,10 @@ components:
       enum: [PENDING, APPROVED, REJECTED, EXPIRED]
     ApprovalType:
       type: string
-      enum: [REVERSAL_REQUESTED, MANUAL_ADJUSTMENT_REQUESTED, FEE_MATRIX_CHANGE_REQUESTED, COMMISSION_MATRIX_CHANGE_REQUESTED, OVERDRAFT_FACILITY_REQUESTED]
+      description: |
+        Approval type key. Built-in types are listed below, but custom types can be
+        configured at runtime via the /approvals/types/config API.
+      enum: [REVERSAL_REQUESTED, MANUAL_ADJUSTMENT_REQUESTED, FEE_MATRIX_CHANGE_REQUESTED, COMMISSION_MATRIX_CHANGE_REQUESTED, OVERDRAFT_FACILITY_REQUESTED, MERCHANT_WITHDRAWAL_REQUESTED]
     KycStatus:
       type: string
       enum: [NOT_STARTED, PENDING, APPROVED, REJECTED]
@@ -3504,6 +4224,393 @@ components:
         decided_at:
           type: string
           format: date-time
+
+    # ---- Approval Policies & Dynamic Types ----
+    ApprovalTypeInfo:
+      type: object
+      properties:
+        type:
+          type: string
+        label:
+          type: string
+        allowed_checker_roles:
+          type: array
+          items:
+            type: string
+        has_approve_handler:
+          type: boolean
+        has_reject_handler:
+          type: boolean
+        source:
+          type: string
+          enum: [code, config]
+
+    ApprovalPolicyFull:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        approval_type:
+          type: string
+        state:
+          type: string
+          enum: [DRAFT, ACTIVE, INACTIVE, ARCHIVED]
+        priority:
+          type: integer
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyCondition'
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyStage'
+        bindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyBinding'
+
+    PolicyCondition:
+      type: object
+      properties:
+        id:
+          type: string
+        field_path:
+          type: string
+        operator:
+          type: string
+          enum: [eq, neq, gt, gte, lt, lte, in, not_in, contains, regex, between, exists]
+        value_json:
+          type: string
+
+    PolicyStage:
+      type: object
+      properties:
+        id:
+          type: string
+        stage_no:
+          type: integer
+        min_approvals:
+          type: integer
+        roles_json:
+          type: string
+        actor_ids_json:
+          type: string
+        exclude_maker:
+          type: integer
+        exclude_previous_approvers:
+          type: integer
+        timeout_minutes:
+          type: integer
+        escalation_roles_json:
+          type: string
+
+    PolicyBinding:
+      type: object
+      properties:
+        id:
+          type: string
+        binding_type:
+          type: string
+          enum: [actor, actor_type, role, hierarchy, business_unit, currency, all]
+        binding_value_json:
+          type: string
+
+    PolicyConditionInput:
+      type: object
+      required: [field_path, operator, value]
+      properties:
+        field_path:
+          type: string
+        operator:
+          type: string
+          enum: [eq, neq, gt, gte, lt, lte, in, not_in, contains, regex, between, exists]
+        value:
+          description: Condition value (any JSON type)
+
+    PolicyStageInput:
+      type: object
+      required: [stage_no, min_approvals]
+      properties:
+        stage_no:
+          type: integer
+        min_approvals:
+          type: integer
+        roles:
+          type: array
+          items:
+            type: string
+        actor_ids:
+          type: array
+          items:
+            type: string
+        exclude_maker:
+          type: boolean
+          default: true
+        exclude_previous_approvers:
+          type: boolean
+          default: true
+        timeout_minutes:
+          type: integer
+        escalation_roles:
+          type: array
+          items:
+            type: string
+
+    PolicyBindingInput:
+      type: object
+      required: [binding_type, binding_value]
+      properties:
+        binding_type:
+          type: string
+          enum: [actor, actor_type, role, hierarchy, business_unit, currency, all]
+        binding_value:
+          description: Binding value (any JSON type)
+
+    CreateApprovalPolicyRequest:
+      type: object
+      required: [staff_id, name, approval_type]
+      properties:
+        staff_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        approval_type:
+          type: string
+        priority:
+          type: integer
+          default: 100
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyConditionInput'
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyStageInput'
+        bindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyBindingInput'
+
+    PolicyEvaluationResult:
+      type: object
+      properties:
+        matched:
+          type: boolean
+        policy_id:
+          type: string
+        policy_name:
+          type: string
+        total_stages:
+          type: integer
+        stages:
+          type: array
+          items:
+            type: object
+            properties:
+              stage_no:
+                type: integer
+              min_approvals:
+                type: integer
+              allowed_roles:
+                type: array
+                items:
+                  type: string
+              allowed_actors:
+                type: array
+                items:
+                  type: string
+              timeout_minutes:
+                type: integer
+        reasons:
+          type: array
+          items:
+            type: string
+        all_evaluated:
+          type: array
+          items:
+            type: object
+            properties:
+              policy_id:
+                type: string
+              policy_name:
+                type: string
+              matched:
+                type: boolean
+              reasons:
+                type: array
+                items:
+                  type: string
+
+    ApprovalDelegation:
+      type: object
+      properties:
+        id:
+          type: string
+        delegator_id:
+          type: string
+        delegate_id:
+          type: string
+        approval_type:
+          type: string
+          nullable: true
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type: string
+          format: date-time
+        reason:
+          type: string
+        state:
+          type: string
+          enum: [ACTIVE, REVOKED, EXPIRED]
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateDelegationRequest:
+      type: object
+      required: [staff_id, delegator_id, delegate_id, valid_from, valid_to]
+      properties:
+        staff_id:
+          type: string
+        delegator_id:
+          type: string
+        delegate_id:
+          type: string
+        approval_type:
+          type: string
+          description: Optional — restrict delegation to a specific approval type
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type: string
+          format: date-time
+        reason:
+          type: string
+
+    ApprovalTypeConfig:
+      type: object
+      properties:
+        type_key:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        default_checker_roles:
+          type: array
+          items:
+            type: string
+          nullable: true
+        require_reason:
+          type: boolean
+        has_code_handler:
+          type: boolean
+        auto_policy_id:
+          type: string
+          nullable: true
+        enabled:
+          type: boolean
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateTypeConfigRequest:
+      type: object
+      required: [staff_id, type_key, label]
+      properties:
+        staff_id:
+          type: string
+        type_key:
+          type: string
+          description: Unique type key in UPPER_SNAKE_CASE (3-64 chars)
+          pattern: '^[A-Z][A-Z0-9_]{2,63}$'
+        label:
+          type: string
+        description:
+          type: string
+        default_checker_roles:
+          type: array
+          items:
+            type: string
+        require_reason:
+          type: boolean
+        auto_policy_id:
+          type: string
+
+    ApprovalEndpointBinding:
+      type: object
+      properties:
+        id:
+          type: string
+        route_pattern:
+          type: string
+        http_method:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE]
+        approval_type:
+          type: string
+        description:
+          type: string
+        extract_payload:
+          type: object
+          additionalProperties: true
+          nullable: true
+        enabled:
+          type: boolean
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateEndpointBindingRequest:
+      type: object
+      required: [staff_id, route_pattern, approval_type]
+      properties:
+        staff_id:
+          type: string
+        route_pattern:
+          type: string
+        http_method:
+          type: string
+          default: POST
+          enum: [GET, POST, PUT, PATCH, DELETE]
+        approval_type:
+          type: string
+        description:
+          type: string
+        extract_payload:
+          type: object
+          additionalProperties: true
 
     # ---- Reconciliation ----
     ReconciliationRun:

@@ -296,6 +296,34 @@ endpointBindingRoutes.get('/', async (c) => {
     }
 });
 
+// ── GET /approvals/endpoint-bindings/lookup ──────────────────────────
+// Check if a specific route/method has an active binding
+// NOTE: Must be defined BEFORE /:id to avoid being matched as a param
+endpointBindingRoutes.get('/lookup', async (c) => {
+    const route = c.req.query('route');
+    const method = c.req.query('method') ?? 'POST';
+
+    if (!route) {
+        return c.json({ error: 'route query parameter is required' }, 400);
+    }
+
+    try {
+        const binding = await findEndpointBinding(c.env.DB, route, method);
+        if (!binding) {
+            return c.json({ bound: false, route, method: method.toUpperCase() });
+        }
+        return c.json({
+            bound: true,
+            route,
+            method: method.toUpperCase(),
+            approval_type: binding.approval_type,
+            binding_id: binding.id,
+        });
+    } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : 'Internal server error' }, 500);
+    }
+});
+
 // ── GET /approvals/endpoint-bindings/:id ─────────────────────────────
 endpointBindingRoutes.get('/:id', async (c) => {
     const id = c.req.param('id');
@@ -490,33 +518,6 @@ endpointBindingRoutes.delete('/:id', async (c) => {
         });
 
         return c.json({ deleted: true, id });
-    } catch (err) {
-        return c.json({ error: err instanceof Error ? err.message : 'Internal server error' }, 500);
-    }
-});
-
-// ── GET /approvals/endpoint-bindings/lookup ──────────────────────────
-// Check if a specific route/method has an active binding
-endpointBindingRoutes.get('/lookup', async (c) => {
-    const route = c.req.query('route');
-    const method = c.req.query('method') ?? 'POST';
-
-    if (!route) {
-        return c.json({ error: 'route query parameter is required' }, 400);
-    }
-
-    try {
-        const binding = await findEndpointBinding(c.env.DB, route, method);
-        if (!binding) {
-            return c.json({ bound: false, route, method: method.toUpperCase() });
-        }
-        return c.json({
-            bound: true,
-            route,
-            method: method.toUpperCase(),
-            approval_type: binding.approval_type,
-            binding_id: binding.id,
-        });
     } catch (err) {
         return c.json({ error: err instanceof Error ? err.message : 'Internal server error' }, 500);
     }
