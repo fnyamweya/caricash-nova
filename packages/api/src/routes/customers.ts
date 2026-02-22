@@ -16,7 +16,7 @@ import {
   insertActor,
   insertPin,
   insertLedgerAccount,
-  getActorByMsisdn,
+  getActorByMsisdnAndType,
   getActorById,
   insertEvent,
   insertAuditLog,
@@ -77,8 +77,8 @@ customerRoutes.post('/', async (c) => {
   const correlationId = (body.correlation_id as string) || generateId();
 
   try {
-    // Check for existing customer
-    const existing = await getActorByMsisdn(c.env.DB, msisdn);
+    // Check for existing customer with same MSISDN (type-scoped)
+    const existing = await getActorByMsisdnAndType(c.env.DB, msisdn, ActorType.CUSTOMER);
     if (existing) {
       return c.json({ error: 'Customer with this MSISDN already exists', correlation_id: correlationId }, 409);
     }
